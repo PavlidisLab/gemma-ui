@@ -70,12 +70,68 @@ describe("readErr", () => {
 });
 
 describe("annotationSearchMessage", () => {
-  it("appends the operator hint to a 400", () => {
+  const badQuery = () =>
+    new ApiError("x", 400, "Bad Request", "Invalid search query: tumour OR normal");
+
+  it("leads with the server's own sentence", () => {
+    const m = annotationSearchMessage(badQuery(), "tumour OR normal");
+    expect(m.startsWith("Invalid search query: tumour OR normal")).toBe(true);
+  });
+
+  it("appends the operator hint when the query used an operator", () => {
+    const m = annotationSearchMessage(badQuery(), "tumour OR normal");
+    expect(m).toMatch(/search operators/i);
+    expect(m).toMatch(/one term at a time/i);
+  });
+
+  /**
+   * Measured on gemma2 `38c877d85b` (2026-08-26): `cell OR neuron`,
+   * `cell OR normal` and `tumour OR brain` all answer 200, while
+   * `normal OR brain` and `tumour OR normal` answer 400. Capitals are
+   * not the discriminator, so the hint must not claim they are — and it
+   * must not tell anyone to lowercase, because `normal or brain` is a
+   * 200 with zero hits: a silently empty result in place of an error.
+   */
+  it("does not blame capitalisation, and does not advise lowercasing", () => {
+    const m = annotationSearchMessage(badQuery(), "tumour OR normal");
+    expect(m).not.toMatch(/lowercase/i);
+    expect(m).not.toMatch(/capital/i);
+  });
+
+  it("withholds the operator hint when the query used no operator", () => {
     const m = annotationSearchMessage(
-      new ApiError("x", 400, "Bad Request", "Invalid search query: tumour OR normal"),
+      new ApiError("x", 400, "Bad Request", "Invalid search query: something else"),
+      "something else",
     );
-    expect(m).toContain("Invalid search query: tumour OR normal");
-    expect(m).toMatch(/lowercase/i);
+    expect(m).toBe("Invalid search query: something else");
+  });
+
+  // A term that merely CONTAINS an operator is not using one.
+  it.each(["ANDROGEN", "NOTCH signalling", "ORF1ab", "androgen or brain"])(
+    "treats %j as operator-free",
+    (query) => {
+      const m = annotationSearchMessage(
+        new ApiError("x", 400, "Bad Request", "Invalid search query"),
+        query,
+      );
+      expect(m).toBe("Invalid search query");
+    },
+  );
+
+  it.each(["cell OR", "OR cell", "AND", "NOT cell", "a AND b"])(
+    "treats %j as using an operator",
+    (query) => {
+      expect(
+        annotationSearchMessage(
+          new ApiError("x", 400, "Bad Request", "Invalid search query"),
+          query,
+        ),
+      ).toMatch(/one term at a time/i);
+    },
+  );
+
+  it("keeps the hint when the caller offers no query at all", () => {
+    expect(annotationSearchMessage(badQuery())).toMatch(/one term at a time/i);
   });
 
   it("leaves any other status to say its own piece", () => {

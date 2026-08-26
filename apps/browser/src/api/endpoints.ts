@@ -698,6 +698,69 @@ export async function getDatasetById(
 }
 
 /**
+ * Does this query use a boolean operator? Uppercase only — `cell or`
+ * is a plain text search and comes back 200.
+ *
+ * Whole words: a query for `ANDROGEN` or `NOTCH` is not using an
+ * operator, and must not be told that it is.
+ */
+const BOOLEAN_OPERATOR = /(?:^|\s)(?:AND|OR|NOT)(?:\s|$)/;
+
+/**
+ * What to tell someone when an annotation search fails.
+ *
+ * The point of this is the FIRST half — the server's own sentence. Both
+ * search surfaces used to render a failed search and an empty one
+ * identically, so a query that blew up looked exactly like a term that
+ * is not in the corpus, and only one of those is true.
+ *
+ * The second half is a hint, and it is deliberately hedged, because
+ * measuring the deployed endpoint (gemma2 `38c877d85b`, 2026-08-26)
+ * does NOT support the tidier story that capitals are the bug:
+ *
+ *   cell OR neuron    200      normal OR brain     400
+ *   cell OR normal    200      tumour OR normal    400
+ *   tumour OR brain   200      zqx OR neuron       400
+ *   cell OR           400      NOT cell            400
+ *
+ * Capitalised operators are usually FINE; whether a query parses
+ * depends on the operands, and the rule is the backend's business, not
+ * ours. So this does not claim a cause. It also does not tell anyone to
+ * lowercase: `normal or brain` is a 200 with ZERO hits, which trades a
+ * visible error for a silently empty result — worse, not better.
+ *
+ * "One term at a time" is advice that demonstrably works: `tumour` and
+ * `normal` each return hits on their own.
+ *
+ * The hint is withheld when the query used no operator at all, so an
+ * unrelated 400 does not get an operator explanation bolted onto it.
+ * Every 400 observed above does contain one — malformed syntax without
+ * an operator (`cell(`, `"cell`, `cell^`) is sanitised server-side and
+ * answers 200 — so today this suppresses nothing; it is there so a new
+ * class of 400 is not misdiagnosed.
+ *
+ * Sibling of the curation app's `annotationSearchMessage`. Kept
+ * per-app rather than promoted: same failure, different vocabulary for
+ * different readers, and one string helper is not worth a shared
+ * package.
+ */
+export function annotationSearchMessage(err: unknown, query?: string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 400) {
+      const detail = err.detail || "Invalid search query.";
+      // Undefined query = caller has no context to offer; keep the hint
+      // rather than silently dropping it.
+      const usedOperator = query === undefined || BOOLEAN_OPERATOR.test(query);
+      return usedOperator
+        ? `${detail} — AND, OR and NOT are search operators here, and not every combination parses. Try one term at a time.`
+        : detail;
+    }
+    return err.detail || err.message;
+  }
+  return err instanceof Error ? err.message : "Search failed.";
+}
+
+/**
  * Free-text search over the full ontology — used as a fallback when
  * the local AnnotationSelector tree is capped at 200 terms per
  * category and the user types something not in that window. Results
@@ -734,36 +797,6 @@ export async function getDatasetById(
  * does not hold — the counts are populated, and they are what pulls
  * the useful term up.
  */
-/**
- * What to tell someone when an annotation search fails.
- *
- * Gemma's Lucene parser treats UPPERCASE `AND` / `OR` / `NOT` as
- * operators, so typing `tumour OR normal` is a parse error rather than
- * a search. It answered 500 until gemma2 `8b76ee195c` (2026-08-25) and
- * answers `400 Invalid search query: …` now — but the selector renders
- * a failed search and an empty one identically, so either way the term
- * simply looks absent.
- *
- * The server names WHAT failed and not why, so a 400 gets the operator
- * hint appended. Lowercasing really is the fix: `cell or` is 200,
- * `cell OR` is 400.
- *
- * Sibling of the curation app's `annotationSearchMessage`. Kept
- * per-app rather than promoted: same failure, different vocabulary for
- * different readers, and one string helper is not worth a shared
- * package.
- */
-export function annotationSearchMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    if (err.status === 400) {
-      const detail = err.detail || "Invalid search query.";
-      return `${detail} — AND, OR and NOT in capitals are search operators. Lowercase them, or put a term on both sides.`;
-    }
-    return err.detail || err.message;
-  }
-  return err instanceof Error ? err.message : "Search failed.";
-}
-
 export async function searchAnnotations(
   query: string,
   limit = 30,

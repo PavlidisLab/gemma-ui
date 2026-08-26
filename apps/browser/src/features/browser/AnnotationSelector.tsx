@@ -618,7 +618,7 @@ export function AnnotationSelector(props: Props) {
           still the (unfiltered) facet response, which stays valid. */}
       {fallback.isError ? (
         <p className="text-xs text-amber-700 dark:text-amber-300 py-1">
-          {annotationSearchMessage(fallback.error)}
+          {annotationSearchMessage(fallback.error, debouncedSearch)}
         </p>
       ) : null}
 
