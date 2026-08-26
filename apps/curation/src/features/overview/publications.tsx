@@ -12,10 +12,12 @@
 import { useEffect, useState } from "react";
 import { usePubmedMetadata } from "@/api/pubmed";
 import { shortenUri } from "@/lib/curie";
+import { cn } from "@/lib/cn";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { publicationRefId } from "@/features/provenance/refs";
 import { publicationTarget } from "@/features/audit/targetIds";
 import { AuditDot } from "@/features/audit/AuditDot";
+import { useAuditOptional, useFocusFinding } from "@/features/audit/AuditContext";
 import type { Publication } from "@/features/experiment/types";
 
 /** Parse the actual abstract out of the agent's ``paper_excerpt``.
@@ -244,6 +246,59 @@ export function ProposedAbstract({
   );
 }
 
+/** Always-visible callout surfacing the publication-provenance audit's
+ *  verdict directly on the row — no dot-hunting, no clicking into the
+ *  sidebar, no jargon from the tag/factor finding-card framework
+ *  ("PROPOSER reference-blind" / "INTERNAL CRITIC") that doesn't apply
+ *  to a plain "is this the right paper" check. Renders nothing when no
+ *  provenance audit has run, or when it confirmed the link (severity
+ *  "ok") — a confirmed link needs no attention. Design review
+ *  2026-08-26: the dot-only version was reported as "completely
+ *  unclear ... there is no indication of what the issue is." */
+function PublicationProvenanceBanner({ pmid }: { pmid: string }) {
+  const ctx = useAuditOptional();
+  const focusFinding = useFocusFinding();
+  if (!ctx || !pmid) return null;
+  const targetId = publicationTarget(pmid);
+  const findings = ctx.findingsByTarget.get(targetId);
+  if (!findings || findings.length === 0) return null;
+  const finding = findings[0]; // pre-sorted worst-severity-first
+  if (finding.severity === "ok") return null;
+
+  const isRejectLike =
+    finding.severity === "major" || finding.severity === "blocker";
+  const headline = isRejectLike
+    ? "Likely the wrong paper"
+    : "Unconfirmed — could not verify this is the source paper";
+  const toneCls = isRejectLike
+    ? "border-rose-300 bg-rose-50 dark:border-rose-700 dark:bg-rose-950/40"
+    : "border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-950/30";
+  const headlineCls = isRejectLike
+    ? "text-rose-800 dark:text-rose-200"
+    : "text-amber-800 dark:text-amber-200";
+
+  return (
+    <div className={cn("mt-1.5 rounded border px-2.5 py-2 text-[12px]", toneCls)}>
+      <div className={cn("font-semibold text-[13px] mb-0.5", headlineCls)}>
+        ⚠ {headline}
+      </div>
+      <div className="text-slate-700 dark:text-slate-300 leading-snug">
+        {finding.rationale}
+      </div>
+      <div className="mt-1 font-medium text-slate-600 dark:text-slate-400">
+        Check this publication manually.
+      </div>
+      <button
+        type="button"
+        className="mt-1.5 text-[11px] text-blue-700 dark:text-blue-300 hover:underline"
+        onClick={() => focusFinding(targetId)}
+      >
+        Open in audit sidebar →
+      </button>
+    </div>
+  );
+}
+
 export function PublicationRow({
   publication,
   abstract,
@@ -353,6 +408,7 @@ export function PublicationRow({
             onClose={() => setAbstractOpen(false)}
           />
         ) : null}
+        <PublicationProvenanceBanner pmid={publication.pubmed_id} />
       </div>
       {onDelete ? (
         <button

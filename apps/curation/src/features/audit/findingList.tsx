@@ -592,6 +592,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
     { kind: "tag",            header: "Experiment tags" },
     { kind: "characteristic", header: "Characteristics" },
     { kind: "assignment",     header: "Sample assignments" },
+    { kind: "publication",    header: "Publications" },
     { kind: "statement",      header: "Statements" },
     { kind: "experiment",     header: "Experiment" },
   ];
