@@ -1517,9 +1517,9 @@ function BannerStatusChips({
       <StatusChip
         tone={
           visibilityState === "public"
-            ? "rose"
+            ? "emerald"
             : visibilityState === "private"
-              ? "emerald"
+              ? "rose"
               : "slate"
         }
         label={
