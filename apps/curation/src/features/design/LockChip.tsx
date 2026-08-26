@@ -1,0 +1,104 @@
+/**
+ * Who has this experiment open.
+ *
+ * gembro's §5: `Editing · you`, or
+ * `Alice is editing — last change 4 min ago · [Take over]`.
+ *
+ * 🛑 **Advisory.** This chip warns; it never gates. Committing is
+ * protected by Gemma's `baseline.lastModified` 409, not by the lock —
+ * *"the lock is a courtesy; the token is the contract"*. Nothing here
+ * disables an action, and nothing downstream may start reading a held
+ * lock as permission.
+ *
+ * Taking over is offered without ceremony because it costs nothing:
+ * the other curator's draft is a separate row and survives. What they
+ * lose is the lease, and their next commit 409s on a stale baseline
+ * and they re-sync — the protection everyone already has.
+ *
+ * The relative time carries more than the TTL does. A 30-minute expiry
+ * cannot tell you whether someone stepped out or is mid-sentence;
+ * "last change 26 min ago" lets a human decide, and a human deciding
+ * is the whole design (gembro: the TTL is a UI-honesty knob, not a
+ * safety one).
+ */
+
+import type { CurationLock } from "@/api/curationLock";
+
+/** "4 min ago" / "just now". Minutes, because the question this
+ *  answers is "has this person stepped away", and that is not a
+ *  seconds-scale question. Exported for test. */
+export function relativeSince(iso: string | null, now: Date = new Date()): string {
+  if (!iso) return "";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const mins = Math.floor((now.getTime() - t) / 60000);
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 min ago";
+  if (mins < 60) return `${mins} min ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs === 1) return "1 hr ago";
+  if (hrs < 24) return `${hrs} hr ago`;
+  const days = Math.floor(hrs / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+export function LockChip({
+  lock,
+  me,
+  onTakeOver,
+  busy,
+}: {
+  lock: CurationLock | null;
+  /** The current curator's username. */
+  me: string | null;
+  onTakeOver?: () => void;
+  busy?: boolean;
+}) {
+  // Nothing to say when nobody holds it. An unlocked experiment is the
+  // ordinary case and does not need a chip explaining that it is
+  // ordinary.
+  if (!lock || !lock.locked) return null;
+
+  const base = "text-[11px] leading-snug inline-flex items-center gap-1.5";
+  const mine = !!me && lock.locked_by === me;
+
+  if (mine) {
+    return (
+      <span
+        className={`${base} text-slate-500 dark:text-slate-400`}
+        title={
+          lock.stolen_from
+            ? `You took this from ${lock.stolen_from}`
+            : "You hold the editing lease on this experiment"
+        }
+      >
+        Editing · you
+      </span>
+    );
+  }
+
+  // Someone else. Name them when the server said who — and say the
+  // vaguer thing rather than guess when it did not.
+  const who = lock.locked_by || "Someone else";
+  const since = relativeSince(lock.locked_at);
+
+  return (
+    <span className={`${base} text-amber-800 dark:text-amber-300`}>
+      <span>
+        {who} is editing
+        {since ? ` — last change ${since}` : ""}
+      </span>
+      {onTakeOver ? (
+        <button
+          type="button"
+          onClick={onTakeOver}
+          disabled={busy}
+          title={`Take the editing lease from ${who}. Their work is not affected — their draft is separate and survives.`}
+          className="underline hover:no-underline disabled:opacity-50"
+        >
+          {busy ? "Taking over…" : "Take over"}
+        </button>
+      ) : null}
+    </span>
+  );
+}
