@@ -99,10 +99,26 @@ describe("what the curator is told when a save fails", () => {
   });
 
   it("409 is a conflict that keeps the draft, and is never a retry", () => {
+    // The agent's real shape: `draftRetained` is a SIBLING of `detail`,
+    // not inside it.
     const s = saveStateForError(
-      new ApiError("x", 409, "Conflict", '{"draftRetained":true,"detail":"moved"}'),
+      new ApiError("x", 409, "Conflict", "moved", {
+        error: "conflict",
+        detail: "moved",
+        draftRetained: true,
+      }),
     );
     expect(s).toMatchObject({ kind: "conflict", draftRetained: true });
+  });
+
+  it("HONOURS a server that says the draft did not survive", () => {
+    // The regression this replaces: `draftRetained` was scanned for in
+    // the flattened `detail` string, where it never appears — so this
+    // case reported `true` no matter what the server said.
+    const s = saveStateForError(
+      new ApiError("x", 409, "Conflict", "gone", { draftRetained: false }),
+    );
+    expect(s).toMatchObject({ kind: "conflict", draftRetained: false });
   });
 
   it("assumes the draft survived when the 409 does not say", () => {

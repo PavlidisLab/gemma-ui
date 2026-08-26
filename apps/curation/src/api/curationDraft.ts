@@ -119,9 +119,19 @@ export function saveStateForError(e: unknown): SaveState {
     }
     if (e.status === 409) {
       // `draftRetained` is the field today's UI gets wrong: it discards
-      // the draft on baseline drift and never tells the curator. Absent
-      // ⇒ assume retained rather than imply loss we cannot confirm.
-      const retained = !/draftRetained"?\s*:\s*false/.test(e.detail || "");
+      // the draft on baseline drift and never tells the curator.
+      //
+      // Read off the PARSED body, not off `detail`. `detail` is the
+      // flattened sentence — the agent sends
+      // `{error, detail, draftRetained}` and the field is a SIBLING of
+      // the sentence, so scanning the string for it could never match
+      // and this answered from its default every time. Right answer,
+      // wrong reason, and silently so.
+      const body = e.body as { draftRetained?: unknown } | null | undefined;
+      // Absent ⇒ assume retained. Implying loss we cannot confirm is
+      // worse than the reverse: the curator abandons work that is
+      // still there.
+      const retained = body?.draftRetained !== false;
       return {
         kind: "conflict",
         detail: e.detail || "the saved design moved since this draft started",
