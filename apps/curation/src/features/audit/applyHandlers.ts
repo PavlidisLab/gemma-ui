@@ -2217,6 +2217,8 @@ function focusTooltip(parsed: ParsedTargetId): string {
       return "open the samples tab and scroll to this sample";
     case "experiment":
       return "open the overview tab";
+    case "publication":
+      return "open the overview tab and scroll to this publication";
     case "statement":
       return "open the design tab and scroll to the parent FV";
   }

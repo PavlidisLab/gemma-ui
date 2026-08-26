@@ -14,6 +14,7 @@ import { usePubmedMetadata } from "@/api/pubmed";
 import { shortenUri } from "@/lib/curie";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { publicationRefId } from "@/features/provenance/refs";
+import { publicationTarget } from "@/features/audit/targetIds";
 import type { Publication } from "@/features/experiment/types";
 
 /** Parse the actual abstract out of the agent's ``paper_excerpt``.
@@ -281,7 +282,10 @@ export function PublicationRow({
     ? `https://doi.org/${encodeURIComponent(effectiveDoi)}`
     : null;
   return (
-    <li className="flex items-start gap-2">
+    <li
+      className="flex items-start gap-2"
+      data-audit-target={publicationTarget(publication.pubmed_id)}
+    >
       <div className="flex-1 min-w-0">
         <div className="font-medium text-slate-800 leading-snug">
           {displayTitle ? (

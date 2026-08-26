@@ -22,6 +22,7 @@ export type AuditTargetKind =
   | "tag"
   | "characteristic"
   | "assignment"
+  | "publication"
   | "statement";
 
 /** ``ok`` is emitted for green checks so the report can show what was
@@ -32,7 +33,13 @@ export type Severity = "ok" | "minor" | "major" | "blocker";
 /** Subset-selectable scope so a tags-only or design-only audit
  *  doesn't pay for the whole pipeline. Empty array is rejected by the
  *  server (400). */
-export type AuditScopeItem = "factors" | "fvs" | "tags" | "assignments";
+export type AuditScopeItem =
+  | "factors"
+  | "fvs"
+  | "tags"
+  | "assignments"
+  | "characteristics"
+  | "publications";
 
 /** Roll-up for inbox sorting. Derived server-side from finding
  *  severity counts; treat as authoritative rather than recomputing

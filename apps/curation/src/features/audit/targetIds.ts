@@ -117,6 +117,16 @@ export function assignmentTarget(biomaterialShortName: string): string {
   return `assignment:${biomaterialShortName || "?"}`;
 }
 
+/** Mirrors `publication_target` in target_ids.py. PMID is the natural
+ *  key — matches `Publication.pubmed_id` on the wire. NOT the same
+ *  namespace as `publicationRefId` in `features/provenance/refs.ts`
+ *  (`publication:pmid:{pmid}`) — that one keys the link's own
+ *  provenance dot (who asserted this paper belongs here); this one
+ *  keys an audit finding (is it actually the right paper). */
+export function publicationTarget(pmid: string): string {
+  return `publication:${pmid || "?"}`;
+}
+
 /** Parse a `target_id` back into its parts, or `null` if the shape
  *  doesn't match a known kind. Lets the dot resolver short-circuit
  *  without throwing on unknown / future kinds. */
@@ -148,6 +158,7 @@ export type ParsedTargetId =
    *  sorted + ``+``-joined in the wire id. */
   | { kind: "characteristic"; axes: string[] }
   | { kind: "assignment"; biomaterialShortName: string }
+  | { kind: "publication"; pmid: string }
   | { kind: "statement"; raw: string }; // Phase 2 — opaque for now
 
 export function parseTargetId(targetId: string): ParsedTargetId | null {
@@ -214,6 +225,8 @@ export function parseTargetId(targetId: string): ParsedTargetId | null {
     }
     case "assignment":
       return { kind: "assignment", biomaterialShortName: rest };
+    case "publication":
+      return { kind: "publication", pmid: rest };
     case "statement":
       return { kind: "statement", raw: rest };
     default:
