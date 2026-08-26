@@ -550,7 +550,28 @@ export interface Dataset {
     score?: number;
     highlights?: Record<string, string> | null;
   };
-  accession?: { accession?: string };
+  /** 🛑 A STRING on a dataset — `"GSE217927"` — not an object.
+   *
+   *  This was declared as `{ accession?: string }` and read as
+   *  `dataset.accession?.accession`, which is `undefined` on a string.
+   *  The source link in the dataset header therefore never rendered,
+   *  silently, and the type agreed with the reader so nothing caught
+   *  it.
+   *
+   *  Note a BioAssay's `accession` genuinely IS an object
+   *  (`{id, accession, uri, …}`) — see the BioAssay type above. Two
+   *  different shapes, one field name, which is how this happened. */
+  accession?: string | null;
+  /** Deep link to the record in its source database, resolved
+   *  server-side. Present on every one of 500 datasets sampled
+   *  2026-08-26; prefer it over constructing a URL. */
+  externalUri?: string | null;
+  /** `GEO`, `ARRAYEXPRESS`, `CELLXGENE`, `SRA`, … Absent for a direct
+   *  upload, which is an ordinary case and not missing data. */
+  externalDatabase?: string | null;
+  /** How the source names it — usually the accession again. */
+  externalLabel?: string | null;
+  externalDatabaseUri?: string | null;
 }
 
 export interface PaginatedResponse<T> {

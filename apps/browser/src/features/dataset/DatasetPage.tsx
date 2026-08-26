@@ -39,6 +39,7 @@ import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
+import { datasetSource } from "@/lib/externalSource";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
@@ -182,7 +183,14 @@ function Banner({
 }: {
   dataset: Dataset; activeTab: TabId; onTabChange: (t: TabId) => void; isAdmin: boolean;
 }) {
-  const geo = dataset.accession?.accession;
+  // Where the data actually came from. Source-aware: not every
+  // dataset is from GEO — ArrayExpress, CELLxGENE and SRA imports
+  // exist, and a direct upload has no source at all.
+  //
+  // 🛑 This read `dataset.accession?.accession` where the field is a
+  // STRING, so it was always `undefined` and the link never rendered.
+  // The type declared the object shape, so nothing caught it.
+  const source = datasetSource(dataset);
   const geeq = dataset.geeq;
   const gemma1Url = useGemma1Url(
     `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
@@ -213,13 +221,20 @@ function Banner({
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
-            {geo && (
-              <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${geo}`}
+            {source?.href ? (
+              <a href={source.href}
                 target="_blank" rel="noopener noreferrer"
+                title={`open ${source.label} on ${source.database}`}
                 className="text-sky-700 hover:underline inline-flex items-center gap-1">
-                {geo}<ExternalLink size={11} />
+                {source.database}: {source.label}<ExternalLink size={11} />
               </a>
-            )}
+            ) : source ? (
+              // Known source, no URL we trust for it — show the
+              // accession anyway rather than nothing.
+              <span title={`from ${source.database}`}>
+                {source.database}: {source.label}
+              </span>
+            ) : null}
             {gemma1Url && (
               <a href={gemma1Url} target="_blank" rel="noopener noreferrer"
                 className="text-sky-700 hover:underline inline-flex items-center gap-1">
