@@ -194,6 +194,7 @@ const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   tag: "Tag",
   characteristic: "Characteristic",
   assignment: "Sample assignment",
+  publication: "Publication",
   statement: "Statement",
 };
 

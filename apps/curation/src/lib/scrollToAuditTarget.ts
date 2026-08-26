@@ -115,6 +115,7 @@ export function tabForTargetId(targetId: string): ExperimentTab | null {
       return "design";
     case "tag":
     case "experiment":
+    case "publication":
       return "overview";
     case "assignment":
       return "samples";

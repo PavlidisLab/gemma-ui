@@ -178,6 +178,7 @@ export const TARGET_KIND_ORDER: AuditTargetKind[] = [
   "tag",
   "characteristic",
   "assignment",
+  "publication",
   "statement",
 ];
 
@@ -190,6 +191,7 @@ export const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   tag: "Tag",
   characteristic: "Characteristic",
   assignment: "Assignment",
+  publication: "Publication",
   statement: "Statement",
 };
 
