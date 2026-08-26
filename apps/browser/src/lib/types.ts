@@ -546,6 +546,12 @@ export interface Dataset {
   geeq?: GeeqScores | null;
   characteristics?: DatasetCharacteristic[];
   curationNote?: string;
+  /** Whether everyone can see this dataset. Emitted by gemma-rest on
+   *  ``/datasets/{id}`` (verified against 28143). Optional because a
+   *  store-backed payload may omit it — and an ABSENT flag is not the
+   *  same claim as ``false``, so callers must check presence rather
+   *  than truthiness before saying "private". */
+  isPublic?: boolean;
   searchResult?: {
     score?: number;
     highlights?: Record<string, string> | null;

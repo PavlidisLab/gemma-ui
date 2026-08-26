@@ -239,6 +239,34 @@ function Banner({
             <h1 className="text-sm text-slate-600 leading-snug min-w-0">{dataset.name}</h1>
           </div>
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+            {me.data && typeof dataset.isPublic === "boolean" ? (
+              // Only shown to someone signed in: to a logged-out
+              // visitor every reachable dataset is public by
+              // definition, so the badge would carry no information.
+              // Gemma answers /datasets/{id}/visibility with 403 when
+              // anonymous for the same reason — and `isPublic` rides
+              // along on the dataset payload, so this costs no call.
+              //
+              // Gated on the flag being PRESENT, not on it being true:
+              // a payload that omits it is not making the claim
+              // "private", and rendering one from its absence is how a
+              // missing field turns into a stated fact.
+              <span
+                title={
+                  dataset.isPublic
+                    ? "Public — visible to everyone, signed in or not."
+                    : "Private — visible only to users it is shared with."
+                }
+                className={
+                  "text-[10px] px-1.5 py-0.5 rounded border font-mono self-center " +
+                  (dataset.isPublic
+                    ? "bg-slate-100 text-slate-600 border-slate-200"
+                    : "bg-amber-50 text-amber-800 border-amber-300")
+                }
+              >
+                {dataset.isPublic ? "Public" : "Private"}
+              </span>
+            ) : null}
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
             {kind ? <span className="text-slate-800">{kind}</span> : null}
