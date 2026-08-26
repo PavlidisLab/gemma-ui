@@ -59,18 +59,27 @@ export function buildHeatmapDataFromPayload(
       : buildCategoricalStrip(f, cols),
   );
 
-  // Single-string fallback (TSV download + label tooltip use this).
-  const rowLabels = payload.rows.map(
-    (r) => r.geneSymbols[0] ?? r.designElementName,
+  // Resolved gutter text per row. ``labelSymbol`` / ``labelName`` win
+  // when the caller set them (see HeatmapPayloadRow); otherwise the
+  // first matched gene is the headline. ``||`` not ``??`` on the
+  // fallback chain: a gene with no official symbol on file arrives as
+  // the empty string, which is non-nullish — coalescing would render a
+  // blank gutter instead of falling back to the probe name.
+  const symbolLabels = payload.rows.map(
+    (r) => r.labelSymbol || r.geneSymbols[0] || r.designElementName,
   );
+  const nameLabels = payload.rows.map(
+    (r) => r.labelName || r.geneNames?.[0] || '',
+  );
+
+  // Single-string fallback (TSV download + label tooltip use this).
+  const rowLabels = symbolLabels;
   // Rich multi-column row labels — optional leading p-value, then
   // symbol, then gene name when available. Renderer auto-aligns columns
   // across rows via CSS grid; we MUST emit a fixed column count per row
   // or grid auto-flow misaligns (empty string keeps the slot, just
   // renders blank).
-  const anyName = payload.rows.some(
-    (r) => (r.geneNames ?? []).some((n) => n && n.length > 0),
-  );
+  const anyName = nameLabels.some((n) => n.length > 0);
   // When any row carries a p-value — the DE top-genes heatmap does —
   // render it as a leading numeric column to the LEFT of the gene
   // symbol.
@@ -79,11 +88,11 @@ export function buildHeatmapDataFromPayload(
   );
   const rowLabelColumns: string[][] | undefined =
     anyName || anyPvalue
-      ? payload.rows.map((r) => {
+      ? payload.rows.map((r, i) => {
           const cols: string[] = [];
           if (anyPvalue) cols.push(formatPvalueLabel(r.pvalue));
-          cols.push(r.geneSymbols[0] ?? r.designElementName);
-          if (anyName) cols.push(r.geneNames?.[0] ?? '');
+          cols.push(symbolLabels[i]);
+          if (anyName) cols.push(nameLabels[i]);
           return cols;
         })
       : undefined;

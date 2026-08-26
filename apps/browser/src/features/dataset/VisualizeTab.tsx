@@ -20,7 +20,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { HeatmapWidget, type HeatmapPayload } from "@gemma/heatmap";
+import {
+  HeatmapWidget,
+  buildGeneRowLabel,
+  NONSPECIFIC_MARK,
+  type HeatmapPayload,
+} from "@gemma/heatmap";
 import {
   searchGenes,
   searchGoTerms,
@@ -883,6 +888,10 @@ function HeatmapPanel({
   maskOutliers?: boolean;
 }) {
   const geneIds = useMemo(() => genes.map((g) => g.id), [genes]);
+  // The searched-for set, for telling a row's queried genes apart from
+  // the ones its probe happens to co-hybridise with. Empty in sample
+  // mode — there's no query to be specific to.
+  const queried = useMemo(() => new Set(geneIds), [geneIds]);
   // if nothing is selected use random genes
   const isSample = geneIds.length === 0;
   const wireQuery = useQuery({
@@ -928,7 +937,7 @@ function HeatmapPanel({
     );
   }
 
-  const payload = adaptHeatmapWire(wire, origins);
+  const payload = adaptHeatmapWire(wire, origins, queried);
   // Rich tooltip on row-label hover — surfaces the full gene info
   // (symbol + name + ncbi id + gemma id) without needing a click-out
   // to a separate page. Keeps the gutter compact while making the
@@ -942,6 +951,9 @@ function HeatmapPanel({
         symbol: r.geneSymbols[idx] ?? "",
         name: r.geneNames?.[idx] ?? "",
         gene: genes.find((g) => g.id === id),
+        // Drives the "not searched" tag, and explains the ``*`` the
+        // gutter puts on this row.
+        searched: queried.has(id),
       }))
       .filter((m) => m.symbol || m.name);
     if (matched.length === 0) {
@@ -951,6 +963,7 @@ function HeatmapPanel({
         </span>
       );
     }
+    const extras = matched.filter((m) => !m.searched).length;
     return (
       <div className="text-xs text-slate-800 space-y-1">
         {matched.map((m) => (
@@ -959,6 +972,11 @@ function HeatmapPanel({
             {m.name ? (
               <span className="ml-2 text-slate-600">{m.name}</span>
             ) : null}
+            {queried.size > 0 && !m.searched ? (
+              <span className="ml-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-px align-middle">
+                not searched
+              </span>
+            ) : null}
             <div className="text-[10px] text-slate-400 font-mono mt-0.5">
               gemma:{m.id}
               {m.gene?.ncbiId ? ` · ncbi:${m.gene.ncbiId}` : ""}
@@ -966,9 +984,21 @@ function HeatmapPanel({
             </div>
           </div>
         ))}
+        {queried.size > 0 && extras > 0 ? (
+          <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-200">
+            <span className="font-mono">*</span> this probe also measures{" "}
+            {extras} gene{extras === 1 ? "" : "s"} you didn’t search for — the
+            signal isn’t specific to your selection.
+          </div>
+        ) : null}
       </div>
     );
   };
+  // Drives the standing key below the heatmap.
+  const anyMarked = payload.rows.some((r) =>
+    r.labelSymbol?.endsWith(NONSPECIFIC_MARK),
+  );
+  const anyJoined = payload.rows.some((r) => r.labelSymbol?.includes(";"));
   return (
     <div className="space-y-2">
       {isSample ? (
@@ -985,6 +1015,26 @@ function HeatmapPanel({
           rowLabelTooltip={rowLabelTooltip}
         />
       </div>
+      {/* Standing key for the gutter's multi-gene notation, so it reads
+          without a hover. Only rendered when some row actually uses it. */}
+      {anyMarked || anyJoined ? (
+        <p className="text-[11px] text-slate-500 px-1">
+          {anyMarked ? (
+            <>
+              <span className="font-mono">{NONSPECIFIC_MARK}</span> = the probe
+              also measures genes you didn’t search for, so the row isn’t
+              specific to your selection.{" "}
+            </>
+          ) : null}
+          {anyJoined ? (
+            <>
+              A row naming several genes (<span className="font-mono">A;B</span>)
+              matched more than one of your genes on a single probe.{" "}
+            </>
+          ) : null}
+          Hover a row label for the full probe→gene mapping.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1106,6 +1156,7 @@ function toCell(v: unknown): number | null {
 function adaptHeatmapWire(
   wire: HeatmapWireResponse,
   origins: Record<number, GeneOrigin> = {},
+  queried: Set<number> = new Set(),
 ): HeatmapPayload {
   return {
     datasetId: wire.datasetId,
@@ -1121,7 +1172,8 @@ function adaptHeatmapWire(
       },
     },
     rows: wire.rows.map((r) => {
-      const geneIds = (r.genes ?? []).map((g) => g.id);
+      const rowGenes = r.genes ?? [];
+      const geneIds = rowGenes.map((g) => g.id);
       // First gene id that carries an origin wins — single disc per row.
       const originHit = geneIds
         .map((id) => origins[id])
@@ -1130,10 +1182,14 @@ function adaptHeatmapWire(
         designElementId: r.designElementId,
         designElementName: r.designElementName,
         geneIds,
-        geneSymbols: (r.genes ?? []).map((g) => g.officialSymbol ?? ""),
+        geneSymbols: rowGenes.map((g) => g.officialSymbol ?? ""),
         // Pull the full gene name through so the heatmap row gutter
         // can render symbol + name inline (no link-out required).
-        geneNames: (r.genes ?? []).map((g) => g.name ?? ""),
+        geneNames: rowGenes.map((g) => g.name ?? ""),
+        // Gutter headline: the searched gene(s), marked when the probe
+        // isn't specific to them. Falls back to the probe name inside
+        // the widget when there's no symbol to show.
+        ...buildGeneRowLabel(rowGenes, queried),
         originColor: originHit ? colorForGoUri(originHit.goUri) : null,
         originTitle: originHit ? originHit.goLabel : null,
       };
