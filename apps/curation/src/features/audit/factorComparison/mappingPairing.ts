@@ -7,15 +7,22 @@
  * Jaccard heuristic in ``pairFvs``. Same output shape, more
  * authoritative source.
  *
- * Convention used here — A = baseline / gold (polished curator
- * side, left column), B = comparator / agent (proposed side, right
- * column). The agents-side convention: indices reference existing
- * ``comparisonProposal.factors[i]`` / ``.tags[i]`` shapes for B,
- * and the gold side carries the parallel index space (the same
- * convention as ``finding.gold_target_index`` / ``finding.agent_
- * target_index``). If the wire flips the convention down the road,
- * the one-place flip lives in ``factorPairForFinding`` —
- * ``ComparisonFactorCard``'s call site doesn't have to know.
+ * 🛑 **Convention: a = PROPOSED, b = EXISTING.** Not the other way
+ * round, and this file had it backwards until 2026-08-25.
+ *
+ * It is forced rather than agreed: `FactorPair.b_id` is a *Gemma* id,
+ * and only the side already in Gemma can have one. The producer says so
+ * (`agents/audit/graph_alignment.py:566`) and pins it —
+ * `align(proposal, existing)` with `b_id` on the existing factor.
+ *
+ * "Gold" does not appear in an audit. An audit compares a proposal
+ * against the curation an experiment actually has; gold is an eval
+ * concept that leaked into a path that mostly is not eval. The wire
+ * still emits `goldTargetIndex` / `agentTargetIndex`, so both spellings
+ * are read below — the names moved before the wire did.
+ *
+ * The one-place flip still lives here: ``ComparisonFactorCard``'s call
+ * site does not have to know.
  *
  * Posture — when the report doesn't carry ``mapping``, every helper
  * returns ``null`` so the caller falls through to the legacy
@@ -34,9 +41,9 @@ import type { FactorComparisonPair } from "./FactorComparisonGrid";
 /** Find the ``AlignmentFactorPair`` in the report's mapping that a
  *  given finding refers to. Two paths:
  *
- *   1. When the finding has both ``gold_target_index`` (a_idx) and
- *      ``agent_target_index`` (b_idx) populated, look for the exact
- *      (a_idx, b_idx) pair in ``mapping.factor_pairs``.
+ *   1. When the finding has both indices populated, look for the exact
+ *      (a_idx, b_idx) pair in ``mapping.factor_pairs`` — where a is the
+ *      PROPOSED side and b the EXISTING one.
  *   2. When only one side has an index (extras / misses), the pair
  *      doesn't exist — caller renders the unmatched side standalone.
  *
@@ -48,8 +55,19 @@ export function factorPairForFinding(
 ): AlignmentFactorPair | null {
   const mapping = report?.evidence?.mapping ?? null;
   if (!mapping) return null;
-  const aIdx = finding.gold_target_index;
-  const bIdx = finding.agent_target_index;
+  // a = PROPOSED, b = EXISTING. Reversed here until 2026-08-25, which
+  // never showed because the join has never run: `mapping` is produced
+  // by `align()` in build_calibration_batch and the audit has never
+  // shipped one (0 occurrences across 100 experiments on
+  // 2026-08-24_test100b). Every call fell through to the `pairFvs`
+  // Jaccard heuristic. It starts running when the audit feeds the
+  // aligner — correct now, silently swapped had this not been fixed
+  // first.
+  //
+  // Both spellings accepted: the agents side went neutral before the
+  // wire did, so today's payloads still carry the legacy names.
+  const aIdx = finding.proposed_target_index ?? finding.agent_target_index;
+  const bIdx = finding.existing_target_index ?? finding.gold_target_index;
   if (aIdx == null || bIdx == null) return null;
   for (const pair of mapping.factor_pairs) {
     if (pair.a_idx === aIdx && pair.b_idx === bIdx) return pair;
