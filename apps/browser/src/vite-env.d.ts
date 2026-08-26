@@ -4,6 +4,10 @@ interface ImportMetaEnv {
   readonly VITE_GEMMA_BASE_URL?: string;
   /** REST API root — see src/api/base.ts. Defaults to /rest/v2. */
   readonly VITE_GEMMA_API_URL?: string;
+  /** Internet-reachable Gemma base for URLs handed to third parties
+   *  (the UCSC track link). See publicGemmaUrl in gemmaConfig.ts —
+   *  unset falls back to this page's origin. */
+  readonly VITE_GEMMA_PUBLIC_URL?: string;
   readonly VITE_CURATION_URL?: string;
 }
 
