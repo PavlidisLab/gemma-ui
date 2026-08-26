@@ -100,32 +100,6 @@ export function publicGemmaUrl(path: string): string {
   return "";
 }
 
-/** Legacy Gemma gene page — works for both NCBI-id and Gemma-internal
- *  id. Prefer the NCBI id when known: it's stable across taxa and
- *  rebuilds, and the URL is shareable. Returns null when neither id
- *  is present so the caller can render the symbol as plain text. */
-export function geneUrl(opts: {
-  ncbiId?: number | string | null;
-  geneId?: number | string | null;
-}): string | null {
-  if (opts.ncbiId != null) {
-    return gemmaUrl(`/gene/showGene.html?ncbiId=${opts.ncbiId}`);
-  }
-  if (opts.geneId != null) {
-    return gemmaUrl(`/gene/showGene.html?id=${opts.geneId}`);
-  }
-  return null;
-}
-
-/** Legacy Gemma probe (CompositeSequence) page — meaningful only for
- *  microarray-style platforms. Returns null when the id is missing
- *  (sequencing platforms use the gene id directly as the design
- *  element, so the probe link is redundant). */
-export function compositeSequenceUrl(id: number | string | null | undefined): string | null {
-  if (id == null) return null;
-  return gemmaUrl(`/arrays/compositeSequence/show.html?id=${id}`);
-}
-
 export const excludedCategories: string[] = [
   "http://mged.sourceforge.net/ontologies/MGEDOntology.owl#BioSourceType",
   "http://mged.sourceforge.net/ontologies/MGEDOntology.owl#LabelCompound",

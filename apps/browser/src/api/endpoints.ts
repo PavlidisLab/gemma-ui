@@ -204,6 +204,27 @@ export async function getPlatformElementCount(
   return r.totalElements ?? 0;
 }
 
+/**
+ * The platform(s) a dataset was run on.
+ *
+ * Used to turn a heatmap row's design-element id into a link to that
+ * probe's page, which is addressable only as platform + element (see
+ * ``getPlatformElement``). A dataset on exactly one platform makes
+ * that unambiguous; on several, a row's design element could belong to
+ * any of them and the payload doesn't say which, so callers should
+ * decline to link rather than guess.
+ */
+export async function getDatasetPlatforms(
+  datasetId: number | string,
+  signal?: AbortSignal,
+): Promise<Platform[]> {
+  const r = await apiGet<PaginatedResponse<Platform>>(
+    `${BASE}/datasets/${datasetId}/platforms`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
 /** Single platform's full entity — used by PlatformDetailPage. */
 export async function getPlatformById(
   id: number | string,

@@ -9,7 +9,6 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 import { HeatmapWidget, probeRowLabel } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import {
@@ -23,10 +22,12 @@ import {
 import {
   getDatasetSvd,
   getPcLoadings,
-  getTaxonGenesBySymbols,
-  type PcLoadings,
+  getDatasetPlatforms,
 } from "@/api/endpoints";
-import { compositeSequenceUrl } from "@/lib/gemmaConfig";
+import {
+  ProbeRowTooltip,
+  useNcbiIdsByGeneId,
+} from "@/features/dataset/ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 
 export function PcaScreeCard({
@@ -111,51 +112,6 @@ export function PcaScreeCard({
 }
 
 /**
- * Gemma-internal gene id → NCBI gene id, for every gene the popup's
- * rows mention.
- *
- * The in-app gene page is keyed by NCBI id (symbols collide across
- * taxa), but ``/svd/loadings`` rows carry only Gemma's internal id,
- * and ``/genes/{internalId}`` doesn't answer for it. The taxon-scoped
- * symbol lookup returns both ids, so one batched call over the
- * popup's distinct symbols bridges the gap — 50 rows, one request,
- * cached for the session.
- *
- * Returns an empty map while in flight, with no taxon to scope by, or
- * on failure: the tooltip then names every gene and simply omits the
- * links, which beats linking somewhere plausible and wrong.
- */
-function useNcbiIdsByGeneId(
-  data: PcLoadings | null | undefined,
-  taxon: string | undefined,
-): Map<number, number> {
-  const symbols = useMemo(() => {
-    const out = new Set<string>();
-    for (const r of data?.rows ?? []) {
-      for (const g of r.genes ?? []) if (g.officialSymbol) out.add(g.officialSymbol);
-    }
-    return Array.from(out).sort();
-  }, [data]);
-
-  const q = useQuery({
-    queryKey: ["taxon-genes-by-symbol", taxon ?? "", symbols.join(",")],
-    queryFn: ({ signal }) => getTaxonGenesBySymbols(taxon!, symbols, signal),
-    enabled: !!taxon && symbols.length > 0,
-    staleTime: 30 * 60_000,
-  });
-
-  return useMemo(() => {
-    const m = new Map<number, number>();
-    // Key on the internal id the lookup echoes back, not on the symbol
-    // we sent — exact, and immune to case / alias mismatches.
-    for (const g of q.data ?? []) {
-      if (g.ncbiId != null) m.set(g.id, g.ncbiId);
-    }
-    return m;
-  }, [q.data]);
-}
-
-/**
  * Click-to-zoom popup. Cell = probe loading × sample score on PCN
  * (rank-1 PC projection) — what PC-N "sees" as the signal. Sign and
  * magnitude both matter, so the widget gets a diverging palette. Row
@@ -178,7 +134,23 @@ function PcLoadingsPopup({
     queryFn: ({ signal }) => getPcLoadings(datasetId, pc, { top: 50, signal }),
     staleTime: 5 * 60_000,
   });
-  const ncbiIdByGeneId = useNcbiIdsByGeneId(data, taxon);
+  // Gene links need NCBI ids; the loadings rows carry internal ones.
+  const rowGenes = useMemo(
+    () => (data?.rows ?? []).flatMap((r) => r.genes ?? []),
+    [data],
+  );
+  const ncbiIdByGeneId = useNcbiIdsByGeneId(rowGenes, taxon);
+  // Probe links need a platform. One ⇒ unambiguous; several ⇒ a row's
+  // design element could be on any of them, so no probe link.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", datasetId],
+    queryFn: ({ signal }) => getDatasetPlatforms(datasetId, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platformShortName =
+    platformsQ.data?.length === 1
+      ? (platformsQ.data[0].shortName ?? undefined)
+      : undefined;
 
   const heatmap = useMemo<HeatmapData | null>(() => {
     if (!data || !data.rows.length) return null;
@@ -267,64 +239,16 @@ function PcLoadingsPopup({
                 rowLabelTooltip={(i) => {
                   const r = data?.rows[i];
                   if (!r) return null;
-                  const rowGenes = r.genes ?? [];
-                  const pHref =
-                    r.designElementId != null
-                      ? compositeSequenceUrl(r.designElementId)
-                      : null;
                   return (
-                    <div className="space-y-1">
-                      {/* One block per mapped gene — a probe can span
-                          several, and collapsing them to the first hid
-                          exactly the ambiguity worth seeing here. */}
-                      {rowGenes.map((g) => {
-                        // In-app gene page, keyed by NCBI id. The
-                        // loadings rows carry only Gemma-internal ids,
-                        // so the link waits on the resolve below — and
-                        // is simply absent for a gene it can't map,
-                        // rather than pointing somewhere wrong.
-                        const ncbiId = ncbiIdByGeneId.get(g.id);
-                        return (
-                          <div key={g.id}>
-                            <span className="font-semibold text-slate-800">
-                              {g.officialSymbol || `gene ${g.id}`}
-                            </span>
-                            {ncbiId != null ? (
-                              <Link
-                                to="/gene/ncbi/$ncbiId"
-                                params={{ ncbiId: String(ncbiId) }}
-                                className="ml-2 text-[11px] text-sky-700 hover:underline"
-                              >
-                                gene page →
-                              </Link>
-                            ) : null}
-                            {g.name ? (
-                              <div className="text-slate-600">{g.name}</div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                      {rowGenes.length === 0 ? (
-                        <div className="text-slate-500 italic">
-                          probe maps to no gene
-                        </div>
-                      ) : null}
-                      <div className="text-[10px] text-slate-500 font-mono">
-                        {r.designElementName ?? `probe ${r.designElementId ?? "?"}`}
-                      </div>
-                      {pHref ? (
-                        <div className="pt-1 text-[11px]">
-                          <a
-                            href={pHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sky-700 hover:underline"
-                          >
-                            Gemma probe ↗
-                          </a>
-                        </div>
-                      ) : null}
-                    </div>
+                    <ProbeRowTooltip
+                      designElementName={
+                        r.designElementName ?? `probe ${r.designElementId ?? "?"}`
+                      }
+                      designElementId={r.designElementId}
+                      genes={r.genes ?? []}
+                      ncbiIdByGeneId={ncbiIdByGeneId}
+                      platformShortName={platformShortName}
+                    />
                   );
                 }}
               />

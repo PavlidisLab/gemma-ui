@@ -32,6 +32,7 @@ import {
   getGoTermGenes,
   getHeatmapData,
   getDatasetQuantitationTypes,
+  getDatasetPlatforms,
   type Gene,
   type HeatmapWireResponse,
 } from "@/api/endpoints";
@@ -39,6 +40,7 @@ import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
 import { useDebounced } from "@/lib/useDebounced";
 import { taxonPathParam } from "@/lib/gemmaConfig";
+import { ProbeRowTooltip, useNcbiIdsByGeneId } from "./ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 
 const GENES_HASH_KEY = "genes";
@@ -254,6 +256,7 @@ export function VisualizeTab({
         ) : null}
         <HeatmapPanel
           datasetId={datasetId}
+          taxon={taxon}
           genes={selected}
           origins={origins}
           selectionHydrated={selectionHydrated}
@@ -865,6 +868,7 @@ function SelectedGenesStrip({
 
 function HeatmapPanel({
   datasetId,
+  taxon,
   genes,
   origins,
   selectionHydrated,
@@ -872,6 +876,9 @@ function HeatmapPanel({
   maskOutliers = true,
 }: {
   datasetId: number;
+  /** Dataset's organism — scopes the gene-id → NCBI-id lookup the row
+   *  tooltip links through. */
+  taxon?: string;
   genes: Gene[];
   origins: Record<number, GeneOrigin>;
   selectionHydrated: boolean;
@@ -912,6 +919,31 @@ function HeatmapPanel({
     staleTime: 60_000,
   });
 
+  // ── Row-tooltip link inputs. Both hooks sit above the early returns
+  // below, so they run on every render regardless of load state — they
+  // tolerate the empty inputs that come with it.
+
+  // heatmap-data carries Gemma-internal gene ids only, so the gene
+  // links go through the same resolve the diagnostics heatmap uses.
+  const rowGenes = useMemo(
+    () => (wireQuery.data?.rows ?? []).flatMap((r) => r.genes ?? []),
+    [wireQuery.data],
+  );
+  const ncbiIdByGeneId = useNcbiIdsByGeneId(rowGenes, taxon);
+
+  // A probe is addressable only as platform + element. One platform ⇒
+  // every row's design element is on it; several ⇒ the payload doesn't
+  // say which, so the tooltip names the probe without linking it.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", datasetId],
+    queryFn: ({ signal }) => getDatasetPlatforms(datasetId, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platformShortName =
+    platformsQ.data?.length === 1
+      ? (platformsQ.data[0].shortName ?? undefined)
+      : undefined;
+
   if (!selectionHydrated || wireQuery.isLoading || wireQuery.isPending) {
     return (
       <div className="bg-white border border-slate-200 rounded px-6 py-10 text-center text-sm text-slate-500">
@@ -933,60 +965,23 @@ function HeatmapPanel({
   }
 
   const payload = adaptHeatmapWire(wire, origins, queried);
-  // Rich tooltip on row-label hover — surfaces the full gene info
-  // (symbol + name + ncbi id + gemma id) without needing a click-out
-  // to a separate page. Keeps the gutter compact while making the
-  // detail one mouseover away.
+  // Row-label pop-up — shared with the diagnostics heatmap so a probe
+  // reads the same way on both. Genes come off the wire row rather
+  // than the payload's parallel arrays: same order, but the tooltip
+  // wants whole gene objects.
   const rowLabelTooltip = (i: number) => {
     const r = payload.rows[i];
-    if (!r) return null;
-    const matched = r.geneIds
-      .map((id, idx) => ({
-        id,
-        symbol: r.geneSymbols[idx] ?? "",
-        name: r.geneNames?.[idx] ?? "",
-        gene: genes.find((g) => g.id === id),
-        // Drives the "not searched" tag, and explains the ``*`` the
-        // gutter puts on this row.
-        searched: queried.has(id),
-      }))
-      .filter((m) => m.symbol || m.name);
-    if (matched.length === 0) {
-      return (
-        <span className="text-xs text-slate-500">
-          design element {r.designElementName}
-        </span>
-      );
-    }
-    const extras = matched.filter((m) => !m.searched).length;
+    const wireRow = wire.rows[i];
+    if (!r || !wireRow) return null;
     return (
-      <div className="text-xs text-slate-800 space-y-1">
-        {matched.map((m) => (
-          <div key={m.id}>
-            <span className="font-mono font-semibold">{m.symbol}</span>
-            {m.name ? (
-              <span className="ml-2 text-slate-600">{m.name}</span>
-            ) : null}
-            {queried.size > 0 && !m.searched ? (
-              <span className="ml-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-1 py-px align-middle">
-                not searched
-              </span>
-            ) : null}
-            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-              gemma:{m.id}
-              {m.gene?.ncbiId ? ` · ncbi:${m.gene.ncbiId}` : ""}
-              {" · "}probe {r.designElementName}
-            </div>
-          </div>
-        ))}
-        {queried.size > 0 && extras > 0 ? (
-          <div className="text-[10px] text-slate-500 pt-1 border-t border-slate-200">
-            <span className="font-mono">*</span> this probe also measures{" "}
-            {extras} gene{extras === 1 ? "" : "s"} you didn’t search for — the
-            signal isn’t specific to your selection.
-          </div>
-        ) : null}
-      </div>
+      <ProbeRowTooltip
+        designElementName={r.designElementName}
+        designElementId={r.designElementId}
+        genes={wireRow.genes ?? []}
+        ncbiIdByGeneId={ncbiIdByGeneId}
+        platformShortName={platformShortName}
+        queried={queried}
+      />
     );
   };
   // Drives the standing key below the heatmap.
