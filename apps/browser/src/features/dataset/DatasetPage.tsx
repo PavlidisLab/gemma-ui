@@ -241,23 +241,6 @@ function Banner({
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
             {kind ? <span className="text-slate-800">{kind}</span> : null}
-            {platforms.length === 1 ? (
-              <Link
-                to="/platforms/$shortName"
-                params={{ shortName: platforms[0].shortName ?? String(platforms[0].id) }}
-                className="text-sky-700 hover:underline"
-                title={platforms[0].name ?? undefined}
-              >
-                {platforms[0].shortName ?? platforms[0].name}
-              </Link>
-            ) : platforms.length > 1 ? (
-              // Multi-platform datasets exist (merged / re-run on a
-              // second array). Naming one of them would be a lie about
-              // the other, so say the count and let the tab list them.
-              <span title={platforms.map((p) => p.shortName ?? p.name).join(", ")}>
-                {platforms.length} platforms
-              </span>
-            ) : null}
             {dataset.lastUpdated ? (
               /* This is `curationDetails.lastUpdated` — verified
                  identical on the wire — so it moves when ANY audit
@@ -306,6 +289,39 @@ function Banner({
               </a>
             )}
           </div>
+          {platforms.length > 0 ? (
+            // Labelled the way Gemma 1.0 labels it, shortName — full name.
+            //
+            // Gemma 1.0 shows a second line here, "As originally submitted:
+            // GPL24247 — Illumina NovaSeq 6000". It is NOT renderable yet:
+            // the bioAssay VO puts the platform a dataset was switched TO
+            // into `originalPlatform`, and the filter contradicts it on the
+            // same dataset — `bioAssays.originalPlatform.technologyType =
+            // SEQUENCING` matches GSE217927 while its samples report
+            // GENELIST. Reading it today would print the generic platform
+            // twice. Filed against gemma-rest 2026-08-26.
+            <div className="mt-1 text-xs text-slate-600 flex gap-2">
+              <span className="shrink-0 text-slate-500">
+                {platforms.length === 1 ? "Platform" : "Platforms"}
+              </span>
+              <div className="min-w-0 flex flex-col gap-0.5">
+                {platforms.map((p) => (
+                  <div key={p.id} className="min-w-0">
+                    <Link
+                      to="/platforms/$shortName"
+                      params={{ shortName: p.shortName ?? String(p.id) }}
+                      className="text-sky-700 hover:underline"
+                    >
+                      {p.shortName ?? p.name}
+                    </Link>
+                    {p.shortName && p.name ? (
+                      <span className="text-slate-500"> — {p.name}</span>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
         {SHOW_GEEQ && geeq && <GeeqChip geeq={geeq} />}
