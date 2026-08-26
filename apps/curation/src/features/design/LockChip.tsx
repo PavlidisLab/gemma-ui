@@ -63,6 +63,19 @@ export function LockChip({
   const mine = !!me && lock.locked_by === me;
 
   if (mine) {
+    // 🛑 This renders for the WHOLE session on every experiment, since
+    // the UI takes the lease on open. Kept deliberately (Paul,
+    // 2026-08-26: "let's just show it, for debugging purposes if
+    // nothing else") — it is the only visible evidence the lease
+    // mechanism is working at all, and without it the first time
+    // anyone sees a lock is when someone else has one.
+    //
+    // The argument against, so it is not re-litigated from scratch:
+    // it says what the curator already knows, and a row that is always
+    // populated trains people to stop reading it — including the save
+    // indicator beside it. If that turns out to be the real cost,
+    // dropping this branch is the change; silence already means "it is
+    // yours" everywhere else in this row.
     return (
       <span
         className={`${base} text-slate-500 dark:text-slate-400`}
