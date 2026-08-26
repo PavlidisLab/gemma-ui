@@ -455,6 +455,38 @@ export async function getGenesByNcbiIds(
   return r.data ?? [];
 }
 
+/**
+ * Genes by official symbol, scoped to one taxon — batched.
+ *
+ * The reason this exists rather than ``/genes/{...}``: Gemma's gene
+ * ids are two different namespaces (see ``getGenesByNcbiIds`` above),
+ * and several payloads — ``/svd/loadings``, ``heatmap-data`` — carry
+ * only the internal ``id``, which ``/genes/{id}`` does not accept.
+ * The taxon-scoped symbol lookup returns records carrying BOTH ids, so
+ * it's the bridge from an internal id to the NCBI id the gene page is
+ * keyed by. Match the results on ``id``, not on the symbol you sent:
+ * exact, and immune to case / alias differences.
+ *
+ * Taxon-scoping is not optional. Unscoped, a symbol resolves across
+ * species (``/genes/SSBP2`` returns three rows) and the caller has no
+ * way to tell which one it asked for.
+ */
+export async function getTaxonGenesBySymbols(
+  taxon: string,
+  symbols: string[],
+  signal?: AbortSignal,
+): Promise<MappedGene[]> {
+  const wanted = Array.from(new Set(symbols.filter(Boolean)));
+  if (wanted.length === 0) return [];
+  const r = await apiGet<PaginatedResponse<MappedGene>>(
+    `${BASE}/taxa/${encodeURIComponent(taxon)}/genes/${wanted
+      .map((s) => encodeURIComponent(s))
+      .join(",")}`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
 export async function getElementGenes(
   platformId: number | string,
   elementId: number,

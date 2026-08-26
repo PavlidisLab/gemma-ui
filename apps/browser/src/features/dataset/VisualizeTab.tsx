@@ -38,6 +38,7 @@ import {
 import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
 import { useDebounced } from "@/lib/useDebounced";
+import { taxonPathParam } from "@/lib/gemmaConfig";
 import { restUrl } from "@/api/base";
 
 const GENES_HASH_KEY = "genes";
@@ -125,14 +126,8 @@ export function VisualizeTab({
   // paired with a non-processed QT above — for the processed QT the
   // server masks at creation time so the flag is usually a no-op.
   const [maskOutliers, setMaskOutliers] = useState(true);
-  // Hard-scope all gene queries to this experiment's taxon. Try
-  // common name first (the visitor-facing form the agents-side TaxonArg
-  // accepts), fall back to scientific name, then to the taxon id
-  // as a last resort — all three resolve server-side.
-  const taxon =
-    dataset.taxon?.commonName?.toLowerCase() ??
-    dataset.taxon?.scientificName?.toLowerCase() ??
-    (dataset.taxon?.id != null ? String(dataset.taxon.id) : undefined);
+  // Hard-scope all gene queries to this experiment's taxon.
+  const taxon = taxonPathParam(dataset.taxon);
 
   // ── selected genes — client-only state, URL-hash + localStorage backed.
   // ``selectionHydrated`` flips true once the first-paint restore from

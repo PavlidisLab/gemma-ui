@@ -365,3 +365,25 @@ export function isSupportedTaxon(
   if (t.id != null) return SUPPORTED_TAXON_IDS.has(t.id);
   return fallbackTaxa.some((f) => f.scientificName === t.scientificName);
 }
+
+/**
+ * A dataset's taxon as a REST path/query param — for scoping gene
+ * lookups to the organism the dataset is on. Common name first (the
+ * visitor-facing form), then scientific name, then the id; all three
+ * resolve server-side. ``undefined`` when the record carries no taxon,
+ * which callers must treat as "don't scope" rather than "no taxon" —
+ * an unscoped gene lookup ranks across species.
+ */
+export function taxonPathParam(
+  t:
+    | { id?: number | null; commonName?: string | null; scientificName?: string | null }
+    | null
+    | undefined,
+): string | undefined {
+  if (!t) return undefined;
+  return (
+    t.commonName?.toLowerCase() ??
+    t.scientificName?.toLowerCase() ??
+    (t.id != null ? String(t.id) : undefined)
+  );
+}

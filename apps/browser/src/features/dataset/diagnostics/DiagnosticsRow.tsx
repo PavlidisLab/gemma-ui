@@ -19,14 +19,22 @@ import { PcaScreeCard } from "./PcaScreeCard";
 import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 
-export function DiagnosticsRow({ datasetId }: { datasetId: number }) {
+export function DiagnosticsRow({
+  datasetId,
+  taxon,
+}: {
+  datasetId: number;
+  /** Dataset's organism as a REST param — scopes the PCA card's
+   *  gene-id resolution. See ``taxonPathParam``. */
+  taxon?: string;
+}) {
   // One row on lg+ with a 4:2:3:3 column ratio; 2×2 on md; stacked on
   // sm. The fr ratios distribute width by plot: heatmap widest (4),
   // scree narrowest (2), the two others medium (3 each).
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[4fr_2fr_3fr_3fr] gap-3">
       <SampleCorrelationCard datasetId={datasetId} />
-      <PcaScreeCard datasetId={datasetId} />
+      <PcaScreeCard datasetId={datasetId} taxon={taxon} />
       <PcFactorCard datasetId={datasetId} />
       <MeanVarianceCard datasetId={datasetId} />
     </div>

@@ -37,7 +37,7 @@ import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
-import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
+import { geneUrl, compositeSequenceUrl, taxonPathParam } from "@/lib/gemmaConfig";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
@@ -137,7 +137,7 @@ export function DatasetPage() {
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
-        {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} taxon={taxonPathParam(dataset.taxon)} />}
         {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} isAdmin={isAdmin} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
         {activeTab === "quantitationtypes" && isAdmin && <QuantitationTypesTab datasetId={dataset.id ?? Number(id)} />}
@@ -1686,7 +1686,13 @@ function DifferentialExpressionTab({ datasetId }: { datasetId: number }) {
 
 // ─── Diagnostics tab ──────────────────────────────────────────────────────────
 
-function ExpressionTab({ datasetId }: { datasetId: number }) {
+function ExpressionTab({
+  datasetId,
+  taxon,
+}: {
+  datasetId: number;
+  taxon?: string;
+}) {
   return (
     /* Diagnostics — replaces the old standalone PCA scree.
        Four panels (Sample correlation · PCA scree · PC × factor ·
@@ -1695,7 +1701,7 @@ function ExpressionTab({ datasetId }: { datasetId: number }) {
       title="Diagnostics"
       subtitle="Sample correlation · PCA scree · PC × factor · mean-variance"
     >
-      <DiagnosticsRow datasetId={datasetId} />
+      <DiagnosticsRow datasetId={datasetId} taxon={taxon} />
     </SectionCard>
   );
 }
