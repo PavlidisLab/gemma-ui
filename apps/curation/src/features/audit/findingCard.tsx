@@ -36,6 +36,8 @@ import { StatementSequence } from "@/components/ui/StatementSequence";
 import { useToast } from "@/components/ui/Toast";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
+import { blockedReasonOf } from "./actionLabels";
+import { InlineMarkdown } from "@/components/ui/MarkdownText";
 import { FindingRecommendation } from "./FindingRecommendation";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
@@ -1505,8 +1507,27 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   const useStructuredEditor =
     !isFinalized && findingHasStructuredContent(finding, report, draft);
 
+  // The agent's reason for having no fix, when it gave one. Always
+  // visible, never behind the Reasoning fold: on a finding of this
+  // shape it is not supporting detail, it IS the card — the curator is
+  // being asked to rule on the thing this sentence describes.
+  //
+  // Read by shape rather than by the kind's name, which is being
+  // renamed (see `blockedReasonOf`). Rendered through InlineMarkdown
+  // because these reasons carry backticked terms and raw backticks
+  // reaching a curator is the bug that helper exists to fix.
+  const noFixReason = blockedReasonOf(finding);
+
   return (
     <div className="pl-1.5 pt-2 space-y-1.5 relative">
+      {noFixReason ? (
+        <div className="rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px] leading-snug text-slate-700 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-200">
+          <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mr-1.5">
+            No fix to apply
+          </span>
+          <InlineMarkdown text={noFixReason} />
+        </div>
+      ) : null}
       {useStructuredEditor ? (
         <FindingDetailsEditor
           finding={finding}
