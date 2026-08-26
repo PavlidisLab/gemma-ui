@@ -79,6 +79,8 @@ import { OverviewPanel } from "@/features/overview/OverviewPanel";
 import { QuantitationTypesPanel } from "@/features/quantitation/QuantitationTypesPanel";
 import { SingleCellPanel } from "@/features/singlecell/SingleCellPanel";
 import { CommitBar } from "@/features/design/CommitBar";
+import { SaveIndicator } from "@/features/design/SaveIndicator";
+import { useDraftAutosave } from "@/features/design/useDraftAutosave";
 import { validateDesign } from "@/features/experiment/types";
 import {
   DesignDraftProvider,
@@ -1442,6 +1444,16 @@ function SharedCommitBar({
   // FlowContext is the single source of truth for this.
   const readOnly = useIsReadOnly();
   const { diff, draft, commit, discard, saving, saveError } = useDesignDraft();
+  // Autosave. Off in read-only, where a save would write a draft the
+  // curator did not author. Declared before the read-only early return
+  // so hook order stays stable across renders (rules-of-hooks) — same
+  // reason the curation-note hooks below are.
+  const autosave = useDraftAutosave({
+    experimentId,
+    draft,
+    isDirty: diff.isDirty,
+    enabled: !readOnly,
+  });
   // For stamping baseline-override reasons onto curation_note: read
   // the current note (so we can append rather than replace), and
   // get the updater. Both are scoped to this experiment. Declared
@@ -1455,6 +1467,16 @@ function SharedCommitBar({
   // server. validateDesign is cheap (linear in factors × FVs).
   const validation = draft ? validateDesign(draft) : null;
   return (
+    <>
+      {/* Outside CommitBar on purpose: the bar returns null on a clean
+          draft, and "Saved 12:04" is exactly what a curator wants to
+          see AFTER the diff goes away. Putting it inside would make the
+          confirmation vanish at the moment it becomes true. */}
+      {autosave.state.kind !== "idle" ? (
+        <div className="px-2 pb-1 flex justify-end">
+          <SaveIndicator state={autosave.state} onRetry={autosave.flush} />
+        </div>
+      ) : null}
     <CommitBar
       diff={diff}
       saving={saving}
@@ -1481,6 +1503,7 @@ function SharedCommitBar({
       }}
       onDiscard={discard}
     />
+    </>
   );
 }
 
