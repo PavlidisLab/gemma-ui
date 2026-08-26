@@ -8,13 +8,31 @@ import {
 } from "@tanstack/react-router";
 import "./index.css";
 import { routeTree } from "./routeTree";
+import { ApiError } from "./api/client";
 
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
       refetchOnWindowFocus: false,
-      retry: 1,
+      // A 4xx is the server saying the request itself is wrong, so
+      // sending it again cannot change the answer. Measured: one
+      // `tumour OR normal` in the annotation search fired TWO 400s at
+      // gemma2, and the second only delayed the message the user was
+      // waiting for. 408 and 429 are the exceptions — those do invite
+      // a retry.
+      retry: (failureCount, error) => {
+        if (
+          error instanceof ApiError &&
+          error.status >= 400 &&
+          error.status < 500 &&
+          error.status !== 408 &&
+          error.status !== 429
+        ) {
+          return false;
+        }
+        return failureCount < 1;
+      },
     },
   },
 });

@@ -20,7 +20,7 @@ import type {
   Category,
   CategoryWithChildren,
 } from "@/lib/types";
-import { searchAnnotations } from "@/api/endpoints";
+import { searchAnnotations, annotationSearchMessage } from "@/api/endpoints";
 import {
   annotationSelectorOrderArray,
   excludedTerms,
@@ -612,6 +612,15 @@ export function AnnotationSelector(props: Props) {
           ) : null}
         </div>
       )}
+
+      {/* A cross-corpus search that FAILED is not a corpus with
+          nothing in it. Sits above the list because the list below is
+          still the (unfiltered) facet response, which stays valid. */}
+      {fallback.isError ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300 py-1">
+          {annotationSearchMessage(fallback.error, debouncedSearch)}
+        </p>
+      ) : null}
 
       <ul className="text-sm">
         {displayCategories.length === 0 && !loading ? (
