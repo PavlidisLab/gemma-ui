@@ -80,6 +80,8 @@ import { QuantitationTypesPanel } from "@/features/quantitation/QuantitationType
 import { SingleCellPanel } from "@/features/singlecell/SingleCellPanel";
 import { CommitBar } from "@/features/design/CommitBar";
 import { SaveIndicator } from "@/features/design/SaveIndicator";
+import { LockChip } from "@/features/design/LockChip";
+import { useCurationLock } from "@/features/design/useCurationLock";
 import { useDraftAutosave } from "@/features/design/useDraftAutosave";
 import { validateDesign } from "@/features/experiment/types";
 import {
@@ -1454,6 +1456,9 @@ function SharedCommitBar({
     isDirty: diff.isDirty,
     enabled: !readOnly,
   });
+  // Same gate as autosave: a read-only viewer taking the lease would
+  // lock out the person who can actually change something.
+  const lock = useCurationLock({ experimentId, enabled: !readOnly });
   // For stamping baseline-override reasons onto curation_note: read
   // the current note (so we can append rather than replace), and
   // get the updater. Both are scoped to this experiment. Declared
@@ -1472,11 +1477,22 @@ function SharedCommitBar({
           draft, and "Saved 12:04" is exactly what a curator wants to
           see AFTER the diff goes away. Putting it inside would make the
           confirmation vanish at the moment it becomes true. */}
-      {autosave.state.kind !== "idle" ? (
-        <div className="px-2 pb-1 flex justify-end">
+      {/* Who has it, and whether your work is saved. One row, because
+          they answer the same question — "is it safe to keep going" —
+          and a curator should not have to look in two places for it.
+          Each half renders nothing when it has nothing to say, so the
+          row is usually empty. */}
+      <div className="px-2 pb-1 flex justify-end items-center gap-3 empty:hidden">
+        <LockChip
+          lock={lock.lock}
+          me={lock.me}
+          onTakeOver={lock.takeOver}
+          busy={lock.takingOver}
+        />
+        {autosave.state.kind !== "idle" ? (
           <SaveIndicator state={autosave.state} onRetry={autosave.flush} />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     <CommitBar
       diff={diff}
       saving={saving}
