@@ -221,6 +221,26 @@ function Banner({
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
+            {dataset.lastUpdated ? (
+              /* This is `curationDetails.lastUpdated` — verified
+                 identical on the wire — so it moves when ANY audit
+                 event fires, not when the expression data changes. The
+                 tooltip says so; "Last updated" alone would be read as
+                 "the data is newer than my copy", which it does not
+                 mean. Facts first, links after. */
+              <span
+                title={`Curation record last changed ${new Date(dataset.lastUpdated).toString()}. Reflects curation and audit activity, not a change to the expression data.`}
+              >
+                Last updated{" "}
+                <span className="text-slate-800">
+                  {new Date(dataset.lastUpdated).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              </span>
+            ) : null}
             {source?.href ? (
               <a href={source.href}
                 target="_blank" rel="noopener noreferrer"
