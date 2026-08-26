@@ -52,7 +52,16 @@ export interface DraftSaved {
    *  time, because Gemma's draft response carries none. The difference
    *  is one round trip and this renders minutes. */
   saved_at: string;
-  baseline_last_modified?: string | null;
+  // 🛑 No baseline token here, deliberately. This carried
+  // `baseline_last_modified` and it was structurally always null:
+  // `baseline.lastModified` is what a client SENDS to get a
+  // stale-baseline 409, not something a draft save returns. A draft
+  // save is not a commit and has no new baseline to name.
+  //
+  // The token comes from the COMMIT report (`PUT /datasets/{id}/curation`
+  // -> `newBaseline`) or from a preflight, which returns the current one
+  // because a dry run moves nothing. Neither is the autosave path.
+  // Removed agent-side 2026-08-26 rather than left permanently empty.
 }
 
 function draftPath(experimentId: number | string, curator: string): string {
