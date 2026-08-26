@@ -192,19 +192,56 @@ function fmt(n: number): string {
  *  for integer-coded measurements like time-points or doses) renders
  *  one bar per distinct value with the value as the x-tick — the
  *  cleanest answer when the data is naturally discrete. Otherwise
- *  ~sqrt(n) equal-width bins, capped at 20 to keep bars wide enough
- *  to read.
+ *  ~2·sqrt(n) equal-width bins, floored at 15 and capped at 40.
+ *
+ *  The floor is the point. Plain sqrt(n) gave 7 bins for a 40-sample
+ *  factor, and `age` on a real dataset (n=40, 17–743, four distinct
+ *  values) rendered as four fat bars with three empty gaps — a shape
+ *  that reads as "the data clusters into four groups" when what it
+ *  actually says is "the bins are too wide to tell you anything".
+ *
+ *  More bins make a sparse factor spikier rather than smoother, which
+ *  is why the RUG underneath matters more than the bars do: it shows
+ *  where the measurements actually are, with no binning artifact at
+ *  all. Paul, 2026-08-25: a rug plot of values is fine for most uses.
+ *
+ *  🛑 The rug is drawn ONLY in binned mode. There the x-axis is linear
+ *  in value (min … mid … max), so a tick at a value's position means
+ *  something. Discrete mode lays bars out by INDEX with one label per
+ *  distinct value — a categorical axis — so a value-positioned rug
+ *  under it would point at the wrong bars.
  */
+/**
+ * How many equal-width bins for `n` measurements.
+ *
+ * ~2·sqrt(n), floored at 15 and capped at 40. Plain sqrt(n) — the rule
+ * this replaces — gave **7** bins for a 40-sample factor, and `age`
+ * (n=40, 17–743, four distinct values) came out as four fat bars with
+ * three empty gaps. That reads as "the data clusters into four groups"
+ * when it actually says "the bins are too wide to tell you anything".
+ *
+ * The floor matters more than the multiplier: it is what stops a small
+ * n from producing a handful of enormous buckets. The cap stops a large
+ * one from producing bars too thin to see.
+ *
+ * Exported for test.
+ */
+export function binCountFor(n: number): number {
+  return Math.min(40, Math.max(15, Math.ceil(2 * Math.sqrt(n))));
+}
+
 function StripPlot({
   points,
 }: {
   points: { value: number; label?: string; samples: string[] }[];
 }) {
   const W = 600;
-  const H = 140;
+  const H = 148; // 140 + the rug band, so the bars keep their height
   const padX = 32;
   const padTop = 12;
-  const padBottom = 28; // axis + tick labels + x-axis caption
+  const padBottom = 36; // axis + rug + tick labels + x-axis caption
+  /** Height of the rug band under the axis line. */
+  const rugH = 6;
   const innerW = W - 2 * padX;
   const innerH = H - padTop - padBottom;
 
@@ -247,7 +284,7 @@ function StripPlot({
       });
     }
   } else {
-    const n = Math.min(20, Math.max(5, Math.ceil(Math.sqrt(xs.length))));
+    const n = binCountFor(xs.length);
     const w = span / n;
     for (let i = 0; i < n; i++) {
       const lo = min + i * w;
@@ -356,6 +393,31 @@ function StripPlot({
             </g>
           );
         })}
+        {/* Rug — one tick per measurement at its true position.
+            Binned mode only (see the note on StripPlot): the axis is
+            linear in value there, so a tick means what it looks like.
+
+            Semi-transparent on purpose. Repeated values stack into a
+            darker mark, so the four-values-×-10 case that prompted
+            this reads as four solid ticks rather than four identical
+            hairlines — the rug carries the multiplicity the bars were
+            failing to convey. */}
+        {!useDiscreteBins
+          ? xs.map((v, i) => {
+              const x = padX + ((v - min) / span) * innerW;
+              return (
+                <line
+                  key={`rug-${i}`}
+                  x1={x}
+                  x2={x}
+                  y1={H - padBottom + 1}
+                  y2={H - padBottom + 1 + rugH}
+                  stroke="rgb(29 78 216 / 0.45)"
+                  strokeWidth={1}
+                />
+              );
+            })
+          : null}
         {/* X-axis tick labels: discrete bins get one label per bar
             (capped); binned mode gets just min / mid / max. */}
         {useDiscreteBins ? (
@@ -368,7 +430,7 @@ function StripPlot({
               <text
                 key={`xt-${i}`}
                 x={x}
-                y={H - padBottom + 11}
+                y={H - padBottom + rugH + 12}
                 fontSize={9}
                 textAnchor="middle"
                 fill="rgb(100 116 139)"
@@ -381,7 +443,7 @@ function StripPlot({
           <>
             <text
               x={padX}
-              y={H - padBottom + 11}
+              y={H - padBottom + rugH + 12}
               fontSize={9}
               textAnchor="start"
               fill="rgb(100 116 139)"
@@ -390,7 +452,7 @@ function StripPlot({
             </text>
             <text
               x={padX + innerW / 2}
-              y={H - padBottom + 11}
+              y={H - padBottom + rugH + 12}
               fontSize={9}
               textAnchor="middle"
               fill="rgb(100 116 139)"
@@ -399,7 +461,7 @@ function StripPlot({
             </text>
             <text
               x={W - padX}
-              y={H - padBottom + 11}
+              y={H - padBottom + rugH + 12}
               fontSize={9}
               textAnchor="end"
               fill="rgb(100 116 139)"
