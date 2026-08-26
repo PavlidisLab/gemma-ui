@@ -38,12 +38,18 @@ export type {
   HeatmapPayloadColumn,
   HeatmapPayloadRow,
   HeatmapQuantitationType,
+  HeatmapRowGene,
+  ProbeRowLabel,
+  ProbeRowLabelSource,
   OntologyTerm,
   Statement,
 } from './payload';
 export {
+  buildGeneRowLabel,
+  probeRowLabel,
   continuousValueOf,
   parseFactorUnit,
+  NONSPECIFIC_MARK,
 } from './payload';
 export { computeColumnOrder, type ColumnOrderResult } from './columnOrder';
 export { isTechnicalFactor, orderFactorsForDisplay } from './factorOrder';

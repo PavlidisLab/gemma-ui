@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { HeatmapWidget } from "@gemma/heatmap";
+import { HeatmapWidget, probeRowLabel } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import {
   PanelCard,
@@ -19,8 +19,13 @@ import {
   ScreeChart,
   MAX_LOADED_PC,
 } from "@gemma/diagnostics";
-import { getDatasetSvd, getPcLoadings } from "@/api/endpoints";
-import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
+import {
+  getDatasetSvd,
+  getPcLoadings,
+  getDatasetPlatforms,
+} from "@/api/endpoints";
+import { ProbeRowTooltip } from "@/features/dataset/ProbeRowTooltip";
+import { restUrl } from "@/api/base";
 
 export function PcaScreeCard({ datasetId }: { datasetId: number }) {
   const { data, isLoading, error } = useQuery({
@@ -67,7 +72,7 @@ export function PcaScreeCard({ datasetId }: { datasetId: number }) {
               </span>
               <span className="ml-auto">
                 <a
-                  href={`/rest/v2/datasets/${datasetId}/svd`}
+                  href={restUrl(`/datasets/${datasetId}/svd`)}
                   className="text-blue-700 dark:text-blue-300 hover:underline"
                   download
                   title="raw SVD JSON (eigenvalues + per-PC scores)"
@@ -113,6 +118,17 @@ function PcLoadingsPopup({
     queryFn: ({ signal }) => getPcLoadings(datasetId, pc, { top: 50, signal }),
     staleTime: 5 * 60_000,
   });
+  // Probe links need a platform. One ⇒ unambiguous; several ⇒ a row's
+  // design element could be on any of them, so no probe link.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", datasetId],
+    queryFn: ({ signal }) => getDatasetPlatforms(datasetId, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platformShortName =
+    platformsQ.data?.length === 1
+      ? (platformsQ.data[0].shortName ?? undefined)
+      : undefined;
 
   const heatmap = useMemo<HeatmapData | null>(() => {
     if (!data || !data.rows.length) return null;
@@ -120,20 +136,23 @@ function PcLoadingsPopup({
     if (sampleEntries.length === 0) return null;
     const colLabels = sampleEntries.map(([id]) => id);
     const sampleScores = sampleEntries.map(([, s]) => s);
-    // Inline label columns: [gene symbol, gene official name].
+    // Inline label columns: [gene symbol(s), gene official name(s)].
     // Probe id is intentionally NOT inline — only the tooltip
-    // surfaces it (along with NCBI / Gemma links). When the gene
-    // isn't mapped, the symbol column falls back to the probe name
-    // so the row still has a visible identifier.
-    const rowLabelColumns = data.rows.map((r, i) => [
-      r.geneSymbol ||
-        r.designElementName ||
-        (r.designElementId != null ? `probe ${r.designElementId}` : `row ${i + 1}`),
-      r.geneOfficialName ?? "",
-    ]);
-    const rowLabels = rowLabelColumns.map((cols) =>
-      cols.filter(Boolean).join(" · "),
-    );
+    // surfaces it (along with the gene links).
+    //
+    // ``probeRowLabel`` is the same function the expression heatmap
+    // labels its gutter with, so a probe reads identically on both:
+    // all matched genes named (``A;B``) rather than just the first,
+    // and the same fallback to the probe's own name when it maps to
+    // nothing. No search drives this view — it's the top loadings on a
+    // PC, not a gene query — so the default empty ``queried`` set is
+    // right: every mapped gene is named, no row marked non-specific.
+    const labels = data.rows.map((r) => probeRowLabel(r));
+    const rowLabelColumns = labels.map((l) => [l.symbol, l.name]);
+    // Symbol alone, matching the expression heatmap — this is what the
+    // TSV export and the cell-hover title use, and the two heatmaps
+    // shouldn't format the same probe two different ways.
+    const rowLabels = labels.map((l) => l.symbol);
     const values: (number | null)[][] = data.rows.map((r) =>
       sampleScores.map((s) => r.loading * s),
     );
@@ -198,50 +217,15 @@ function PcLoadingsPopup({
                 rowLabelTooltip={(i) => {
                   const r = data?.rows[i];
                   if (!r) return null;
-                  const gHref =
-                    r.geneNcbiId != null || r.geneId != null
-                      ? geneUrl({ ncbiId: r.geneNcbiId, geneId: r.geneId })
-                      : null;
-                  const pHref =
-                    r.designElementId != null
-                      ? compositeSequenceUrl(r.designElementId)
-                      : null;
                   return (
-                    <div className="space-y-1">
-                      {r.geneSymbol ? (
-                        <div className="font-semibold text-slate-800">
-                          {r.geneSymbol}
-                        </div>
-                      ) : null}
-                      {r.geneOfficialName ? (
-                        <div className="text-slate-600">{r.geneOfficialName}</div>
-                      ) : null}
-                      <div className="text-[10px] text-slate-500 font-mono">
-                        {r.designElementName ?? `probe ${r.designElementId ?? "?"}`}
-                      </div>
-                      <div className="flex gap-3 pt-1 text-[11px]">
-                        {gHref ? (
-                          <a
-                            href={gHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sky-700 hover:underline"
-                          >
-                            NCBI Gene ↗
-                          </a>
-                        ) : null}
-                        {pHref ? (
-                          <a
-                            href={pHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sky-700 hover:underline"
-                          >
-                            Gemma probe ↗
-                          </a>
-                        ) : null}
-                      </div>
-                    </div>
+                    <ProbeRowTooltip
+                      designElementName={
+                        r.designElementName ?? `probe ${r.designElementId ?? "?"}`
+                      }
+                      designElementId={r.designElementId}
+                      genes={r.genes ?? []}
+                      platformShortName={platformShortName}
+                    />
                   );
                 }}
               />

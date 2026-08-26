@@ -86,9 +86,6 @@ function rowDiscTitle(
     return "review closed but uncommitted local changes remain";
   }
   if (hasLocalDraft) return "uncommitted local changes";
-  if (auditStatus === "in_progress") {
-    return "proposal exists but not yet touched";
-  }
   if (auditStatus === "needs_attention" || auditStatus === "failed") {
     return "review needs attention";
   }

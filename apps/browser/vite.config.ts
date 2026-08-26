@@ -47,6 +47,17 @@ export default defineConfig(({ mode }) => {
   // surface plain ``GEMMA_BASE_URL`` (the historical name).
   const env = loadEnv(mode, process.cwd(), "");
   const GEMMA_TARGET = env.GEMMA_BASE_URL || "";
+  // Public base path. The dev server serves from the origin root, but a
+  // deployed build may be mounted under a sub-path, and every emitted
+  // asset URL has to carry that prefix or it resolves against the
+  // origin root and 404s. Set `VITE_BASE_PATH` in `.env.production` (or
+  // from the shell for a differently-mounted deploy); unset means "/",
+  // i.e. served from an origin root.
+  //
+  // Normalised to leading + trailing slash — Vite requires both, and
+  // `import.meta.env.BASE_URL` mirrors whatever lands here.
+  const trimmedBase = (env.VITE_BASE_PATH || "").replace(/^\/+|\/+$/g, "");
+  const BASE_PATH = trimmedBase ? `/${trimmedBase}/` : "/";
   if (!GEMMA_TARGET) {
     console.warn(
       "[browser] GEMMA_BASE_URL not set — set it in .env.local to your Gemma instance before starting the dev server",
@@ -86,6 +97,7 @@ export default defineConfig(({ mode }) => {
     };
   }
   return {
+    base: BASE_PATH,
     plugins: [react()],
     resolve: {
       alias: {

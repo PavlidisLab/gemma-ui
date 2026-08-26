@@ -319,6 +319,31 @@ export default defineConfig(({ mode }) => {
           target: PROPOSER_URL,
           changeOrigin: true,
         },
+        // Curation draft + lock relays. The agent is Gemma's
+        // curation-write client (Paul, 2026-08-25: the curation UI is a
+        // read-only client of Gemma and the agent does the writes), so
+        // these forward to it, not to Gemma and not to the store.
+        //
+        // 🛑 Their own top-level prefix, NOT under `/rest`. `/rest` is a
+        // catch-all to the store, whose `/draft` route is the agent's
+        // crash BACKUP — so a `/rest/v2/datasets/{id}/curation-draft`
+        // would land on the store no matter what the route was named,
+        // write the backup, forward nothing to Gemma, and leave every
+        // state the save indicator can render a lie. Naming cannot
+        // defend against that; a distinct prefix can.
+        //
+        // Also why this is not a fifth `/rest/v2/...` exception: that
+        // split already exists for ontology and is recorded as a thing
+        // to unwind, not to copy. A prefix meaning three servers by
+        // path is how a call reaches somewhere nobody intended.
+        "/curation-draft": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
+        "/curation-lock": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         "/find-term": {
           target: PROPOSER_URL,
           changeOrigin: true,

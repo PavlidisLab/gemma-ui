@@ -52,7 +52,34 @@
 
 import type { AuditFinding } from "@/api/auditTypes";
 
-export type ActionShape = "add" | "remove" | "change" | "match";
+export type ActionShape = "add" | "remove" | "change" | "match" | "decide";
+
+/**
+ * The agent's reason for having no executable remedy, when it gave one.
+ *
+ * 🛑 **Keyed on SHAPE, not on the kind's name.** The fallback verb was
+ * called `needs_curator_decision` and is being renamed (Paul,
+ * 2026-08-25: *"needs_curator_decision is meaningless … something like
+ * `action_needed_but_not_categorized` for cases that aren't
+ * expressible"*). Matching the string would break on the rename and
+ * again on the next one. Matching "carries a blocked reason" does not.
+ *
+ * Measured over the 268 apply_actions in the store 2026-08-25: the
+ * field is present on 33 of 33 fallback actions and on 0 of the other
+ * 235. It is the discriminator whether or not it was designed as one.
+ *
+ * Read off the payload structurally because the TS union discriminates
+ * on `kind`, and adding a member for a kind whose name is in motion
+ * would pin exactly what must stay loose.
+ */
+export function blockedReasonOf(finding: AuditFinding): string | null {
+  const aa = finding.apply_action as
+    | { blocked_reason?: unknown }
+    | null
+    | undefined;
+  const raw = aa?.blocked_reason;
+  return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
 
 /** Optional context for ``findingActionShape``. When ``goldEmpty``
  *  is true, a ``*_match`` finding's shape downgrades from ``"match"``
@@ -72,6 +99,12 @@ export function findingActionShape(
   finding: AuditFinding,
   ctx?: FindingActionShapeContext,
 ): ActionShape {
+  // An action that says outright it has no remedy is a decision, and
+  // that beats anything the issue code implies — including the
+  // goldEmpty downgrade below, which would otherwise turn it into an
+  // "add" whose Add button cannot add. This is the case that rendered
+  // "adopt Auditor's" on a finding where every auditor field is null.
+  if (blockedReasonOf(finding)) return "decide";
   const goldEmpty = !!ctx?.goldEmpty;
   const code = finding.issue_code;
   // Match-downgrade: when the displayed gold baseline doesn't carry
@@ -178,6 +211,15 @@ export function actionLabels(shape: ActionShape): {
   // "Disagree" (reported 2026-08-09). Rows that DO collapse render the
   // single ``adopt`` verb and never show this.
   if (shape === "match") return { keep: "disagree", adopt: "confirm" };
+  // ⚠️ PROVISIONAL WORDING — the shape is settled, these two strings
+  // are not. Paul has the vocabulary call and has not made it; what
+  // could not stay was "don't change / adopt Auditor's", which offers
+  // to adopt a proposal that does not exist. Neither of these mutates
+  // anything: the resolver returns `mutates: false` for this shape, so
+  // both sides record a ruling and leave the draft alone.
+  if (shape === "decide") {
+    return { keep: "no action needed", adopt: "needs action" };
+  }
   // change (default)
   return { keep: "don't change", adopt: "adopt" };
 }
@@ -202,6 +244,12 @@ export function acceptLabel(
   proposerIdentity: string,
 ): string {
   const lbls = actionLabels(shape);
-  if (shape === "remove" || shape === "match") return lbls.adopt;
+  // No possessive on a decide: there is no proposal of the auditor's
+  // to take, which is the entire content of the finding. "needs action
+  // Auditor's" is the hanging-possessive bug the remove case already
+  // documents, in its worst form.
+  if (shape === "remove" || shape === "match" || shape === "decide") {
+    return lbls.adopt;
+  }
   return `${lbls.adopt} ${proposerIdentity}'s`;
 }

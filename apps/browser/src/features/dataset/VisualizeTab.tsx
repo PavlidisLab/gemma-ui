@@ -20,7 +20,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { HeatmapWidget, type HeatmapPayload } from "@gemma/heatmap";
+import {
+  HeatmapWidget,
+  buildGeneRowLabel,
+  NONSPECIFIC_MARK,
+  type HeatmapPayload,
+} from "@gemma/heatmap";
 import {
   searchGenes,
   searchGoTerms,
@@ -28,12 +33,16 @@ import {
   getGoTermGenes,
   getHeatmapData,
   getDatasetQuantitationTypes,
+  getDatasetPlatforms,
   type Gene,
   type HeatmapWireResponse,
 } from "@/api/endpoints";
 import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
 import { useDebounced } from "@/lib/useDebounced";
+import { taxonPathParam } from "@/lib/gemmaConfig";
+import { ProbeRowTooltip } from "./ProbeRowTooltip";
+import { restUrl } from "@/api/base";
 
 const GENES_HASH_KEY = "genes";
 const LS_PREFIX = "gemma-visualize-genes:";
@@ -120,14 +129,8 @@ export function VisualizeTab({
   // paired with a non-processed QT above — for the processed QT the
   // server masks at creation time so the flag is usually a no-op.
   const [maskOutliers, setMaskOutliers] = useState(true);
-  // Hard-scope all gene queries to this experiment's taxon. Try
-  // common name first (the visitor-facing form the agents-side TaxonArg
-  // accepts), fall back to scientific name, then to the taxon id
-  // as a last resort — all three resolve server-side.
-  const taxon =
-    dataset.taxon?.commonName?.toLowerCase() ??
-    dataset.taxon?.scientificName?.toLowerCase() ??
-    (dataset.taxon?.id != null ? String(dataset.taxon.id) : undefined);
+  // Hard-scope all gene queries to this experiment's taxon.
+  const taxon = taxonPathParam(dataset.taxon);
 
   // ── selected genes — client-only state, URL-hash + localStorage backed.
   // ``selectionHydrated`` flips true once the first-paint restore from
@@ -889,6 +892,10 @@ function HeatmapPanel({
   maskOutliers?: boolean;
 }) {
   const geneIds = useMemo(() => genes.map((g) => g.id), [genes]);
+  // The searched-for set, for telling a row's queried genes apart from
+  // the ones its probe happens to co-hybridise with. Empty in sample
+  // mode — there's no query to be specific to.
+  const queried = useMemo(() => new Set(geneIds), [geneIds]);
   // if nothing is selected use random genes
   const isSample = geneIds.length === 0;
   const wireQuery = useQuery({
@@ -914,6 +921,19 @@ function HeatmapPanel({
     staleTime: 60_000,
   });
 
+  // A probe is addressable only as platform + element. One platform ⇒
+  // every row's design element is on it; several ⇒ the payload doesn't
+  // say which, so the tooltip names the probe without linking it.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", datasetId],
+    queryFn: ({ signal }) => getDatasetPlatforms(datasetId, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platformShortName =
+    platformsQ.data?.length === 1
+      ? (platformsQ.data[0].shortName ?? undefined)
+      : undefined;
+
   if (!selectionHydrated || wireQuery.isLoading || wireQuery.isPending) {
     return (
       <div className="bg-white border border-slate-200 rounded px-6 py-10 text-center text-sm text-slate-500">
@@ -934,47 +954,30 @@ function HeatmapPanel({
     );
   }
 
-  const payload = adaptHeatmapWire(wire, origins);
-  // Rich tooltip on row-label hover — surfaces the full gene info
-  // (symbol + name + ncbi id + gemma id) without needing a click-out
-  // to a separate page. Keeps the gutter compact while making the
-  // detail one mouseover away.
+  const payload = adaptHeatmapWire(wire, origins, queried);
+  // Row-label pop-up — shared with the diagnostics heatmap so a probe
+  // reads the same way on both. Genes come off the wire row rather
+  // than the payload's parallel arrays: same order, but the tooltip
+  // wants whole gene objects.
   const rowLabelTooltip = (i: number) => {
     const r = payload.rows[i];
-    if (!r) return null;
-    const matched = r.geneIds
-      .map((id, idx) => ({
-        id,
-        symbol: r.geneSymbols[idx] ?? "",
-        name: r.geneNames?.[idx] ?? "",
-        gene: genes.find((g) => g.id === id),
-      }))
-      .filter((m) => m.symbol || m.name);
-    if (matched.length === 0) {
-      return (
-        <span className="text-xs text-slate-500">
-          design element {r.designElementName}
-        </span>
-      );
-    }
+    const wireRow = wire.rows[i];
+    if (!r || !wireRow) return null;
     return (
-      <div className="text-xs text-slate-800 space-y-1">
-        {matched.map((m) => (
-          <div key={m.id}>
-            <span className="font-mono font-semibold">{m.symbol}</span>
-            {m.name ? (
-              <span className="ml-2 text-slate-600">{m.name}</span>
-            ) : null}
-            <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-              gemma:{m.id}
-              {m.gene?.ncbiId ? ` · ncbi:${m.gene.ncbiId}` : ""}
-              {" · "}probe {r.designElementName}
-            </div>
-          </div>
-        ))}
-      </div>
+      <ProbeRowTooltip
+        designElementName={r.designElementName}
+        designElementId={r.designElementId}
+        genes={wireRow.genes ?? []}
+        platformShortName={platformShortName}
+        queried={queried}
+      />
     );
   };
+  // Drives the standing key below the heatmap.
+  const anyMarked = payload.rows.some((r) =>
+    r.labelSymbol?.endsWith(NONSPECIFIC_MARK),
+  );
+  const anyJoined = payload.rows.some((r) => r.labelSymbol?.includes(";"));
   return (
     <div className="space-y-2">
       {isSample ? (
@@ -991,6 +994,26 @@ function HeatmapPanel({
           rowLabelTooltip={rowLabelTooltip}
         />
       </div>
+      {/* Standing key for the gutter's multi-gene notation, so it reads
+          without a hover. Only rendered when some row actually uses it. */}
+      {anyMarked || anyJoined ? (
+        <p className="text-[11px] text-slate-500 px-1">
+          {anyMarked ? (
+            <>
+              <span className="font-mono">{NONSPECIFIC_MARK}</span> = the probe
+              also measures genes you didn’t search for, so the row isn’t
+              specific to your selection.{" "}
+            </>
+          ) : null}
+          {anyJoined ? (
+            <>
+              A row naming several genes (<span className="font-mono">A;B</span>)
+              matched more than one of your genes on a single probe.{" "}
+            </>
+          ) : null}
+          Hover a row label for the full probe→gene mapping.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -1112,6 +1135,7 @@ function toCell(v: unknown): number | null {
 function adaptHeatmapWire(
   wire: HeatmapWireResponse,
   origins: Record<number, GeneOrigin> = {},
+  queried: Set<number> = new Set(),
 ): HeatmapPayload {
   return {
     datasetId: wire.datasetId,
@@ -1127,7 +1151,8 @@ function adaptHeatmapWire(
       },
     },
     rows: wire.rows.map((r) => {
-      const geneIds = (r.genes ?? []).map((g) => g.id);
+      const rowGenes = r.genes ?? [];
+      const geneIds = rowGenes.map((g) => g.id);
       // First gene id that carries an origin wins — single disc per row.
       const originHit = geneIds
         .map((id) => origins[id])
@@ -1136,10 +1161,14 @@ function adaptHeatmapWire(
         designElementId: r.designElementId,
         designElementName: r.designElementName,
         geneIds,
-        geneSymbols: (r.genes ?? []).map((g) => g.officialSymbol ?? ""),
+        geneSymbols: rowGenes.map((g) => g.officialSymbol ?? ""),
         // Pull the full gene name through so the heatmap row gutter
         // can render symbol + name inline (no link-out required).
-        geneNames: (r.genes ?? []).map((g) => g.name ?? ""),
+        geneNames: rowGenes.map((g) => g.name ?? ""),
+        // Gutter headline: the searched gene(s), marked when the probe
+        // isn't specific to them. Falls back to the probe name inside
+        // the widget when there's no symbol to show.
+        ...buildGeneRowLabel(rowGenes, queried),
         originColor: originHit ? colorForGoUri(originHit.goUri) : null,
         originTitle: originHit ? originHit.goLabel : null,
       };
@@ -1401,12 +1430,37 @@ function shareIdOf(g: Gene): number {
   return g.ncbiId ?? g.id;
 }
 
+/**
+ * Split the fragment into the router's part and ours.
+ *
+ * The app runs on hash routing (see main.tsx), so the fragment already
+ * carries the route: ``#/dataset/123``. TanStack's hash history
+ * reserves everything after a *second* ``#`` for application use, so
+ * the two coexist as ``#/dataset/123#genes=1,2``. Under plain browser
+ * history (dev, and prod again if Apache ever grows a
+ * `FallbackResource`) there is no route part and the whole fragment is
+ * ours.
+ *
+ * Telling the cases apart: a route always starts with ``/``, and
+ * ``genes=…`` never does. Getting this wrong is not cosmetic — the
+ * previous version rebuilt the URL as ``pathname + search + "#genes=…"``,
+ * which under hash routing drops the route on the floor and sends a
+ * refresh to the home page.
+ */
+export function splitFragment(raw: string): { route: string; params: string } {
+  const frag = raw.replace(/^#/, "");
+  if (!frag.startsWith("/")) return { route: "", params: frag };
+  const i = frag.indexOf("#");
+  return i === -1
+    ? { route: frag, params: "" }
+    : { route: frag.slice(0, i), params: frag.slice(i + 1) };
+}
+
 function readGeneIdsFromHash(): number[] | null {
   if (typeof window === "undefined") return null;
-  const hash = window.location.hash.replace(/^#/, "");
-  if (!hash) return null;
-  const params = new URLSearchParams(hash);
-  const raw = params.get(GENES_HASH_KEY);
+  const { params } = splitFragment(window.location.hash);
+  if (!params) return null;
+  const raw = new URLSearchParams(params).get(GENES_HASH_KEY);
   if (!raw) return null;
   return raw
     .split(",")
@@ -1416,19 +1470,30 @@ function readGeneIdsFromHash(): number[] | null {
 
 function writeGeneIdsToHash(ids: number[]): void {
   if (typeof window === "undefined") return;
-  const hash = window.location.hash.replace(/^#/, "");
-  const params = new URLSearchParams(hash);
+  const { route, params } = splitFragment(window.location.hash);
+  const p = new URLSearchParams(params);
   if (ids.length === 0) {
-    params.delete(GENES_HASH_KEY);
+    p.delete(GENES_HASH_KEY);
   } else {
-    params.set(GENES_HASH_KEY, ids.join(","));
+    p.set(GENES_HASH_KEY, ids.join(","));
   }
-  const next = params.toString();
-  const newUrl =
-    window.location.pathname +
-    window.location.search +
-    (next ? "#" + next : "");
-  window.history.replaceState({}, "", newUrl);
+  const next = p.toString();
+  // Rebuilt route-first so the router still sees its path. Kept on
+  // ``replaceState`` rather than ``router.navigate`` deliberately: a
+  // gene pick is not a navigation, and routing it through the router
+  // would re-render this whole heatmap page on every checkbox.
+  const frag = route
+    ? next
+      ? `#${route}#${next}`
+      : `#${route}`
+    : next
+      ? `#${next}`
+      : "";
+  window.history.replaceState(
+    {},
+    "",
+    window.location.pathname + window.location.search + frag,
+  );
 }
 
 function readGeneIdsFromStorage(key: string): number[] | null {
@@ -1499,7 +1564,7 @@ async function resolveGeneIds(
     // placeholder on empty/error so the selection survives a cold load.
     let resolved: Gene | undefined;
     try {
-      const r = await fetch(`/rest/v2/genes/${shareId}`).then((res) =>
+      const r = await fetch(restUrl(`/genes/${shareId}`)).then((res) =>
         res.json(),
       );
       resolved = r?.data?.[0] as Gene | undefined;

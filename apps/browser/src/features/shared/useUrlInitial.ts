@@ -54,16 +54,24 @@ export function useUrlInitial(): UrlInitial {
   const params = useRouterState({
     select: (s) => (s.matches[s.matches.length - 1]?.params ?? {}) as Record<string, string>,
   });
-  // window.location.search is the source of truth for query-string
-  // params without declaring them in the route's ``validateSearch``.
-  // Defensive guard for non-browser environments (vitest happy path).
-  const search =
-    typeof window === "undefined" ? "" : window.location.search;
-  const qs = search ? new URLSearchParams(search) : null;
-  const sort = qs?.get("sort") ?? null;
-  const updatedSince = qs?.get("updatedSince") ?? null;
-  const categoryUri = qs?.get("categoryUri") ?? null;
-  const annotationUri = qs?.get("annotationUri") ?? null;
+  // The router's parsed search — NOT ``window.location.search``. Under
+  // hash routing the app's query string lives inside the fragment
+  // (/gemmaui/#/browser?s=…), so the real one is empty and reading it
+  // would silently drop every param below. The router parses whatever
+  // the active history hands it, which is the right string in both
+  // modes; it also keeps these readable without declaring them in any
+  // route's ``validateSearch``.
+  const search = useRouterState({
+    select: (s) => s.location.search as Record<string, unknown>,
+  });
+  const str = (k: string): string | null => {
+    const v = search[k];
+    return typeof v === "string" && v !== "" ? v : null;
+  };
+  const sort = str("sort");
+  const updatedSince = str("updatedSince");
+  const categoryUri = str("categoryUri");
+  const annotationUri = str("annotationUri");
   return {
     query: params.query ? decodeURIComponent(params.query) : undefined,
     initialTaxon: params.initialTaxon,
@@ -71,10 +79,10 @@ export function useUrlInitial(): UrlInitial {
     sort: sort ?? undefined,
     updatedSince: ISO_DATE.test(updatedSince ?? "") ? updatedSince! : undefined,
     categoryUri: HTTP_URI.test(categoryUri ?? "") ? categoryUri! : undefined,
-    categoryLabel: qs?.get("categoryLabel") ?? undefined,
+    categoryLabel: str("categoryLabel") ?? undefined,
     annotationUri: HTTP_URI.test(annotationUri ?? "") ? annotationUri! : undefined,
-    annotationLabel: qs?.get("annotationLabel") ?? undefined,
-    taxon: qs?.get("taxon") ?? undefined,
-    shared: qs?.get("s") ?? undefined,
+    annotationLabel: str("annotationLabel") ?? undefined,
+    taxon: str("taxon") ?? undefined,
+    shared: str("s") ?? undefined,
   };
 }

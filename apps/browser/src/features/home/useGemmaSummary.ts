@@ -22,8 +22,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "@/api/client";
 import type { Dataset, PaginatedResponse, Taxon } from "@/lib/types";
-
-const BASE = "/rest/v2";
+import { apiBase as BASE } from "@/api/base";
 
 /** Start of the "this week" window, as a plain ``YYYY-MM-DD`` the
  *  Gemma filter parser widens to midnight UTC. Kept date-granular on

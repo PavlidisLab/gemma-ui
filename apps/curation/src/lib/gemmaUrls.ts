@@ -1,18 +1,50 @@
 /**
- * Single source of truth for the Gemma web base URL + the deep-link
- * patterns the UI needs (experiment page, audit-trail page, array-
- * design page). Production points at ``https://gemma.msl.ubc.ca``;
- * dev / staging deployments override via ``VITE_GEMMA_WEB_URL``.
+ * Single source of truth for the Gemma web base URLs + the deep-link
+ * patterns the UI needs.
  *
- * The Vite-time env var is read once at module load — changes
+ * **There are two Gemma web front-ends now**, and a curator wants both
+ * from an experiment page:
+ *
+ *   - **Gemma 1.0** — the JSP webapp at ``https://gemma.msl.ubc.ca``.
+ *     Still the only place some detail pages exist, so it stays linked
+ *     "for now" (Paul, 2026-08-25).
+ *   - **Gemma 2.0** — the browser app, live at the ROOT of
+ *     ``https://gemma2.msl.ubc.ca`` as of 2026-08-25.
+ *
+ * The Vite-time env vars are read once at module load — changes
  * require a dev-server restart, same as the proxy targets.
  *
  * Kept distinct from the curation REST base (``GEMMA_CURATION_URL``,
- * proxied at ``/rest/*``): that's the API surface the UI POSTs to;
- * this is the **public web pages** the UI links *out* to.
+ * proxied at ``/rest/*``): that's the API surface the UI talks to;
+ * these are the **public web pages** the UI links *out* to.
  */
 export const GEMMA_WEB_URL: string =
   import.meta.env.VITE_GEMMA_WEB_URL ?? "https://gemma.msl.ubc.ca";
+
+/** Base for the Gemma 2.0 browser app. Mounted at the site root —
+ *  verified 2026-08-25, ``/`` serves it and every sub-path 404s. */
+export const GEMMA_BROWSER_URL: string =
+  import.meta.env.VITE_GEMMA_BROWSER_URL ?? "https://gemma2.msl.ubc.ca";
+
+/**
+ * Deep link to an experiment in the Gemma 2.0 browser.
+ *
+ * 🛑 The ``#`` is not decoration. The browser app uses
+ * ``createHashHistory`` (`apps/browser/src/main.tsx:45`) precisely so
+ * deep links survive a static mount with no server rewrite — the
+ * fragment never reaches the server. A path-style
+ * ``/dataset/9`` would 404.
+ *
+ * Takes the same numeric id as ``experimentPageUrl``: the curation
+ * store preserves Gemma's experiment ids on import, so one id
+ * addresses the same dataset in all three places (verified 2026-08-25
+ * — GSE3253 is 9 in the store and 9 on gemma2).
+ */
+export function browserExperimentPageUrl(
+  experimentId: number | string,
+): string {
+  return `${GEMMA_BROWSER_URL}/#/dataset/${experimentId}`;
+}
 
 export function experimentPageUrl(experimentId: number | string): string {
   return `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperiment.html?id=${experimentId}`;

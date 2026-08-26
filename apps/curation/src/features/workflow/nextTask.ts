@@ -119,8 +119,6 @@ function stepTone(status: StepStatus): NextTask["tone"] {
       return "urgent";
     case "needs_attention":
       return "attention";
-    case "in_progress":
-      return "active";
     default:
       return "todo";
   }
@@ -146,8 +144,6 @@ function stepVerb(status: StepStatus, label: string, isReviewStep: boolean): str
       // "Look at Outliers" read awkwardly; bare noun + tone-color
       // already says "this needs attention." Per design review 2026-05-25.
       return label;
-    case "in_progress":
-      return `Continue ${label}`;
     case "not_run":
     default:
       return label;

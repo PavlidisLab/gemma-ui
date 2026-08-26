@@ -24,7 +24,10 @@
  */
 
 import { useState } from "react";
-import { LoginModal } from "@/features/shared/LoginModal";
+import {
+  LoginModal,
+  SIGN_IN_BUTTON_COLOR,
+} from "@/features/shared/LoginModal";
 import { useMe } from "@/api/auth";
 import { HeaderSection } from "./sections/HeaderSection";
 import { JvmSection } from "./sections/JvmSection";
@@ -128,7 +131,7 @@ function LoginChallenge() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="block text-center w-full px-3 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium"
+          className={`block text-center w-full px-3 py-2 rounded text-sm font-medium ${SIGN_IN_BUTTON_COLOR}`}
         >
           Sign in
         </button>

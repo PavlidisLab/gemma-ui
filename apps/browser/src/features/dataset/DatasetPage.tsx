@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient, type QueryFunctionContext } from "@tanstack/react-query";
-import { useParams, useNavigate, useSearch } from "@tanstack/react-router";
+import { Link, useParams, useNavigate, useSearch } from "@tanstack/react-router";
 import { marked } from "marked";
 import { ExternalLink, Pencil, ChevronRight } from "lucide-react";
 import { useDocumentTitle, pageTitle } from "@gemma/ui";
@@ -13,6 +13,7 @@ import {
   getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
+  getDatasetPlatforms,
   getDatasetSamples,
   getDatasetQuantitationTypes,
   getDatasetPublications,
@@ -37,7 +38,6 @@ import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
-import { geneUrl, compositeSequenceUrl } from "@/lib/gemmaConfig";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
@@ -2644,6 +2644,19 @@ function ResultSetHeatmap({
     queryFn: ({ signal }) => getDatasetSamples(datasetId, signal),
     staleTime: 5 * 60_000,
   });
+  // Probe links are in-app now, and a probe is addressable only as
+  // platform + element. One platform ⇒ every row's design element is
+  // on it; several ⇒ the payload doesn't say which, so no probe link.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", datasetId],
+    queryFn: ({ signal }) => getDatasetPlatforms(datasetId, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platformShortName =
+    platformsQ.data?.length === 1
+      ? (platformsQ.data[0].shortName ?? undefined)
+      : undefined;
+
   const designQ = useQuery({
     queryKey: ["dataset-design", datasetId],
     queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
@@ -2720,15 +2733,11 @@ function ResultSetHeatmap({
       fdr: lvl.correctedPvalue ?? null,
       pvalue: lvl.pvalue ?? null,
       log2FoldChange: lvl.log2FoldChange ?? null,
-      ncbiHref:
-        lvl.geneNcbiId != null || lvl.geneId != null
-          ? geneUrl({ ncbiId: lvl.geneNcbiId, geneId: lvl.geneId })
-          : null,
+      // Ids, not hrefs: both links are in-app routes now rather than
+      // absolute URLs into the legacy JSP UI.
+      geneNcbiId: lvl.geneNcbiId ?? null,
       probeName: vec?.designElementName ?? null,
-      probeHref:
-        vec?.designElementId != null
-          ? compositeSequenceUrl(vec.designElementId)
-          : null,
+      designElementId: vec?.designElementId ?? null,
     };
   };
   return (
@@ -2799,25 +2808,26 @@ function ResultSetHeatmap({
                 </div>
               ) : null}
               <div className="flex gap-3 pt-1 text-[11px]">
-                {r.ncbiHref ? (
-                  <a
-                    href={r.ncbiHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                {r.geneNcbiId != null ? (
+                  <Link
+                    to="/gene/ncbi/$ncbiId"
+                    params={{ ncbiId: String(r.geneNcbiId) }}
                     className="text-sky-700 hover:underline"
                   >
-                    NCBI Gene ↗
-                  </a>
+                    gene page →
+                  </Link>
                 ) : null}
-                {r.probeHref ? (
-                  <a
-                    href={r.probeHref}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                {platformShortName && r.designElementId != null ? (
+                  <Link
+                    to="/platforms/$shortName/probe/$elementId"
+                    params={{
+                      shortName: platformShortName,
+                      elementId: String(r.designElementId),
+                    }}
                     className="text-sky-700 hover:underline"
                   >
-                    Gemma probe ↗
-                  </a>
+                    probe page →
+                  </Link>
                 ) : null}
               </div>
             </div>

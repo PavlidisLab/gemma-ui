@@ -11,6 +11,7 @@ import { orderFactorsForDisplay } from './factorOrder';
 import { buildCategoricalStrip } from './strips/categorical';
 import { buildContinuousStrip } from './strips/continuous';
 import type { HeatmapData, AnnotationStrip } from './types';
+import { probeRowLabel } from './payload';
 import type { HeatmapPayload, HeatmapPayloadColumn } from './payload';
 
 export interface BuildOptions {
@@ -59,18 +60,23 @@ export function buildHeatmapDataFromPayload(
       : buildCategoricalStrip(f, cols),
   );
 
+  // Resolved gutter text per row. ``probeRowLabel`` owns the whole
+  // decision — which genes to name and what to fall back to — and is
+  // shared with the surfaces that don't build a HeatmapPayload at all
+  // (the PC-loadings popup), so the same probe reads the same way
+  // everywhere.
+  const rowLabelParts = payload.rows.map((r) => probeRowLabel(r));
+  const symbolLabels = rowLabelParts.map((p) => p.symbol);
+  const nameLabels = rowLabelParts.map((p) => p.name);
+
   // Single-string fallback (TSV download + label tooltip use this).
-  const rowLabels = payload.rows.map(
-    (r) => r.geneSymbols[0] ?? r.designElementName,
-  );
+  const rowLabels = symbolLabels;
   // Rich multi-column row labels — optional leading p-value, then
   // symbol, then gene name when available. Renderer auto-aligns columns
   // across rows via CSS grid; we MUST emit a fixed column count per row
   // or grid auto-flow misaligns (empty string keeps the slot, just
   // renders blank).
-  const anyName = payload.rows.some(
-    (r) => (r.geneNames ?? []).some((n) => n && n.length > 0),
-  );
+  const anyName = nameLabels.some((n) => n.length > 0);
   // When any row carries a p-value — the DE top-genes heatmap does —
   // render it as a leading numeric column to the LEFT of the gene
   // symbol.
@@ -79,11 +85,11 @@ export function buildHeatmapDataFromPayload(
   );
   const rowLabelColumns: string[][] | undefined =
     anyName || anyPvalue
-      ? payload.rows.map((r) => {
+      ? payload.rows.map((r, i) => {
           const cols: string[] = [];
           if (anyPvalue) cols.push(formatPvalueLabel(r.pvalue));
-          cols.push(r.geneSymbols[0] ?? r.designElementName);
-          if (anyName) cols.push(r.geneNames?.[0] ?? '');
+          cols.push(symbolLabels[i]);
+          if (anyName) cols.push(nameLabels[i]);
           return cols;
         })
       : undefined;
