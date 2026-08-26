@@ -44,6 +44,15 @@ interface ImportMetaEnv {
    *  returns the same host as ``VITE_GEMMA_BASE_URL`` so the
    *  indicator hides (no split happening). */
   readonly VITE_GEMMA_ONTOLOGY_URL?: string;
+
+  /** Base for the Gemma 1.0 JSP webapp the UI links OUT to (not an
+   *  API base). Defaults to ``https://gemma.msl.ubc.ca``. Was read
+   *  by `lib/gemmaUrls.ts` without ever being declared here. */
+  readonly VITE_GEMMA_WEB_URL?: string;
+
+  /** Base for the Gemma 2.0 browser app. Defaults to
+   *  ``https://gemma2.msl.ubc.ca``, where it is mounted at the root. */
+  readonly VITE_GEMMA_BROWSER_URL?: string;
 }
 
 interface ImportMeta {
