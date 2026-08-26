@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { actionLabels, findingActionShape } from "./actionLabels";
+import {
+  actionLabels,
+  acceptLabel,
+  blockedReasonOf,
+  findingActionShape,
+} from "./actionLabels";
 import type { AuditFinding } from "@/api/auditTypes";
 
 /** Build a minimal AuditFinding shape sufficient for
@@ -166,5 +171,73 @@ describe("tag-side match codes (2026-08-09)", () => {
     expect(
       findingActionShape(f("calibration_match", "ok"), { goldEmpty: true }),
     ).toBe("add");
+  });
+});
+
+/**
+ * The fallback verb — an action the agent could not express.
+ *
+ * Real fixture: audit 45cc7771 on GSE274093. `term_grounding_judge`
+ * asks whether `Rosa26fsTRAP X Nav1.8-Cre` resolves to a strain term,
+ * finds nothing (it is a custom mouse line), and says so. Every other
+ * field on the action is null, so there is nothing whatsoever to adopt
+ * — and the card offered "adopt Auditor's" until this shape existed.
+ *
+ * 🛑 These pin the SHAPE, not the kind's name. The kind is being
+ * renamed away from `needs_curator_decision`; a test matching the
+ * string would have to be edited to keep passing, which is the bug it
+ * is supposed to catch.
+ */
+function undecidable(issue_code = "ungrounded_term"): AuditFinding {
+  return {
+    ...f(issue_code, "minor"),
+    apply_action: {
+      kind: "needs_curator_decision",
+      blocked_reason:
+        "`Rosa26fsTRAP X Nav1.8-Cre` resolves to no term in the `strain` namespace; a slot URI is looked up, never invented",
+    },
+  } as unknown as AuditFinding;
+}
+
+describe("actions the agent could not express", () => {
+  it("reads the reason off the payload without naming the kind", () => {
+    expect(blockedReasonOf(undecidable())).toMatch(/no term in the .strain./);
+    // No action at all, and an action with no reason, are both absent.
+    expect(blockedReasonOf(f("ungrounded_term"))).toBeNull();
+  });
+
+  it("treats a blank reason as no reason", () => {
+    const blank = {
+      ...f("ungrounded_term"),
+      apply_action: { kind: "needs_curator_decision", blocked_reason: "   " },
+    } as unknown as AuditFinding;
+    expect(blockedReasonOf(blank)).toBeNull();
+    // ...and therefore does NOT claim the decide shape on an empty punt.
+    expect(findingActionShape(blank)).toBe("change");
+  });
+
+  it("shapes as a decision, not the change default", () => {
+    expect(findingActionShape(undecidable())).toBe("decide");
+  });
+
+  it("never offers to adopt something that does not exist", () => {
+    const labels = actionLabels(findingActionShape(undecidable()));
+    expect(labels.adopt).not.toMatch(/adopt/i);
+    expect(labels.keep).not.toBe("don't change");
+  });
+
+  it("drops the possessive — there is no auditor's proposal to take", () => {
+    // "needs action Auditor's" is the hanging possessive in its worst
+    // form: it names a proposal the finding exists to say is absent.
+    const s = acceptLabel(findingActionShape(undecidable()), "Auditor");
+    expect(s).not.toMatch(/Auditor/);
+  });
+
+  it("beats the goldEmpty downgrade — an Add that cannot add is worse", () => {
+    // goldEmpty turns match codes into "add". For an inexpressible
+    // action that would render an Add button with nothing to add.
+    expect(
+      findingActionShape(undecidable("calibration_match"), { goldEmpty: true }),
+    ).toBe("decide");
   });
 });

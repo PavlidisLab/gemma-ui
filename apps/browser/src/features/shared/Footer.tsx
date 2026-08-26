@@ -15,6 +15,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { apiGet, ApiError } from "@/api/client";
+import { restUrl } from "@/api/base";
+import { baseUrl } from "@/lib/gemmaConfig";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 
@@ -55,7 +57,7 @@ function useServerInfo() {
     queryKey: ["server", "info"],
     queryFn: async () => {
       try {
-        return await apiGet<ServerInfo>("/rest/v2/info");
+        return await apiGet<ServerInfo>(restUrl("/info"));
       } catch (e) {
         // /info is anonymous-safe on Gemma 2.0 but absent on older
         // builds; 401/403/404 → just hide that half of the stamp.
@@ -75,7 +77,13 @@ function useServerInfo() {
 
 export function Footer() {
   const me = useMe();
-  const target = typeof __GEMMA_TARGET__ === "string" ? __GEMMA_TARGET__ : "";
+  // Dev: the upstream the /rest proxy fronts. Prod: there is no such
+  // proxy, so fall back to the configured Gemma origin — which is
+  // where the Apache reverse proxy behind `apiBase` lands anyway.
+  // Without the fallback the chip reads "unset" on every deployed
+  // build.
+  const target =
+    (typeof __GEMMA_TARGET__ === "string" ? __GEMMA_TARGET__ : "") || baseUrl;
   const host = (() => {
     try {
       return new URL(target).host;

@@ -342,6 +342,71 @@ export function AnnotationSelector(props: Props) {
     else onChangeNegative(neg);
   }
 
+  /**
+   * Right-click: send a term straight back to unselected.
+   *
+   * The left-click cycle is off → selected → negated → off, so
+   * undoing a selection means clicking *through* negated, which
+   * re-runs the search against a filter the user never wanted. One
+   * gesture to clear, from either state.
+   *
+   * A category in pos/neg mode has no per-term entries to drop, so
+   * clearing one term means demoting the category to the explicit
+   * per-term list first and leaving this term out of it — the same
+   * demotion ``cycleTerm`` does, minus the flip.
+   */
+  function clearTerm(t: AnnotationTerm, cat: CategoryWithChildren) {
+    if (disabled) return;
+    const catId = categoryId(cat);
+    const others = cat.children.filter((c) => getId(c) !== getId(t));
+
+    if (selectedCatIds.has(catId)) {
+      onChangeCategoriesSelected(
+        selectedCategories.filter((c) => categoryId(c) !== catId),
+      );
+      onChangeSelected([
+        ...selectedAnnotations.filter((a) => getCategoryId(a) !== catId),
+        ...others,
+      ]);
+      onChangeNegative(
+        negativeAnnotations.filter((a) => getCategoryId(a) !== catId),
+      );
+      return;
+    }
+    if (negativeCatIds.has(catId)) {
+      onChangeCategoriesNegative(
+        negativeCategories.filter((c) => categoryId(c) !== catId),
+      );
+      onChangeNegative([
+        ...negativeAnnotations.filter((a) => getCategoryId(a) !== catId),
+        ...others,
+      ]);
+      onChangeSelected(
+        selectedAnnotations.filter((a) => getCategoryId(a) !== catId),
+      );
+      return;
+    }
+
+    const id = getId(t);
+    onChangeSelected(selectedAnnotations.filter((a) => getId(a) !== id));
+    onChangeNegative(negativeAnnotations.filter((a) => getId(a) !== id));
+  }
+
+  /** Right-click on a category: clear the whole category — its own
+   *  pos/neg state and every per-term state under it. */
+  function clearCategory(cat: CategoryWithChildren) {
+    if (disabled) return;
+    const cid = categoryId(cat);
+    onChangeSelected(selectedAnnotations.filter((a) => getCategoryId(a) !== cid));
+    onChangeNegative(negativeAnnotations.filter((a) => getCategoryId(a) !== cid));
+    onChangeCategoriesSelected(
+      selectedCategories.filter((c) => categoryId(c) !== cid),
+    );
+    onChangeCategoriesNegative(
+      negativeCategories.filter((c) => categoryId(c) !== cid),
+    );
+  }
+
   function cycleCategory(cat: CategoryWithChildren) {
     if (disabled) return;
     const cid = categoryId(cat);
@@ -572,7 +637,12 @@ export function AnnotationSelector(props: Props) {
           return (
             <li key={cid} className="py-0.5">
               <div className="flex items-center gap-1.5">
-                <CategoryStateButton state={catState} onClick={() => cycleCategory(cat)} disabled={disabled} />
+                <CategoryStateButton
+                  state={catState}
+                  onClick={() => cycleCategory(cat)}
+                  onClear={() => clearCategory(cat)}
+                  disabled={disabled}
+                />
                 <button
                   type="button"
                   onClick={() => setOpen({ ...open, [cid]: !isOpen })}
@@ -650,6 +720,7 @@ export function AnnotationSelector(props: Props) {
                       <TermStateButton
                         state={state}
                         onClick={() => cycleTerm(t, cat)}
+                        onClear={() => clearTerm(t, cat)}
                         disabled={disabled}
                       />
                       <span
@@ -883,10 +954,15 @@ function TermStateButton({
   state,
   disabled,
   onClick,
+  onClear,
 }: {
   state: 1 | -1 | 0;
   disabled?: boolean;
   onClick: () => void;
+  /** Right-click. Suppresses the native menu only when there is
+   *  something to clear, so a right-click on an untouched term still
+   *  gets the browser's own menu. */
+  onClear?: () => void;
 }) {
   // ``disabled:`` styling is not optional here the way it is for the
   // Taxa / Platforms facets: those are real ``<input type=checkbox>``
@@ -909,15 +985,23 @@ function TermStateButton({
     <button
       type="button"
       onClick={onClick}
+      onContextMenu={
+        onClear && state !== 0
+          ? (e) => {
+              e.preventDefault();
+              onClear();
+            }
+          : undefined
+      }
       disabled={disabled}
       className={`${base} ${tone}`}
       title={
         disabled
           ? "Refreshing annotations — unavailable for a moment"
           : state === 1
-            ? "Selected (click to negate)"
+            ? "Selected (click to negate, right-click to clear)"
             : state === -1
-              ? "Negated (click to clear)"
+              ? "Negated (click to clear, right-click to clear)"
               : "Click to select"
       }
     >
@@ -934,10 +1018,13 @@ function CategoryStateButton({
   state,
   disabled,
   onClick,
+  onClear,
 }: {
   state: "all-pos" | "all-neg" | "some-pos" | "some-neg" | "mixed" | "empty";
   disabled?: boolean;
   onClick: () => void;
+  /** Right-click: clear the category and everything under it. */
+  onClear?: () => void;
 }) {
   // Same disabled-state reasoning as TermStateButton above.
   const base =
@@ -978,10 +1065,22 @@ function CategoryStateButton({
     <button
       type="button"
       onClick={onClick}
+      onContextMenu={
+        onClear && state !== "empty"
+          ? (e) => {
+              e.preventDefault();
+              onClear();
+            }
+          : undefined
+      }
       disabled={disabled}
       className={`${base} ${tone}`}
       title={
-        disabled ? "Refreshing annotations — unavailable for a moment" : "Cycle category"
+        disabled
+          ? "Refreshing annotations — unavailable for a moment"
+          : state === "empty"
+            ? "Cycle category"
+            : "Cycle category (right-click to clear)"
       }
     >
       {icon}

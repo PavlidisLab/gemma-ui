@@ -24,17 +24,35 @@ export class ApiError extends Error {
   readonly status: number;
   readonly statusText: string;
   readonly detail: string;
+  /**
+   * The parsed error body, when there was one and it was JSON.
+   *
+   * `detail` is a FLATTENED sentence for display. Structured fields
+   * beside it were being dropped: the agent's draft 409 sends
+   * `{error, detail, draftRetained}`, and `readErrorBody` returned only
+   * the `detail` string, so a caller asking "did my draft survive?"
+   * could not find out. It answered from a default instead — the right
+   * default, by luck rather than by reading the server.
+   *
+   * Structured codes are the direction the wire is going (Gemma's
+   * commit 409s now carry `errors[].reason` — `STALE_BASELINE`,
+   * `REQUIRES_FORCE`, …, precisely so clients stop matching on
+   * sentences nobody promised to keep). Keying on those needs the body.
+   */
+  readonly body?: unknown;
   constructor(
     message: string,
     status: number,
     statusText: string,
     detail: string,
+    body?: unknown,
   ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.statusText = statusText;
     this.detail = detail;
+    this.body = body;
   }
 }
 
@@ -48,21 +66,49 @@ export function bearerToken(): string {
 /** Extract the most useful error text from a non-OK response.
  *  Tries JSON ``{detail}`` first (FastAPI's idiom), falls back to
  *  the raw text. Returns ``""`` on parse failure. */
-async function readErrorBody(r: Response): Promise<string> {
+/**
+ * Pull the human-readable reason out of an error body.
+ *
+ * TWO backends answer through this one client and they shape errors
+ * differently. local_api is FastAPI — `{"detail": "..."}`. Gemma REST
+ * wraps its own — `{"apiVersion", "buildInfo", "error": {"code",
+ * "message"}}`.
+ *
+ * Only the FastAPI shape was recognised, so every Gemma error fell
+ * through to `JSON.stringify(body)` and the caller was handed the whole
+ * envelope, buildInfo and all, with the one useful sentence buried in
+ * it. `/annotations/search` began returning `400 Invalid search query:
+ * cell OR` on 2026-08-25 (gemma2 `8b76ee195c`), which is the first
+ * Gemma error worth showing a curator verbatim.
+ */
+async function readErrorBody(
+  r: Response,
+): Promise<{ detail: string; body?: unknown }> {
   try {
     const body = await r.clone().json();
     if (body && typeof body === "object" && "detail" in body) {
       const d = (body as { detail: unknown }).detail;
-      return typeof d === "string" ? d : JSON.stringify(d);
+      return { detail: typeof d === "string" ? d : JSON.stringify(d), body };
     }
-    return JSON.stringify(body);
+    if (body && typeof body === "object" && "error" in body) {
+      const e = (body as { error: unknown }).error;
+      if (e && typeof e === "object" && "message" in e) {
+        const m = (e as { message: unknown }).message;
+        if (typeof m === "string" && m) return { detail: m, body };
+      }
+      return {
+        detail: typeof e === "string" ? e : JSON.stringify(e),
+        body,
+      };
+    }
+    return { detail: JSON.stringify(body), body };
   } catch {
     /* not JSON; fall through to text */
   }
   try {
-    return await r.text();
+    return { detail: await r.text() };
   } catch {
-    return "";
+    return { detail: "" };
   }
 }
 
@@ -174,7 +220,7 @@ async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
-    const detail = await readErrorBody(r);
+    const { detail, body: errorBody } = await readErrorBody(r);
     throw new ApiError(
       `${method} ${path} failed: ${r.status} ${r.statusText}${
         detail ? ` — ${detail}` : ""
@@ -182,6 +228,7 @@ async function request<T>(
       r.status,
       r.statusText,
       detail,
+      errorBody,
     );
   }
   if (r.status === 204) return undefined as T;

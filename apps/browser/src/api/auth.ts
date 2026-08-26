@@ -23,8 +23,7 @@ import {
   readSessionToken,
   writeSessionToken,
 } from "./client";
-
-const BASE = "/rest/v2";
+import { apiBase as BASE } from "./base";
 
 export interface LoginRequest {
   username: string;

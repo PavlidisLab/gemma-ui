@@ -9,11 +9,31 @@
 // Pipeline step status
 // ---------------------------------------------------------------------------
 
+/**
+ * Status of one pipeline step.
+ *
+ * 🛑 There is no `in_progress`, deliberately. It was in this union and
+ * **nothing has ever produced it.** Gemma derives a step's status from
+ * the last audit event of that step, and an audit event is written when
+ * a step FINISHES — there is no in-flight signal on this path at all
+ * (gembro, 2026-08-25). The curation store does not emit it either:
+ * sampled across 40 datasets, the only values seen were `not_run`,
+ * `ok`, `na` and `needs_attention`.
+ *
+ * If you want "a run is happening right now", it comes from
+ * `PIPELINE_JOB.STATE ∈ {PENDING, QUEUED, RUNNING}` — a different table
+ * behind a different endpoint. Re-adding a value here would not reach
+ * it, and would give three renderers a branch that never runs.
+ *
+ * Gemma publishes `ok | failed | notRun | notApplicable` (pinned as
+ * `allowableValues` on `PipelineStepValueObject.status` 2026-08-25, at
+ * uib's ask — it had been a bare string with the vocabulary living in a
+ * javadoc). `mapGemmaStatus` folds those onto the names here.
+ */
 export type StepStatus =
   | "not_run"
   | "ok"
   | "failed"
-  | "in_progress"
   | "needs_attention"
   | "na";
 

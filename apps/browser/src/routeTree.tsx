@@ -18,6 +18,7 @@ import { HomePage } from "@/features/home/HomePage";
 import { BrowserPage } from "@/features/browser/BrowserPage";
 import { PlatformsPage } from "@/features/platforms/PlatformsPage";
 import { PlatformDetailPage } from "@/features/platforms/PlatformDetailPage";
+import { ProbePage } from "@/features/platforms/ProbePage";
 import { HeatmapDemo } from "@/features/heatmap-demo/HeatmapDemo";
 import { HeatmapDemoV2 } from "@/features/heatmap-demo/HeatmapDemoV2";
 import { DatasetPage } from "@/features/dataset/DatasetPage";
@@ -90,6 +91,16 @@ const platformDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/platforms/$shortName",
   component: () => <PlatformDetailPage />,
+});
+
+// Probe (design element) detail — the React port of the legacy
+// /arrays/compositeSequence/show.html. Keyed by element id, under its
+// platform: REST has no top-level probe endpoint, so the platform is
+// needed to resolve the element at all. See ProbePage's header.
+const probeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/platforms/$shortName/probe/$elementId",
+  component: () => <ProbePage />,
 });
 
 // /summary route removed 2026-05-26 — pointed at the (now-deleted)
@@ -172,6 +183,7 @@ export const routeTree = rootRoute.addChildren([
   browserPresetRoute,
   platformsRoute,
   platformDetailRoute,
+  probeRoute,
   heatmapDemoRoute,
   heatmapDemoV2Route,
   datasetRoute,

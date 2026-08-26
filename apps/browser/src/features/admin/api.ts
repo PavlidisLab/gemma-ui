@@ -11,8 +11,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiGet, ApiError } from "@/api/client";
-
-const BASE = "/rest/v2";
+import { apiBase as BASE } from "@/api/base";
 
 // ─── Build / process identity (anonymous) ─────────────────────────
 

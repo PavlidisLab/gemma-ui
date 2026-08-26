@@ -17,8 +17,8 @@ import type {
   Taxon,
   User,
 } from "@/lib/types";
-
-const BASE = "/rest/v2";
+import { apiBase as BASE } from "./base";
+import type { HeatmapRowGene } from "@gemma/heatmap";
 
 /* --------------------- requests --------------------- */
 
@@ -204,6 +204,27 @@ export async function getPlatformElementCount(
   return r.totalElements ?? 0;
 }
 
+/**
+ * The platform(s) a dataset was run on.
+ *
+ * Used to turn a heatmap row's design-element id into a link to that
+ * probe's page, which is addressable only as platform + element (see
+ * ``getPlatformElement``). A dataset on exactly one platform makes
+ * that unambiguous; on several, a row's design element could belong to
+ * any of them and the payload doesn't say which, so callers should
+ * decline to link rather than guess.
+ */
+export async function getDatasetPlatforms(
+  datasetId: number | string,
+  signal?: AbortSignal,
+): Promise<Platform[]> {
+  const r = await apiGet<PaginatedResponse<Platform>>(
+    `${BASE}/datasets/${datasetId}/platforms`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
 /** Single platform's full entity — used by PlatformDetailPage. */
 export async function getPlatformById(
   id: number | string,
@@ -251,6 +272,10 @@ export interface PlatformElement {
    *  (`withGenes`). `[]` means "maps to nothing", which is a different
    *  claim from the field being absent because nobody asked. */
   genes?: ElementGene[] | null;
+  /** The platform this element belongs to. Always served, but only
+   *  worth reading when the element was fetched on its own — inside a
+   *  platform's listing it is the platform you already have. */
+  arrayDesign?: { id: number; shortName?: string | null; name?: string | null } | null;
 }
 
 export interface ElementGene {
@@ -277,12 +302,62 @@ export interface GeneMappingSummary {
      *  `taxon.externalDatabase.name` ("hg38"), which is what a genome
      *  browser needs. */
     targetDatabase?: string | null;
-    taxon?: { externalDatabase?: { name?: string | null } | null } | null;
+    taxon?: {
+      commonName?: string | null;
+      scientificName?: string | null;
+      externalDatabase?: { name?: string | null } | null;
+    } | null;
     strand?: string | null;
     identity?: number | null;
     score?: number | null;
+    /** The probe's own biological sequence — what was BLATed. This is
+     *  the only place REST publishes the sequence's *metadata* (type,
+     *  name, description, accession, taxon); the elements listing
+     *  carries the bases and length alone.
+     *
+     *  Consequence worth knowing: it rides on an alignment, so a probe
+     *  with no alignments has none of it. See ``probeSequenceInfo``. */
+    querySequence?: BioSequenceInfo | null;
   } | null;
   genes?: ElementGene[] | null;
+}
+
+/** Gemma's BioSequence as REST serializes it inside a BLAT result.
+ *  Mirrors the fields the legacy probe page shows. */
+export interface BioSequenceInfo {
+  id?: number;
+  name?: string | null;
+  description?: string | null;
+  /** Free-text enum, e.g. ``AFFY_COLLAPSED`` / ``DNA`` / ``mRNA``. */
+  type?: string | null;
+  /** Full length of the biological sequence, which can exceed the
+   *  length of the ``sequence`` string actually served. */
+  length?: number | null;
+  sequence?: string | null;
+  fractionRepeats?: number | null;
+  sequenceDatabaseEntry?: {
+    accession?: string | null;
+    externalDatabase?: { name?: string | null } | null;
+  } | null;
+  taxon?: { commonName?: string | null; scientificName?: string | null } | null;
+}
+
+/** The sequence metadata for a probe, pulled off whichever alignment
+ *  carries it.
+ *
+ *  Every alignment of one probe shares a query sequence, so the first
+ *  one that has it is the answer — but a probe with zero alignments
+ *  has zero copies of it, and then only the bases (from the elements
+ *  listing) are available. Returns null in that case rather than an
+ *  empty shell, so the caller can say "not recorded" honestly. */
+export function probeSequenceInfo(
+  summaries: GeneMappingSummary[],
+): BioSequenceInfo | null {
+  for (const s of summaries) {
+    const qs = s.blatResult?.querySequence;
+    if (qs) return qs;
+  }
+  return null;
 }
 
 export interface PlatformElementsArgs {
@@ -380,6 +455,37 @@ export async function getPlatformElements(
     `${BASE}/platforms/${platformId}/elements`,
     { params, signal },
   );
+}
+
+/**
+ * One element (probe) on a platform, with its sequence and gene
+ * mappings — the standalone probe page's primary fetch.
+ *
+ * Addressed by element ID, not name. Probe names routinely contain a
+ * slash (``AFFX-HUMISGF3A/M97935_MA_at``) and an encoded slash in a
+ * path segment 404s, so a name-addressed call fails for exactly the
+ * probes most worth looking at.
+ *
+ * The ``platform`` segment takes a numeric id OR a short name
+ * (``GPL96``) — both resolve server-side, which is what lets the probe
+ * route stay keyed on the short name like the platform route is. It is
+ * NOT optional and NOT ignored: there is no top-level probe endpoint,
+ * and a mismatched pair answers 200 with an empty list rather than
+ * 404, since the id is applied as a filter under the platform.
+ *
+ * The endpoint returns a one-row collection; null means the pair
+ * doesn't resolve.
+ */
+export async function getPlatformElement(
+  platform: number | string,
+  elementId: number,
+  signal?: AbortSignal,
+): Promise<PlatformElement | null> {
+  const r = await apiGet<PaginatedResponse<PlatformElement>>(
+    `${BASE}/platforms/${platform}/elements/${elementId}`,
+    { params: { withSequence: true, withGenes: true }, signal },
+  );
+  return r.data?.[0] ?? null;
 }
 
 /** Genes mapped to a single platform element (probe). The relation
@@ -1206,16 +1312,18 @@ export interface PcLoadingsRow {
   designElementId?: number | null;
   /** Probe / design-element name. */
   designElementName?: string | null;
-  /** Resolved gene symbol when probe→gene mapping is available. */
-  geneSymbol?: string | null;
-  /** Resolved gene official name (long descriptive name). Pending
-   *  the agents-side enrichment of /svd/loadings rows. */
-  geneOfficialName?: string | null;
-  /** Gemma-internal gene id. Same enrichment ask as ``geneOfficialName``. */
-  geneId?: number | null;
-  /** NCBI gene id — stable across taxa and rebuilds; prefer for the
-   *  gene-page link. Same enrichment ask as ``geneOfficialName``. */
-  geneNcbiId?: number | null;
+  /** Every gene this design element maps to — same object shape the
+   *  heatmap-data rows carry, so both surfaces label rows through the
+   *  one ``buildGeneRowLabel``. Empty / absent when the probe maps to
+   *  no gene, which is common enough on older platforms to be worth
+   *  a fallback rather than a blank row.
+   *
+   *  Replaced the flat ``geneSymbol`` / ``geneOfficialName`` /
+   *  ``geneId`` / ``geneNcbiId`` fields when Gemma aligned this
+   *  endpoint with heatmap-data (verified against frink 2026-08-25).
+   *  Note there is no ``ncbiId`` on these — the gene-page link goes
+   *  through the Gemma id. */
+  genes?: HeatmapRowGene[];
   /** Loading on this PC. Sign is meaningful when direction != both. */
   loading: number;
 }

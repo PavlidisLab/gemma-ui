@@ -22,7 +22,11 @@ import {
 } from "@/api/datasets";
 import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
-import { experimentPageUrl, platformPageUrl } from "@/lib/gemmaUrls";
+import {
+  browserExperimentPageUrl,
+  experimentPageUrl,
+  platformPageUrl,
+} from "@/lib/gemmaUrls";
 import {
   inferModality,
   modalityLabel,
@@ -156,7 +160,11 @@ export function ExperimentBanner({
   // ``experimentPageUrl`` reads ``VITE_GEMMA_WEB_URL`` so a staging
   // / preview build (pointed at a different Gemma deployment) just
   // sets the env var; no prop plumbing.
-  const gemmaUrl = experimentPageUrl(experimentId);
+  // Both front-ends. Gemma 2.0 leads because it is the one being
+  // built; 1.0 stays alongside it "for now" (Paul, 2026-08-25) —
+  // some detail pages exist nowhere else yet.
+  const gemma1Url = experimentPageUrl(experimentId);
+  const gemma2Url = browserExperimentPageUrl(experimentId);
 
   return (
     <section className="bg-white border-b border-slate-200">
@@ -227,14 +235,27 @@ export function ExperimentBanner({
                 direct upload
               </span>
             )}
+            {/* Two Gemma front-ends, and the label says which — the
+                browser app learned that "view on Gemma" tells nobody
+                where they are about to land, and there are now two
+                places that phrase could mean. */}
             <a
-              href={gemmaUrl}
+              href={gemma2Url}
               target="_blank"
               rel="noopener noreferrer"
               className="text-blue-700 hover:underline"
-              title="open on Gemma"
+              title="open this experiment in the Gemma 2.0 browser"
             >
-              view on Gemma ↗
+              Gemma 2.0 ↗
+            </a>
+            <a
+              href={gemma1Url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-700 hover:underline"
+              title="open this experiment in the Gemma 1.0 webapp"
+            >
+              Gemma 1.0 ↗
             </a>
             {/* Compact "Loaded …" pill. The raw loadedAt string from
                 Gemma's REST is an ISO with microseconds + timezone

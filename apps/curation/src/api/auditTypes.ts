@@ -244,6 +244,15 @@ export interface AuditFinding {
    *  cards in multi-factor-same-category designs — exactly the bug
    *  this field closes). */
   agent_target_index?: number | null;
+  /** Neutral spelling of ``agent_target_index``. The agents side went
+   *  neutral 2026-08-25 — an AUDIT compares a proposal against the
+   *  curation an experiment already has, and there is no gold in that
+   *  comparison; "gold" is an eval concept that leaked in. The WIRE is
+   *  deliberately unchanged and still emits the legacy names, so both
+   *  spellings are declared and readers take whichever arrives. */
+  proposed_target_index?: number | null;
+  /** Neutral spelling of ``gold_target_index``. See above. */
+  existing_target_index?: number | null;
   /** Gold-side analogue of ``agent_target_index`` — 0-based index of
    *  the gold ``Factor`` this finding refers to in the design's
    *  factor list. Disambiguates multi-factor-same-category cases

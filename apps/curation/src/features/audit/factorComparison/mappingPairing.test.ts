@@ -37,6 +37,12 @@ function cellLabel(
  *     ``right_only`` so the grid surfaces them.
  */
 
+/** Args in wire order: (existing, proposed) — i.e. the legacy
+ *  `gold_target_index` then `agent_target_index`.
+ *
+ *  🛑 EXISTING joins to `b_idx` and PROPOSED to `a_idx`, not the other
+ *  way round: `b_id` is a Gemma id and only the existing side can have
+ *  one (`agents/audit/graph_alignment.py:566`). */
 const mkFinding = (
   gold_target_index: number | null,
   agent_target_index: number | null,
@@ -147,7 +153,7 @@ describe("factorPairForFinding", () => {
     expect(factorPairForFinding(report, mkFinding(0, null))).toBeNull();
   });
 
-  it("finds the matching factor pair by (a_idx, b_idx)", () => {
+  it("finds the pair: existing joins b_idx, proposed joins a_idx", () => {
     const mapping = emptyMapping();
     mapping.factor_pairs = [
       {
@@ -164,7 +170,10 @@ describe("factorPairForFinding", () => {
       },
     ];
     const report = mkReportWithMapping(mapping);
-    const finding = mkFinding(0, 1);
+    // Pair is (a_idx 0, b_idx 1) = (proposed 0, existing 1). So the
+    // finding carries existing=1, proposed=0. Asserted the other way
+    // round until 2026-08-25, which is how the reversed join passed.
+    const finding = mkFinding(1, 0);
     const pair = factorPairForFinding(report, finding);
     expect(pair).not.toBeNull();
     expect(pair?.kind).toBe("near");

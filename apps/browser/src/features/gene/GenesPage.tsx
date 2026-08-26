@@ -6,7 +6,7 @@
 // (Enter with nothing highlighted) still resolves the top-ranked match.
 
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { resolveGeneNcbiId, searchGenes } from "@/api/endpoints";
 import type { Gene } from "@/api/endpoints";
@@ -229,12 +229,12 @@ export function GenesPage() {
           </p>
           <p>
             Gene identifiers are also linked from{" "}
-            <a
-              href="/platforms"
+            <Link
+              to="/platforms"
               className="text-gemma-accent hover:underline"
             >
               platform element pages
-            </a>{" "}
+            </Link>{" "}
             and dataset expression results.
           </p>
         </div>
