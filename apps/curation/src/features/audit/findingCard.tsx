@@ -970,7 +970,14 @@ export function CompactFindingCard({
           mismatch, extra, miss) renders the SAME toggle affordance.
           Design review 2026-06-16: "IT SHOULD BE THE SAME COMPONENT WHETHER
           THE FACTOR IS A MATCH or a PARTIAL MATCH". */}
-      {cardOpen ? (
+      {cardOpen && finding.target_kind !== "publication" ? (
+        // Publication findings skip the shared three-phase toggle: the
+        // "why" phase just duplicates PublicationProvenanceBanner's
+        // always-visible text (features/overview/publications.tsx),
+        // and the other two voices (internal critic / reference
+        // comparison) are permanently empty for this kind -- this
+        // audit never runs a boss-critic or a gold comparison. Showing
+        // "no X for this finding" twice is noise, not information.
         <FindingReasoningPanel
           finding={finding}
           report={report}
