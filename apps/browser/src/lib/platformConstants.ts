@@ -112,3 +112,27 @@ export const TECH_SUBGROUPS: Record<string, TechSubgroup[]> = {
     },
   ],
 };
+
+/**
+ * The path segment that addresses a platform in our routes.
+ *
+ * 🛑 Six platform short names contain a forward slash —
+ * `HG-U133A/B/Plus_2`, `MG-U74A/B/C`, `HuGene-FL/A/B/C/D`, `G4410A/B`,
+ * `RAE230A/B`, `NIA_Mouse_17K_A/B` — carrying 75 datasets between them.
+ * A slash cannot ride in a path segment: Apache rejects the encoded
+ * form (`AllowEncodedSlashes` defaults off) with a **404** before it
+ * proxies, and Tomcat rejects it again with a 400. The 404 reads as "no
+ * such platform" rather than "malformed URL", so the break does not
+ * announce itself.
+ *
+ * The numeric id addresses every platform and a well-formed short name
+ * stays supported, so prefer the readable form and fall back to the id
+ * only when the name cannot survive a path.
+ */
+export function platformRouteParam(
+  p: { id: number; shortName?: string | null } | null | undefined,
+): string {
+  if (!p) return "";
+  const shortName = (p.shortName ?? "").trim();
+  return shortName && !/[/?#%]/.test(shortName) ? shortName : String(p.id);
+}

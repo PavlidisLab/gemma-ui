@@ -42,6 +42,7 @@ import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
   assayKindLabel,
+  platformRouteParam,
   technologyTypeLabel,
 } from "@/lib/platformConstants";
 import { SHOW_GEEQ } from "@/lib/geeq";
@@ -309,7 +310,7 @@ function Banner({
                   <div key={p.id} className="min-w-0">
                     <Link
                       to="/platforms/$shortName"
-                      params={{ shortName: p.shortName ?? String(p.id) }}
+                      params={{ shortName: platformRouteParam(p) }}
                       className="text-sky-700 hover:underline"
                     >
                       {p.shortName ?? p.name}
@@ -2742,7 +2743,7 @@ function ResultSetHeatmap({
   });
   const platformShortName =
     platformsQ.data?.length === 1
-      ? (platformsQ.data[0].shortName ?? undefined)
+      ? platformRouteParam(platformsQ.data[0])
       : undefined;
 
   const designQ = useQuery({
