@@ -120,6 +120,24 @@ services:
       # local-mode gemma-rest; both flip together for staging / prod.
       GEMMA_USERNAME: ${GEMMA_USERNAME:-groupadmin}
       GEMMA_PASSWORD: ${GEMMA_PASSWORD:-groupadmin}
+      # Write consent. Every MUTATING Gemma call routes through
+      # ``shared/gemma.py::require_gemma_write_base``, which refuses
+      # unless this is set AND matches the URL about to be written.
+      # Reads may default; writes may not.
+      #
+      # 🛑 It was not plumbed here at all until 2026-08-25, which is a
+      # worse failure than being unset: exporting it on the host looked
+      # like consent and never reached the container, so every write
+      # kept refusing with no sign that the variable had been ignored.
+      # Empty default preserves exactly today's behaviour — the guard
+      # refuses — for anyone who does not set it.
+      #
+      # 🛑 Set it ONLY together with GEMMA_BASE_URL, and to the same
+      # host. Setting it while GEMMA_BASE_URL still names production is
+      # what removes the only thing standing between an administrator
+      # principal and a production write; it is safe because the base
+      # URL names a sandbox, not because this variable is set.
+      GEMMA_WRITE_TARGET: ${GEMMA_WRITE_TARGET:-}
       # Optional Zotero credentials for biolit fetcher.
       GEMMA_AGENTS_USE_ZOTERO: ${GEMMA_AGENTS_USE_ZOTERO:-}
       ZOTERO_API_KEY: ${ZOTERO_API_KEY:-}
