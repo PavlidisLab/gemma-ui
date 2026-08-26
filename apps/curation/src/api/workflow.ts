@@ -126,8 +126,6 @@ function mapGemmaStatus(s: unknown): import("./workflowTypes").StepStatus {
   switch (s) {
     case "ok": return "ok";
     case "failed": return "failed";
-    case "inProgress":
-    case "in_progress": return "in_progress";
     case "needsAttention":
     case "needs_attention": return "needs_attention";
     case "notApplicable":
@@ -204,7 +202,7 @@ function adaptPipelineStatus(raw: unknown, id: number | string): ExperimentPipel
 
 function combineSteps(steps: import("./workflowTypes").PipelineStep[]): import("./workflowTypes").PipelineStep {
   const rank: Record<import("./workflowTypes").StepStatus, number> = {
-    failed: 5, needs_attention: 4, in_progress: 3, not_run: 2, na: 1, ok: 0,
+    failed: 5, needs_attention: 4, not_run: 2, na: 1, ok: 0,
   };
   let worst = steps[0] ?? { ...EMPTY_STEP };
   for (const s of steps) if (rank[s.status] > rank[worst.status]) worst = s;
