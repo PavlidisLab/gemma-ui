@@ -9,7 +9,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { HeatmapWidget } from "@gemma/heatmap";
+import { HeatmapWidget, buildGeneRowLabel } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import {
   PanelCard,
@@ -121,17 +121,29 @@ function PcLoadingsPopup({
     if (sampleEntries.length === 0) return null;
     const colLabels = sampleEntries.map(([id]) => id);
     const sampleScores = sampleEntries.map(([, s]) => s);
-    // Inline label columns: [gene symbol, gene official name].
+    // Inline label columns: [gene symbol(s), gene official name(s)].
     // Probe id is intentionally NOT inline — only the tooltip
-    // surfaces it (along with NCBI / Gemma links). When the gene
-    // isn't mapped, the symbol column falls back to the probe name
-    // so the row still has a visible identifier.
-    const rowLabelColumns = data.rows.map((r, i) => [
-      r.geneSymbol ||
-        r.designElementName ||
-        (r.designElementId != null ? `probe ${r.designElementId}` : `row ${i + 1}`),
-      r.geneOfficialName ?? "",
-    ]);
+    // surfaces it (along with the gene links). When the gene isn't
+    // mapped, the symbol column falls back to the probe name so the
+    // row still has a visible identifier.
+    //
+    // Labels go through the same buildGeneRowLabel the expression
+    // heatmap uses, so a probe mapping to several genes names all of
+    // them (``A;B``) here too instead of just the first. No search
+    // drives this view — it's the top loadings on a PC, not a gene
+    // query — so the empty ``queried`` set is right: every mapped
+    // gene is named and no row is marked non-specific.
+    const rowLabelColumns = data.rows.map((r, i) => {
+      const { labelSymbol, labelName } = buildGeneRowLabel(r.genes ?? []);
+      return [
+        labelSymbol ||
+          r.designElementName ||
+          (r.designElementId != null
+            ? `probe ${r.designElementId}`
+            : `row ${i + 1}`),
+        labelName,
+      ];
+    });
     const rowLabels = rowLabelColumns.map((cols) =>
       cols.filter(Boolean).join(" · "),
     );
@@ -199,39 +211,51 @@ function PcLoadingsPopup({
                 rowLabelTooltip={(i) => {
                   const r = data?.rows[i];
                   if (!r) return null;
-                  const gHref =
-                    r.geneNcbiId != null || r.geneId != null
-                      ? geneUrl({ ncbiId: r.geneNcbiId, geneId: r.geneId })
-                      : null;
+                  const rowGenes = r.genes ?? [];
                   const pHref =
                     r.designElementId != null
                       ? compositeSequenceUrl(r.designElementId)
                       : null;
                   return (
                     <div className="space-y-1">
-                      {r.geneSymbol ? (
-                        <div className="font-semibold text-slate-800">
-                          {r.geneSymbol}
+                      {/* One block per mapped gene — a probe can span
+                          several, and collapsing them to the first hid
+                          exactly the ambiguity worth seeing here. */}
+                      {rowGenes.map((g) => {
+                        // No ncbiId on this endpoint's genes; geneUrl
+                        // falls back to the Gemma-internal id.
+                        const gHref = geneUrl({ geneId: g.id });
+                        return (
+                          <div key={g.id}>
+                            <span className="font-semibold text-slate-800">
+                              {g.officialSymbol || `gene ${g.id}`}
+                            </span>
+                            {gHref ? (
+                              <a
+                                href={gHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="ml-2 text-[11px] text-sky-700 hover:underline"
+                              >
+                                gene page ↗
+                              </a>
+                            ) : null}
+                            {g.name ? (
+                              <div className="text-slate-600">{g.name}</div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                      {rowGenes.length === 0 ? (
+                        <div className="text-slate-500 italic">
+                          probe maps to no gene
                         </div>
-                      ) : null}
-                      {r.geneOfficialName ? (
-                        <div className="text-slate-600">{r.geneOfficialName}</div>
                       ) : null}
                       <div className="text-[10px] text-slate-500 font-mono">
                         {r.designElementName ?? `probe ${r.designElementId ?? "?"}`}
                       </div>
-                      <div className="flex gap-3 pt-1 text-[11px]">
-                        {gHref ? (
-                          <a
-                            href={gHref}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sky-700 hover:underline"
-                          >
-                            NCBI Gene ↗
-                          </a>
-                        ) : null}
-                        {pHref ? (
+                      {pHref ? (
+                        <div className="pt-1 text-[11px]">
                           <a
                             href={pHref}
                             target="_blank"
@@ -240,8 +264,8 @@ function PcLoadingsPopup({
                           >
                             Gemma probe ↗
                           </a>
-                        ) : null}
-                      </div>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 }}

@@ -18,6 +18,7 @@ import type {
   User,
 } from "@/lib/types";
 import { apiBase as BASE } from "./base";
+import type { HeatmapRowGene } from "@gemma/heatmap";
 
 /* --------------------- requests --------------------- */
 
@@ -1205,16 +1206,18 @@ export interface PcLoadingsRow {
   designElementId?: number | null;
   /** Probe / design-element name. */
   designElementName?: string | null;
-  /** Resolved gene symbol when probe→gene mapping is available. */
-  geneSymbol?: string | null;
-  /** Resolved gene official name (long descriptive name). Pending
-   *  the agents-side enrichment of /svd/loadings rows. */
-  geneOfficialName?: string | null;
-  /** Gemma-internal gene id. Same enrichment ask as ``geneOfficialName``. */
-  geneId?: number | null;
-  /** NCBI gene id — stable across taxa and rebuilds; prefer for the
-   *  gene-page link. Same enrichment ask as ``geneOfficialName``. */
-  geneNcbiId?: number | null;
+  /** Every gene this design element maps to — same object shape the
+   *  heatmap-data rows carry, so both surfaces label rows through the
+   *  one ``buildGeneRowLabel``. Empty / absent when the probe maps to
+   *  no gene, which is common enough on older platforms to be worth
+   *  a fallback rather than a blank row.
+   *
+   *  Replaced the flat ``geneSymbol`` / ``geneOfficialName`` /
+   *  ``geneId`` / ``geneNcbiId`` fields when Gemma aligned this
+   *  endpoint with heatmap-data (verified against frink 2026-08-25).
+   *  Note there is no ``ncbiId`` on these — the gene-page link goes
+   *  through the Gemma id. */
+  genes?: HeatmapRowGene[];
   /** Loading on this PC. Sign is meaningful when direction != both. */
   loading: number;
 }
