@@ -636,7 +636,6 @@ export function Heatmap({
           onMouseLeave={scheduleHide}
           style={{
             position: 'fixed',
-            top: labelHover.top,
             left: labelHover.left,
             zIndex: 50,
             background: '#fff',
@@ -647,6 +646,15 @@ export function Heatmap({
             fontSize: 11,
             color: '#1f2937',
             maxWidth: 320,
+            // Keep the tooltip inside the viewport. A row's content is
+            // unbounded — a probe mapping to ten genes renders ten
+            // blocks — and anchored at the row's top with no cap it
+            // ran off the bottom of the screen, putting the overflow
+            // out of reach. Anchor below the row when there's room,
+            // flip to bottom-anchored when there isn't, and scroll
+            // internally either way.
+            ...tooltipVerticalStyle(labelHover.top),
+            overflowY: 'auto',
           }}
         >
           {rowLabelTooltip(labelHover.row)}
@@ -654,4 +662,28 @@ export function Heatmap({
       ) : null}
     </div>
   );
+}
+
+/** Vertical placement for the row-label tooltip, given the hovered
+ *  row's top in viewport coordinates.
+ *
+ *  Prefers anchoring at the row so the tooltip lines up with what it
+ *  describes. When that leaves too little room to read anything, flips
+ *  to bottom-anchored instead. Either way the height is capped to what
+ *  actually fits, so long content scrolls inside the box rather than
+ *  spilling past the viewport edge where it can't be reached.
+ *
+ *  Recomputed per hover, so a resize between hovers is picked up. */
+function tooltipVerticalStyle(rowTop: number): React.CSSProperties {
+  const MARGIN = 12;
+  const MAX = 420;
+  /** Below this there isn't room for more than a line or two, so
+   *  anchoring at the row would be worse than flipping. */
+  const MIN_USABLE = 200;
+  const vh = typeof window === 'undefined' ? 800 : window.innerHeight;
+  const spaceBelow = vh - rowTop - MARGIN;
+  if (spaceBelow < MIN_USABLE) {
+    return { bottom: MARGIN, maxHeight: Math.min(MAX, vh - 2 * MARGIN) };
+  }
+  return { top: rowTop, maxHeight: Math.min(MAX, spaceBelow) };
 }
