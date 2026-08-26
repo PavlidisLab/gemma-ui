@@ -3,10 +3,10 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
-import { LoginModal } from "./LoginModal";
+import { LoginModal, SIGN_IN_BUTTON_COLOR } from "./LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
-import { gemmaLogoText } from "@gemma/assets";
+import { gemmaMarkAmber } from "@gemma/assets";
 
 export function AppBar() {
   const me = useMe();
@@ -31,12 +31,17 @@ export function AppBar() {
         to="/"
         className="flex shrink-0 items-center gap-2 font-semibold text-stone-900 hover:no-underline"
       >
+        {/* Mark + typed wordmark. ``gemmaLogoText`` baked the old mark and
+            the word into one raster; the candidate mark has no wordmark cut,
+            so the word is set in the UI face here. That means the type below
+            is NOT a proposed wordmark — it is a stand-in. */}
         <img
-          src={gemmaLogoText}
-          alt="Gemma"
+          src={gemmaMarkAmber}
+          alt=""
           style={{ height: 30 }}
           className="block w-auto shrink-0"
         />
+        <span className="text-[19px] leading-none tracking-tight">Gemma</span>
       </Link>
 
       <nav className="flex items-center gap-1 ml-4">
@@ -139,7 +144,7 @@ function AuthControls({
     <button
       type="button"
       onClick={onSignIn}
-      className="text-sm px-2.5 py-1 rounded border bg-gemma-accent text-white hover:bg-gemma-accent hover:no-underline border-transparent"
+      className={`text-sm px-2.5 py-1 rounded border border-transparent hover:no-underline ${SIGN_IN_BUTTON_COLOR}`}
       title="sign in to Gemma"
     >
       Sign in

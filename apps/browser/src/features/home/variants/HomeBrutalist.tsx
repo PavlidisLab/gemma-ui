@@ -21,10 +21,13 @@ import { Link } from "@tanstack/react-router";
 import { GENERAL_INFO } from "../copy";
 import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
-import { LoginModal } from "@/features/shared/LoginModal";
+import {
+  LoginModal,
+  SIGN_IN_BUTTON_COLOR,
+} from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
-import { gemmaLogoText, ubcLogo } from "@gemma/assets";
+import { gemmaMarkAmber, ubcLogo } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge, Panel } from "../panels";
@@ -609,36 +612,43 @@ function WeekStat({
  * Visual area is a placeholder slot — a small decorative grid
  * standing in until design ships the real element.
  */
-// Rendered height of the Gemma wordmark, and the share of that image
-// that is transparent padding below the letters. gemma-logo-text.png
-// is 1350×371 with the "Gemma" baseline measured at y≈293, so ~21% of
-// the height sits empty beneath the glyphs.
+// Masthead brand: the mark plus the word set in type. It replaced
+// gemma-logo-text.png, which baked mark and wordmark into one raster.
 //
-// The brand row aligns on `last baseline`: flexbox aligns the tagline's
-// LAST line's baseline to the <img>'s baseline, which for a replaced
-// element is its bottom edge (y = height). That puts the tagline
-// baseline at the padded image bottom, ~21% below the wordmark
-// baseline. Nudge the tagline UP by that same fraction of the rendered
-// height so the two baselines coincide. Working baseline-to-baseline
-// (not box edges) sidesteps the tagline's own line-box descent — the
-// earlier margin-on-`items-end` version aligned the span's box bottom,
-// leaving its text baseline floating above the wordmark.
+// The wordmark, the tagline and the right-side controls all sit on ONE
+// baseline, and the browser is what computes it: the row aligns on
+// `last baseline`, so nothing here needs to know where the baseline falls.
 //
-// `last baseline` (not `baseline`) matters once the tagline wraps: at
-// higher zoom the row narrows and the tagline breaks onto 2+ lines.
-// First-baseline alignment would pin line 1 and let the rest spill
-// DOWN past the wordmark; anchoring the last line instead keeps the
-// bottom line locked to the wordmark baseline and stacks earlier lines
-// upward. Expressed as a ratio of the logo height, so it holds at any
-// size or zoom.
-const MASTHEAD_LOGO_HEIGHT = 60;
-const MASTHEAD_LOGO_BASELINE_PAD = (371 - 293) / 371; // ≈0.210
-// Below-baseline descent of the masthead caption text (Inter, the
-// `leading-none` tagline/controls). Lifting the text by the pad alone
-// lands its box BOTTOM on the wordmark baseline; the visible baseline
-// sits one descent above that, so we settle the text back down by the
-// descent to put the baseline itself on the line. ≈0.2em at these sizes.
-const MASTHEAD_TEXT_DESCENT = 2;
+// This used to be done by hand — a MASTHEAD_LINE_DESCENT ratio subtracted as
+// a margin — and it could not be made correct. The share of a `leading-none`
+// line box sitting below the baseline is a property of the FACE, not a
+// constant: measured in-browser it is 0.087 for system-ui/Segoe UI, 0.152 for
+// Arial, 0.174 for Inter. This app asks for `"Inter", ui-sans-serif,
+// system-ui` but ships no @font-face for Inter, so which face actually
+// renders depends on what the visitor has installed — one hardcoded ratio is
+// wrong for most of them. (The shipped 0.1196 matched none of the three, and
+// left the mark 1.5px high on a machine that resolved to system-ui.)
+//
+// The mark needs no ratio either: it is an inline replaced box, and
+// `vertical-align: baseline` puts an inline image's BOTTOM EDGE on the text
+// baseline by definition — exactly the alignment wanted, for free.
+//
+// `last baseline` (not `baseline`) matters once the tagline wraps: at higher
+// zoom the row narrows and the tagline breaks onto 2+ lines. First-baseline
+// alignment would pin line 1 and let the rest spill DOWN past the wordmark;
+// anchoring the last line keeps the bottom line on the wordmark baseline and
+// stacks earlier lines upward.
+const MASTHEAD_WORDMARK_SIZE = 46;
+const MASTHEAD_MARK_HEIGHT = 46;
+// Gap between mark and word. A margin rather than flex `gap`, because the
+// two are inline boxes sharing a line, not flex items.
+const MASTHEAD_MARK_GAP = 12;
+// Set inline, not as a utility class: Tailwind 3.4's `align-items` plugin
+// takes only its fixed keyword set, so `items-[last_baseline]` emits NO rule
+// at all and the row silently falls back to `normal` — which stretches the
+// tagline row and parks its text 37px above the wordmark baseline. Browsers
+// do support the value; only the utility is missing.
+const LAST_BASELINE: React.CSSProperties = { alignItems: "last baseline" };
 
 function Masthead() {
   const me = useMe();
@@ -649,29 +659,37 @@ function Masthead() {
 
   return (
     <div className="border-b border-stone-950 bg-stone-100">
-      {/* `items-end` pins BOTH logos to the masthead rule. Between them,
-          a single `items-baseline` text row holds the tagline and the
-          right-side controls, so they share one baseline (the ask), and
-          the whole text row is lifted by the wordmark's baseline pad so
-          that shared line coincides with the printed "Gemma" baseline. */}
-      <div className="flex items-end gap-3 flex-wrap">
-        <img
-          src={gemmaLogoText}
-          alt="GEMMA"
-          style={{ height: MASTHEAD_LOGO_HEIGHT }}
-          className="block w-auto"
-        />
+      {/* One shared baseline across the wordmark, the tagline and the
+          right-side controls — `last baseline` on this row, resolved by the
+          browser from the face that actually rendered. The UBC logo opts out
+          with `self-end` so it still pins to the masthead rule. */}
+      <div className="flex gap-3 flex-wrap" style={LAST_BASELINE}>
+        {/* Mark + typed wordmark. There is no wordmark-only cut of the mark,
+            so the word is set in the UI face. Both are inline boxes on one
+            line, so `align-baseline` on the image drops its bottom edge onto
+            that line's baseline — the mark rides the line the letters sit on
+            without anything here measuring the font. */}
+        <div className="whitespace-nowrap">
+          <img
+            src={gemmaMarkAmber}
+            alt=""
+            style={{ height: MASTHEAD_MARK_HEIGHT }}
+            className="inline-block w-auto align-baseline"
+          />
+          <span
+            className="inline-block font-semibold tracking-tight text-stone-950 leading-none align-baseline"
+            style={{
+              fontSize: MASTHEAD_WORDMARK_SIZE,
+              marginLeft: MASTHEAD_MARK_GAP,
+            }}
+          >
+            Gemma
+          </span>
+        </div>
 
         <div
-          className="flex-1 min-w-0 flex items-baseline gap-6 leading-none"
-          style={{
-            // Land the shared text baseline on the printed wordmark
-            // baseline: lift by the wordmark's under-glyph pad, then
-            // settle back down by the text's own descent.
-            marginBottom:
-              MASTHEAD_LOGO_HEIGHT * MASTHEAD_LOGO_BASELINE_PAD -
-              MASTHEAD_TEXT_DESCENT,
-          }}
+          className="flex-1 min-w-0 flex gap-6 leading-none"
+          style={LAST_BASELINE}
         >
           <span className="text-[10px] uppercase tracking-[0.18em] text-stone-600 leading-none">
             Database of curated and re-analyzed gene expression studies
@@ -711,7 +729,7 @@ function Masthead() {
                 // padding (mirrors `py-1`) so, in the shared baseline row,
                 // its padded box doesn't drag the tagline's baseline up off
                 // the wordmark. Visual padding is unchanged.
-                className="text-[12px] leading-none -mb-1 px-2.5 py-1 rounded bg-stone-900 text-stone-50 hover:bg-stone-800"
+                className={`text-[12px] leading-none -mb-1 px-2.5 py-1 rounded ${SIGN_IN_BUTTON_COLOR}`}
               >
                 Sign in
               </button>
@@ -719,11 +737,14 @@ function Masthead() {
           </div>
         </div>
 
-        {/* UBC logo — pinned to the masthead rule like the wordmark. */}
+        {/* UBC logo — pinned to the masthead rule. A replaced box has no
+            text baseline to share, so it opts out of the row's baseline
+            alignment and bottom-aligns instead. */}
         <a
           href="https://www.ubc.ca/"
           target="_blank"
           rel="noopener noreferrer"
+          className="self-end"
         >
           <img
             src={ubcLogo}

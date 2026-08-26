@@ -2,7 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <!-- favicon.svg carries the current mark; favicon.ico is the legacy
+         fallback for clients that can't render an SVG icon. Browsers that
+         support SVG icons prefer this one, so the SVG must be listed. Without
+         it the .ico wins by default and updating favicon.svg has no visible
+         effect at all. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="32x32" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gemma Browser</title>
   </head>
