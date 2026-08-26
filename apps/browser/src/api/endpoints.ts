@@ -251,6 +251,10 @@ export interface PlatformElement {
    *  (`withGenes`). `[]` means "maps to nothing", which is a different
    *  claim from the field being absent because nobody asked. */
   genes?: ElementGene[] | null;
+  /** The platform this element belongs to. Always served, but only
+   *  worth reading when the element was fetched on its own — inside a
+   *  platform's listing it is the platform you already have. */
+  arrayDesign?: { id: number; shortName?: string | null; name?: string | null } | null;
 }
 
 export interface ElementGene {
@@ -277,12 +281,62 @@ export interface GeneMappingSummary {
      *  `taxon.externalDatabase.name` ("hg38"), which is what a genome
      *  browser needs. */
     targetDatabase?: string | null;
-    taxon?: { externalDatabase?: { name?: string | null } | null } | null;
+    taxon?: {
+      commonName?: string | null;
+      scientificName?: string | null;
+      externalDatabase?: { name?: string | null } | null;
+    } | null;
     strand?: string | null;
     identity?: number | null;
     score?: number | null;
+    /** The probe's own biological sequence — what was BLATed. This is
+     *  the only place REST publishes the sequence's *metadata* (type,
+     *  name, description, accession, taxon); the elements listing
+     *  carries the bases and length alone.
+     *
+     *  Consequence worth knowing: it rides on an alignment, so a probe
+     *  with no alignments has none of it. See ``probeSequenceInfo``. */
+    querySequence?: BioSequenceInfo | null;
   } | null;
   genes?: ElementGene[] | null;
+}
+
+/** Gemma's BioSequence as REST serializes it inside a BLAT result.
+ *  Mirrors the fields the legacy probe page shows. */
+export interface BioSequenceInfo {
+  id?: number;
+  name?: string | null;
+  description?: string | null;
+  /** Free-text enum, e.g. ``AFFY_COLLAPSED`` / ``DNA`` / ``mRNA``. */
+  type?: string | null;
+  /** Full length of the biological sequence, which can exceed the
+   *  length of the ``sequence`` string actually served. */
+  length?: number | null;
+  sequence?: string | null;
+  fractionRepeats?: number | null;
+  sequenceDatabaseEntry?: {
+    accession?: string | null;
+    externalDatabase?: { name?: string | null } | null;
+  } | null;
+  taxon?: { commonName?: string | null; scientificName?: string | null } | null;
+}
+
+/** The sequence metadata for a probe, pulled off whichever alignment
+ *  carries it.
+ *
+ *  Every alignment of one probe shares a query sequence, so the first
+ *  one that has it is the answer — but a probe with zero alignments
+ *  has zero copies of it, and then only the bases (from the elements
+ *  listing) are available. Returns null in that case rather than an
+ *  empty shell, so the caller can say "not recorded" honestly. */
+export function probeSequenceInfo(
+  summaries: GeneMappingSummary[],
+): BioSequenceInfo | null {
+  for (const s of summaries) {
+    const qs = s.blatResult?.querySequence;
+    if (qs) return qs;
+  }
+  return null;
 }
 
 export interface PlatformElementsArgs {
@@ -380,6 +434,37 @@ export async function getPlatformElements(
     `${BASE}/platforms/${platformId}/elements`,
     { params, signal },
   );
+}
+
+/**
+ * One element (probe) on a platform, with its sequence and gene
+ * mappings — the standalone probe page's primary fetch.
+ *
+ * Addressed by element ID, not name. Probe names routinely contain a
+ * slash (``AFFX-HUMISGF3A/M97935_MA_at``) and an encoded slash in a
+ * path segment 404s, so a name-addressed call fails for exactly the
+ * probes most worth looking at.
+ *
+ * The ``platform`` segment takes a numeric id OR a short name
+ * (``GPL96``) — both resolve server-side, which is what lets the probe
+ * route stay keyed on the short name like the platform route is. It is
+ * NOT optional and NOT ignored: there is no top-level probe endpoint,
+ * and a mismatched pair answers 200 with an empty list rather than
+ * 404, since the id is applied as a filter under the platform.
+ *
+ * The endpoint returns a one-row collection; null means the pair
+ * doesn't resolve.
+ */
+export async function getPlatformElement(
+  platform: number | string,
+  elementId: number,
+  signal?: AbortSignal,
+): Promise<PlatformElement | null> {
+  const r = await apiGet<PaginatedResponse<PlatformElement>>(
+    `${BASE}/platforms/${platform}/elements/${elementId}`,
+    { params: { withSequence: true, withGenes: true }, signal },
+  );
+  return r.data?.[0] ?? null;
 }
 
 /** Genes mapped to a single platform element (probe). The relation
