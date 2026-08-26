@@ -211,14 +211,28 @@ export function actionLabels(shape: ActionShape): {
   // "Disagree" (reported 2026-08-09). Rows that DO collapse render the
   // single ``adopt`` verb and never show this.
   if (shape === "match") return { keep: "disagree", adopt: "confirm" };
-  // ⚠️ PROVISIONAL WORDING — the shape is settled, these two strings
-  // are not. Paul has the vocabulary call and has not made it; what
-  // could not stay was "don't change / adopt Auditor's", which offers
-  // to adopt a proposal that does not exist. Neither of these mutates
-  // anything: the resolver returns `mutates: false` for this shape, so
-  // both sides record a ruling and leave the draft alone.
+  // Both sides are TERMINAL, and that is the point. Neither mutates —
+  // the resolver returns `mutates: false` for this shape — so each
+  // records a ruling and leaves the draft alone.
+  //
+  // 🛑 The adopt side said "needs action" and that was a lie about
+  // where the click went. It maps to `accepted`, so a curator saying
+  // "someone must still do something" had the finding stamped HANDLED
+  // — the opposite of what they meant, and it then stopped looking
+  // unanswered. "I've addressed this" makes `accepted` true: the
+  // curator did the work (in the design editor, in Gemma, wherever)
+  // and is recording that, not requesting it. Paul, 2026-08-26.
+  //
+  // What is still missing is the genuinely non-terminal answer —
+  // "someone must do this and it is not done". That is what `Park`
+  // exists for, and it is dormant behind `SHOW_PARK_AFFORDANCE`
+  // pending exactly this flow (auditPresentation.ts, hidden
+  // 2026-06-14). Do NOT fake it by routing an adopt to
+  // `needs_more_info`; the pile it belongs in already has a queue
+  // filter ("Needs info", `workflow/dispositionFilter.ts`) waiting for
+  // a button that sets it.
   if (shape === "decide") {
-    return { keep: "no action needed", adopt: "needs action" };
+    return { keep: "no action needed", adopt: "I've addressed this" };
   }
   // change (default)
   return { keep: "don't change", adopt: "adopt" };

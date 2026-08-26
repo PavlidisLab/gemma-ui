@@ -226,6 +226,18 @@ describe("actions the agent could not express", () => {
     expect(labels.keep).not.toBe("don't change");
   });
 
+  it("both sides are TERMINAL — neither promises future work", () => {
+    // The bug this replaces: the adopt side read "needs action" while
+    // mapping to `accepted`, so a curator flagging unfinished work had
+    // it stamped handled. Both labels must describe a state that IS
+    // true when the click lands, because both are terminal statuses.
+    const { keep, adopt } = actionLabels(findingActionShape(undecidable()));
+    for (const label of [keep, adopt]) {
+      expect(label).not.toMatch(/\bneeds?\b|\bmust\b|\btodo\b|\blater\b/i);
+    }
+    expect(adopt).toMatch(/addressed/i);
+  });
+
   it("drops the possessive — there is no auditor's proposal to take", () => {
     // "needs action Auditor's" is the hanging possessive in its worst
     // form: it names a proposal the finding exists to say is absent.
