@@ -40,7 +40,7 @@ import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
 import { useDebounced } from "@/lib/useDebounced";
 import { taxonPathParam } from "@/lib/gemmaConfig";
-import { ProbeRowTooltip, useNcbiIdsByGeneId } from "./ProbeRowTooltip";
+import { ProbeRowTooltip } from "./ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 
 const GENES_HASH_KEY = "genes";
@@ -256,7 +256,6 @@ export function VisualizeTab({
         ) : null}
         <HeatmapPanel
           datasetId={datasetId}
-          taxon={taxon}
           genes={selected}
           origins={origins}
           selectionHydrated={selectionHydrated}
@@ -868,7 +867,6 @@ function SelectedGenesStrip({
 
 function HeatmapPanel({
   datasetId,
-  taxon,
   genes,
   origins,
   selectionHydrated,
@@ -876,9 +874,6 @@ function HeatmapPanel({
   maskOutliers = true,
 }: {
   datasetId: number;
-  /** Dataset's organism — scopes the gene-id → NCBI-id lookup the row
-   *  tooltip links through. */
-  taxon?: string;
   genes: Gene[];
   origins: Record<number, GeneOrigin>;
   selectionHydrated: boolean;
@@ -918,18 +913,6 @@ function HeatmapPanel({
     enabled: selectionHydrated,
     staleTime: 60_000,
   });
-
-  // ── Row-tooltip link inputs. Both hooks sit above the early returns
-  // below, so they run on every render regardless of load state — they
-  // tolerate the empty inputs that come with it.
-
-  // heatmap-data carries Gemma-internal gene ids only, so the gene
-  // links go through the same resolve the diagnostics heatmap uses.
-  const rowGenes = useMemo(
-    () => (wireQuery.data?.rows ?? []).flatMap((r) => r.genes ?? []),
-    [wireQuery.data],
-  );
-  const ncbiIdByGeneId = useNcbiIdsByGeneId(rowGenes, taxon);
 
   // A probe is addressable only as platform + element. One platform ⇒
   // every row's design element is on it; several ⇒ the payload doesn't
@@ -978,7 +961,6 @@ function HeatmapPanel({
         designElementName={r.designElementName}
         designElementId={r.designElementId}
         genes={wireRow.genes ?? []}
-        ncbiIdByGeneId={ncbiIdByGeneId}
         platformShortName={platformShortName}
         queried={queried}
       />

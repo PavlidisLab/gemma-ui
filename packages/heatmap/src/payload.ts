@@ -126,9 +126,16 @@ export interface HeatmapPayload {
 /** A gene a design element maps to, as Gemma serves it on the
  *  heatmap-data and svd/loadings rows. */
 export interface HeatmapRowGene {
+  /** Gemma's internal gene id. Addresses nothing outside Gemma's own
+   *  database — in particular ``/genes/{id}`` does NOT accept it. */
   id: number;
   officialSymbol?: string | null;
   name?: string | null;
+  /** NCBI gene id — what the gene page is keyed by, and stable across
+   *  taxa and rebuilds. Served on both endpoints since 2026-08-25;
+   *  optional because a gene without one is possible in principle, and
+   *  because older Gemma builds omit the field entirely. */
+  ncbiId?: number | null;
 }
 
 /** Marker appended to a row's gutter symbol when the probe also maps to

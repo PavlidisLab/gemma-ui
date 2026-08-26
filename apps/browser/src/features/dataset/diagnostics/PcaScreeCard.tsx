@@ -24,23 +24,10 @@ import {
   getPcLoadings,
   getDatasetPlatforms,
 } from "@/api/endpoints";
-import {
-  ProbeRowTooltip,
-  useNcbiIdsByGeneId,
-} from "@/features/dataset/ProbeRowTooltip";
+import { ProbeRowTooltip } from "@/features/dataset/ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 
-export function PcaScreeCard({
-  datasetId,
-  taxon,
-}: {
-  datasetId: number;
-  /** Dataset's organism as a REST param. Needed to turn the loadings'
-   *  Gemma-internal gene ids into the NCBI ids the gene page is keyed
-   *  by — see ``useNcbiIdsByGeneId``. Without it the row tooltip still
-   *  names every gene, just without links. */
-  taxon?: string;
-}) {
+export function PcaScreeCard({ datasetId }: { datasetId: number }) {
   const { data, isLoading, error } = useQuery({
     queryKey: ["datasetSvd", datasetId],
     queryFn: ({ signal }) => getDatasetSvd(datasetId, signal),
@@ -103,7 +90,6 @@ export function PcaScreeCard({
         <PcLoadingsPopup
           datasetId={datasetId}
           pc={openPc}
-          taxon={taxon}
           onClose={() => setOpenPc(null)}
         />
       ) : null}
@@ -121,12 +107,10 @@ export function PcaScreeCard({
 function PcLoadingsPopup({
   datasetId,
   pc,
-  taxon,
   onClose,
 }: {
   datasetId: number;
   pc: number;
-  taxon?: string;
   onClose: () => void;
 }) {
   const { data, isLoading, error } = useQuery({
@@ -134,12 +118,6 @@ function PcLoadingsPopup({
     queryFn: ({ signal }) => getPcLoadings(datasetId, pc, { top: 50, signal }),
     staleTime: 5 * 60_000,
   });
-  // Gene links need NCBI ids; the loadings rows carry internal ones.
-  const rowGenes = useMemo(
-    () => (data?.rows ?? []).flatMap((r) => r.genes ?? []),
-    [data],
-  );
-  const ncbiIdByGeneId = useNcbiIdsByGeneId(rowGenes, taxon);
   // Probe links need a platform. One ⇒ unambiguous; several ⇒ a row's
   // design element could be on any of them, so no probe link.
   const platformsQ = useQuery({
@@ -246,7 +224,6 @@ function PcLoadingsPopup({
                       }
                       designElementId={r.designElementId}
                       genes={r.genes ?? []}
-                      ncbiIdByGeneId={ncbiIdByGeneId}
                       platformShortName={platformShortName}
                     />
                   );

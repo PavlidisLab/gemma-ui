@@ -19,57 +19,20 @@
  * way REST can resolve one. Gemma's internal gene id used to be shown
  * here too — it addressed nothing and is gone.
  *
- * Neither link is guaranteed. The wire carries internal gene ids, not
- * NCBI ones, so gene links wait on a lookup; and a probe link needs a
- * platform, which a multi-platform dataset can't pin down for a given
- * row. In both cases the tooltip still names the thing and just omits
- * the link — naming without linking beats linking somewhere wrong.
+ * Both ids come straight off the wire. The gene links used to wait on
+ * a batched symbol lookup, because the payloads carried Gemma's
+ * internal gene id and nothing else; both endpoints serve ``ncbiId``
+ * as of 2026-08-25, so that round-trip is gone.
+ *
+ * A link is still not guaranteed: a gene may arrive without an
+ * ``ncbiId``, and a probe link needs a platform, which a
+ * multi-platform dataset can't pin down for a given row. Either way
+ * the tooltip names the thing and omits the link — naming without
+ * linking beats linking somewhere wrong.
  */
 
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { NONSPECIFIC_MARK, type HeatmapRowGene } from "@gemma/heatmap";
-import { getTaxonGenesBySymbols } from "@/api/endpoints";
-
-/**
- * Gemma-internal gene id → NCBI gene id, for a set of genes.
- *
- * The gene page is keyed by NCBI id (symbols collide across taxa), but
- * every heatmap payload — ``heatmap-data`` and ``/svd/loadings`` alike
- * — carries only Gemma's internal id, and ``/genes/{internalId}``
- * answers empty for it rather than erroring. The taxon-scoped symbol
- * lookup returns records holding both, so one batched call over the
- * distinct symbols on screen bridges the gap.
- *
- * Empty map while in flight, with no taxon to scope by, or on failure
- * — the tooltip then names every gene without linking.
- */
-export function useNcbiIdsByGeneId(
-  genes: HeatmapRowGene[],
-  taxon: string | undefined,
-): Map<number, number> {
-  const symbols = useMemo(() => {
-    const out = new Set<string>();
-    for (const g of genes) if (g.officialSymbol) out.add(g.officialSymbol);
-    return Array.from(out).sort();
-  }, [genes]);
-
-  const q = useQuery({
-    queryKey: ["taxon-genes-by-symbol", taxon ?? "", symbols.join(",")],
-    queryFn: ({ signal }) => getTaxonGenesBySymbols(taxon!, symbols, signal),
-    enabled: !!taxon && symbols.length > 0,
-    staleTime: 30 * 60_000,
-  });
-
-  return useMemo(() => {
-    const m = new Map<number, number>();
-    // Key on the internal id the lookup echoes back, not on the symbol
-    // we sent — exact, and immune to case / alias mismatches.
-    for (const g of q.data ?? []) if (g.ncbiId != null) m.set(g.id, g.ncbiId);
-    return m;
-  }, [q.data]);
-}
 
 export interface ProbeRowTooltipProps {
   /** Probe name, e.g. ``1007_s_at``. */
@@ -78,9 +41,6 @@ export interface ProbeRowTooltipProps {
   designElementId?: number | null;
   /** Every gene the probe maps to, in wire order. */
   genes: HeatmapRowGene[];
-  /** Internal gene id → NCBI id, from ``useNcbiIdsByGeneId``. Genes
-   *  missing from it render unlinked. */
-  ncbiIdByGeneId?: Map<number, number>;
   /** The platform the probe sits on. Absent ⇒ no probe link; see the
    *  multi-platform note in the header. */
   platformShortName?: string;
@@ -93,7 +53,6 @@ export function ProbeRowTooltip({
   designElementName,
   designElementId,
   genes,
-  ncbiIdByGeneId,
   platformShortName,
   queried,
 }: ProbeRowTooltipProps) {
@@ -138,7 +97,7 @@ export function ProbeRowTooltip({
     <div className="text-xs text-slate-800">
       <div className="space-y-1">
         {named.map((g) => {
-          const ncbiId = ncbiIdByGeneId?.get(g.id);
+          const ncbiId = g.ncbiId;
           const symbol = g.officialSymbol || `gene ${g.id}`;
           return (
             <div key={g.id}>

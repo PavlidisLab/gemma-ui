@@ -38,7 +38,6 @@ import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
-import { taxonPathParam } from "@/lib/gemmaConfig";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
@@ -138,7 +137,7 @@ export function DatasetPage() {
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
-        {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} taxon={taxonPathParam(dataset.taxon)} />}
+        {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} isAdmin={isAdmin} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
         {activeTab === "quantitationtypes" && isAdmin && <QuantitationTypesTab datasetId={dataset.id ?? Number(id)} />}
@@ -1687,13 +1686,7 @@ function DifferentialExpressionTab({ datasetId }: { datasetId: number }) {
 
 // ─── Diagnostics tab ──────────────────────────────────────────────────────────
 
-function ExpressionTab({
-  datasetId,
-  taxon,
-}: {
-  datasetId: number;
-  taxon?: string;
-}) {
+function ExpressionTab({ datasetId }: { datasetId: number }) {
   return (
     /* Diagnostics — replaces the old standalone PCA scree.
        Four panels (Sample correlation · PCA scree · PC × factor ·
@@ -1702,7 +1695,7 @@ function ExpressionTab({
       title="Diagnostics"
       subtitle="Sample correlation · PCA scree · PC × factor · mean-variance"
     >
-      <DiagnosticsRow datasetId={datasetId} taxon={taxon} />
+      <DiagnosticsRow datasetId={datasetId} />
     </SectionCard>
   );
 }
