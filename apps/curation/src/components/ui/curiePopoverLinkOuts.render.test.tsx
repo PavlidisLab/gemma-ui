@@ -32,7 +32,7 @@ vi.mock("@/api/annotations", () => ({
   useTermSynonyms: () => ({ data: [], isLoading: false }),
 }));
 
-function detail(uri: string): AnnotationTermDetail {
+function detail(uri: string, xrefs: string[] = []): AnnotationTermDetail {
   return {
     uri,
     label: "astrocyte",
@@ -40,7 +40,7 @@ function detail(uri: string): AnnotationTermDetail {
     parents: [],
     synonyms: [],
     alternativeIds: [],
-    xrefs: [],
+    xrefs,
     ontologyVersion: null,
     ontology: "",
     source: "gemma",
@@ -48,8 +48,8 @@ function detail(uri: string): AnnotationTermDetail {
   };
 }
 
-function open(uri: string) {
-  term.current = detail(uri);
+function open(uri: string, xrefs: string[] = []) {
+  term.current = detail(uri, xrefs);
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -102,6 +102,34 @@ describe("CuriePopover link-outs", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /copied/ })).toBeTruthy(),
     );
+  });
+
+  it("links a cell line to its Cellosaurus RECORD when the term xrefs one", () => {
+    // Gemma files the accession under RRID, not Cellosaurus — matching a
+    // "Cellosaurus" prefix would find nothing, silently, and leave the
+    // curator on a search page.
+    open("http://www.ebi.ac.uk/efo/EFO_0001086", [
+      "CLO:0001601",
+      "RRID:CVCL_0023",
+      "BTO:0000018",
+    ]);
+    const href = hrefOf("Cellosaurus");
+    expect(href).toBe("https://www.cellosaurus.org/CVCL_0023");
+    expect(href).not.toContain("search");
+  });
+
+  it("keeps the name search when the term xrefs no accession", () => {
+    // The fallback still has to work: most cell-line terms carry no
+    // Cellosaurus xref, and a search beats no link at all.
+    open("http://purl.obolibrary.org/obo/CLO_0051454", ["BTO:0000018"]);
+    expect(hrefOf("Cellosaurus")).toContain("cellosaurus.org/search?query=");
+  });
+
+  it("leaves a native Cellosaurus term alone — it already addresses its page", () => {
+    open("http://www.cellosaurus.org/CVCL_0395");
+    expect(hrefOf("Cellosaurus")).toBe("https://www.cellosaurus.org/CVCL_0395");
+    // Native CVCL gets ONLY Cellosaurus; OBO/OLS do not host it.
+    expect(screen.queryByText(/^OLS ↗$/)).toBeNull();
   });
 
   it("still offers copy for a term with no browsable registry home", () => {

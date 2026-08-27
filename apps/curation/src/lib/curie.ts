@@ -77,6 +77,27 @@ export function mgiUrl(uri: string | null | undefined): string | null {
   return /^https?:\/\/(www\.)?informatics\.jax\.org\//i.test(iri) ? iri : null;
 }
 
+/** Cellosaurus accession out of a term's ``dbXrefs``.
+ *
+ *  🛑 **Gemma files it under `RRID`, not `Cellosaurus`.** EFO_0001086
+ *  (A549) ships ``["CLO:0001601", "RRID:CVCL_0023", "BTO:0000018"]`` —
+ *  measured on gemma2, 2026-08-27. Matching a "Cellosaurus" prefix finds
+ *  nothing, silently, so match the ACCESSION SHAPE and ignore the prefix
+ *  entirely.
+ *
+ *  This is what turns a cell-line term's link from a name SEARCH the
+ *  curator has to disambiguate into the record itself. Only terms that
+ *  carry the xref get it; a CLO term without one keeps the search. */
+export function cellosaurusIdFromXrefs(
+  xrefs: readonly string[] | null | undefined,
+): string | null {
+  for (const x of xrefs ?? []) {
+    const m = (x ?? "").match(/CVCL_\d+/i);
+    if (m) return m[0].toUpperCase();
+  }
+  return null;
+}
+
 export function cellosaurusUrl(
   uri: string | null | undefined,
   label?: string | null,

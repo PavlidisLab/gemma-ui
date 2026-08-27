@@ -31,6 +31,7 @@ import {
   type TermChildren,
 } from "@/api/annotations";
 import {
+  cellosaurusIdFromXrefs,
   cellosaurusUrl,
   curieToUrl,
   isOlsHosted,
@@ -912,6 +913,7 @@ export function CuriePopoverBody({
           uri={detail.uri}
           source={detail.source}
           oboUrl={detail.canonicalUrl ?? curieToUrl(detail.uri)}
+          xrefs={detail.xrefs}
           label={detail.label}
         />
       </div>
@@ -932,8 +934,10 @@ export function CuriePopoverBody({
  *  there), and TGEMO gets its own canonical Gemma link and nothing
  *  else — neither Ontobee nor OLS has it. **Cell lines** also get a
  *  Cellosaurus link: a native Cellosaurus term (CVCL accession) gets
- *  ONLY that, while a Cell-Line-Ontology term (CLO) keeps Ontobee + OLS
- *  and adds a Cellosaurus name-search alongside. NCBI genes keep their
+ *  ONLY that, while an EFO / CLO cell-line term keeps Ontobee + OLS and
+ *  adds Cellosaurus alongside — the RECORD when the term cross-
+ *  references an accession in its ``dbXrefs``, a name SEARCH only when
+ *  it does not. NCBI genes keep their
  *  single Gene link. **Mouse strains** get an MGI link — the
  *  URI is the page there, so it is the one registry that needs no
  *  builder. Anything we still can't place (unrecognised prefixes) gets
@@ -943,16 +947,27 @@ function TermLinkOuts({
   source,
   oboUrl,
   label,
+  xrefs,
 }: {
   uri: string;
   source?: string;
   oboUrl: string | null;
   label?: string | null;
+  /** The term's ``dbXrefs`` as Gemma ships them. Carries the Cellosaurus
+   *  accession for cell-line terms whose own URI is not a CVCL, which is
+   *  what upgrades the link below from a name search to the record. */
+  xrefs?: readonly string[] | null;
 }) {
   const linkCls =
     "text-[10px] whitespace-nowrap text-blue-700 hover:underline dark:text-blue-300";
   const links: Array<{ key: string; href: string; label: string }> = [];
-  const cvcl = cellosaurusUrl(uri, label);
+  // Prefer the accession the term cross-references over its own URI: an
+  // EFO / CLO cell-line term addresses no Cellosaurus page itself, but
+  // its xref does, and `cellosaurusUrl` builds the record from any
+  // string containing a CVCL. Falls back to the old name-search when the
+  // term carries no xref.
+  const xrefCvcl = cellosaurusIdFromXrefs(xrefs);
+  const cvcl = cellosaurusUrl(xrefCvcl ?? uri, label);
   const nativeCvcl = /CVCL_\d+/i.test(uri);
   const mgi = mgiUrl(uri);
   if (source === "ncbi") {
@@ -993,7 +1008,8 @@ function TermLinkOuts({
       const ols = olsUrl(uri);
       if (ols) links.push({ key: "ols", href: ols, label: "OLS" });
     }
-    // CLO cell line (or any cell line resolvable by name) → Cellosaurus.
+    // Cell line → Cellosaurus: the RECORD when the term cross-references
+    // an accession, a name search when it does not.
     if (cvcl) links.push({ key: "cvcl", href: cvcl, label: "Cellosaurus" });
   }
   return (
