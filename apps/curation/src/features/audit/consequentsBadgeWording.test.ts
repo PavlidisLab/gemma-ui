@@ -43,3 +43,30 @@ describe("consequents badge wording", () => {
     expect(impliesRemoval("")).toBe(false);
   });
 });
+
+/** `fv:genotype/wild-type#9001` -> `wild-type`. */
+function targetTail(targetId: string): string {
+  const noSuffix = targetId.split("#")[0] ?? targetId;
+  const afterSlash = noSuffix.includes("/")
+    ? noSuffix.slice(noSuffix.lastIndexOf("/") + 1)
+    : noSuffix;
+  return afterSlash.trim() || targetId;
+}
+
+describe("the chip's fallback label", () => {
+  it("shortens a target id instead of shouting the whole thing", () => {
+    // The chip read "ALSO APPLIES TO `FV:GENOTYPE/WILD-TYPE#9001`" when
+    // the consequent finding had no backticked term to name it by.
+    expect(targetTail("fv:genotype/wild-type#9001")).toBe("wild-type");
+    expect(targetTail("fv:treatment/vehicle#9003")).toBe("vehicle");
+  });
+
+  it("handles a target with no value segment", () => {
+    expect(targetTail("factor:genotype#9001")).toBe("factor:genotype");
+  });
+
+  it("never returns empty — an unnamed chip is worse than an ugly one", () => {
+    expect(targetTail("#9001")).toBe("#9001");
+    expect(targetTail("")).toBe("");
+  });
+});

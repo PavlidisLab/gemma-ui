@@ -283,6 +283,20 @@ export function PairedFindingBadge({ finding }: { finding: AuditFinding }) {
  *
  *  Silently skips entries whose target_id can't be resolved in the
  *  current report (defensive against partial round-trips). */
+/** The value segment of a target id, for when a finding has no
+ *  backticked term to name it by.
+ *
+ *  `fv:genotype/wild-type#9001` -> `wild-type`. The slug is lossy —
+ *  `Utrn -/-` does not survive it — so this shortens the id rather
+ *  than pretending to reconstruct the label the curator typed. */
+function targetTail(targetId: string): string {
+  const noSuffix = targetId.split("#")[0] ?? targetId;
+  const afterSlash = noSuffix.includes("/")
+    ? noSuffix.slice(noSuffix.lastIndexOf("/") + 1)
+    : noSuffix;
+  return afterSlash.trim() || targetId;
+}
+
 export function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
   const { report, setActiveFindingKey } = useAudit();
   const findings = report?.findings ?? [];
@@ -333,7 +347,8 @@ export function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
   for (const childId of finding.consequents ?? []) {
     const downstream = findings.find((f) => f.target_id === childId);
     if (!downstream) continue;
-    const label = firstBacktick(downstream.rationale) ?? downstream.target_id;
+    const label =
+      firstBacktick(downstream.rationale) ?? targetTail(downstream.target_id);
     chips.push({
       key: `down-${childId}`,
       label: impliesRemoval
@@ -357,13 +372,19 @@ export function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
             c.onClick();
           }}
           title={c.title}
-          // Action-style chip — solid violet fill + chevron icon so
-          // the curator reads it as clickable navigation, not a
-          // passive label. Distinct from the outlined-only
-          // notification chips (ProposerFlagsChips,
-          // PairedFindingBadge, severity badges) that don't dispatch
-          // any action on click.
-          className="ml-1 inline-flex items-center gap-0.5 text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-700 dark:hover:bg-violet-600 shadow-sm"
+          // 🛑 Quiet. This is a SECONDARY fact — "the same decision also
+          // covers X" — and it was a solid violet fill in shouting caps,
+          // which put more weight on the "also" than on the finding
+          // itself. Paul: "the emphasis is on the 'also' — it's very
+          // easy to miss the headline."
+          //
+          // Outlined + chevron still reads as navigation; the paired
+          // badge beside it is outlined and clickable too, so the fill
+          // was never what marked it actionable.
+          //
+          // Not uppercased: the label is a factor VALUE, and values are
+          // case-bearing — `Utrn -/-` is not `UTRN -/-`.
+          className="ml-1 inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded border border-violet-300 text-violet-700 hover:bg-violet-50 dark:border-violet-700 dark:text-violet-300 dark:hover:bg-violet-900/30"
         >
           {c.label}
           <span aria-hidden className="text-[10px] leading-none">
