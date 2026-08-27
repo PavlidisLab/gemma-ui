@@ -1522,16 +1522,29 @@ function BannerStatusChips({
               ? "rose"
               : "slate"
         }
+        // 🛑 "private" names a STATE and sits beside "troubled" and
+        // "needs attention", which name WORK. A curator who has just
+        // committed reads a state chip as nothing to do and stops —
+        // and an unpublished experiment is not a finished one. Paul:
+        // "it should have some indication that this still has to be
+        // done, otherwise curator will think they are done", and then:
+        // "it should be more obvious!"
+        //
+        // So the private case says what is outstanding, in the cluster
+        // whose other members are outstanding things. "public" stays a
+        // plain state — there is nothing left to do there.
         label={
           visibilityState === "unknown"
             ? "status unknown"
-            : visibilityState
+            : visibilityState === "private"
+              ? "not published"
+              : visibilityState
         }
         title={
           visibilityState === "public"
             ? "Public — visible to all Gemma users."
             : visibilityState === "private"
-              ? "Private — only visible to curators."
+              ? "STILL TO DO — not published, so this curation is not finished. Only curators can see it."
               : "Public/private state is not yet retrievable from Gemma's REST API."
         }
       />
@@ -1842,8 +1855,19 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
   const disabled =
     notWiredUp || isPublic || dirty || publish.isPending;
 
+  // 🛑 "coming soon" described the FEATURE and so read as "nothing is
+  // expected of you". Publishing is a step the curator still owes —
+  // this experiment is not finished until it happens — and a curator
+  // who reads the button as a missing feature stops here thinking they
+  // are done. Paul: "it should have some indication that this still
+  // has to be done — otherwise curator will think they are done."
+  //
+  // Say both halves: the step is outstanding, AND it cannot be taken
+  // from here yet. Publishing writes to Gemma, and this app is a
+  // read-only client of Gemma — it has to go through the agent, which
+  // has no publish route yet (preflight / commit / sign / draft / lock).
   const title = notWiredUp
-    ? "publish pipeline isn't wired up yet — coming soon"
+    ? "STILL TO DO — this experiment is not published, so the curation is not finished. Publishing cannot be done from here yet: it writes to Gemma, and that goes through the agent, which has no publish route."
     : isPublic
       ? "already public"
       : dirty
@@ -1861,7 +1885,15 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
         onClick={() => setConfirming(true)}
         title={title}
       >
-        {publish.isPending ? "publishing…" : isPublic ? "published" : "publish"}
+        {publish.isPending
+          ? "publishing…"
+          : isPublic
+            ? "published"
+            : // Marked as outstanding rather than merely unavailable, so a
+              // disabled control does not read as "nothing left to do".
+              notWiredUp
+              ? "publish — still to do"
+              : "publish"}
       </button>
       <ConfirmModal
         open={confirming}
