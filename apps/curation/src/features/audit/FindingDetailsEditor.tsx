@@ -2931,6 +2931,42 @@ export function FindingDetailsEditor({
                       },
                     ]
                   : []),
+                // Partial adopt, offered wherever there IS a proposer
+                // factor to take from.
+                //
+                // 🛑 Its absence here was the gap Paul hit on 9001: a
+                // `decide`-shaped card renders through this branch, so
+                // the only options were "no action needed" and "I've
+                // addressed this" — both terminal, neither mutating —
+                // while the comparison column right above showed a
+                // grounded term (`wild type genotype EFO:0005168`) the
+                // proposer was offering. Nothing on screen could take
+                // it. Paul: "there's no accept proposal that applies
+                // it … it could be at the factor level too."
+                //
+                // The picker covers both levels the ask names — the
+                // whole factor, or one value's label or statement — so
+                // this is the existing affordance reaching a branch it
+                // never reached, not a new one.
+                ...(canOpenAdoptPicker
+                  ? [
+                      {
+                        key: "choose",
+                        kind: "secondary" as const,
+                        label: "Choose…",
+                        onClick: () =>
+                          setAdoptPlan(
+                            adoptSides
+                              ? buildFactorAdoptPlan(
+                                  adoptSides.current,
+                                  adoptSides.agent,
+                                )
+                              : null,
+                          ),
+                        title: `Pick which parts of ${identities.proposer}'s factor to take — the category, the sample grouping, or one value's label or statement.`,
+                      },
+                    ]
+                  : []),
                 // Per-row save only makes sense when there are
                 // multiple rows the curator picks independently —
                 // tags are a single decision (category + value
@@ -2975,6 +3011,12 @@ export function FindingDetailsEditor({
         hideDismiss={isTagAddFinding}
       />
       )}
+      {/* The adopt picker's dialog. It renders in the two other
+          factor-card branches and did NOT render here, so this
+          branch's "Choose…" set `adoptPlan` and nothing displayed
+          it — a button that looked alive and did nothing. Found by
+          clicking it on 9001, not by reading. */}
+      {adoptDialog}
     </div>
   );
 }
