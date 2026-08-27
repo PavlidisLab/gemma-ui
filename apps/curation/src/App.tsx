@@ -1501,6 +1501,15 @@ function SharedCommitBar({
       saveConflict={saveConflict}
       validation={validation}
       draft={draft}
+      // Only when it is SOMEONE ELSE's. Your own lease must never
+      // block you, and an unlocked experiment is the ordinary case.
+      lockedBy={
+        lock.lock?.locked && lock.lock.locked_by !== lock.me
+          ? (lock.lock.locked_by ?? "Someone else")
+          : null
+      }
+      onTakeOver={lock.takeOver}
+      takingOver={lock.takingOver}
       onCommit={(overrides) => {
         commit();
         if (overrides.length === 0) return;

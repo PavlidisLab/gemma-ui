@@ -35,6 +35,9 @@ export function CommitBar({
   draft,
   onCommit,
   onDiscard,
+  lockedBy,
+  onTakeOver,
+  takingOver,
 }: {
   diff: DesignDiff;
   saving: boolean;
@@ -50,6 +53,12 @@ export function CommitBar({
    *  onto curation_note for provenance. */
   onCommit: (overrides: BaselineOverride[]) => void;
   onDiscard: () => void;
+  /** Set when SOMEONE ELSE holds the curation lease. Blocks commit —
+   *  see the note beside `lockedOut` below. Null when the lease is
+   *  yours or nobody holds it. */
+  lockedBy?: string | null;
+  onTakeOver?: () => void;
+  takingOver?: boolean;
 }) {
   // Per-factor override state. Map of factor_id → ``{checked, reason}``.
   // Only relevant when a factor has a baseline-count problem; commit is
@@ -115,7 +124,22 @@ export function CommitBar({
         .filter((p) => p.lines.length > 0)
     : [];
   const hasHardProblem = hardProblems.length > 0;
-  const blocked = (hasBaselineProblem && !allOverridden) || hasHardProblem;
+  // 🛑 Someone else holds the lease, so COMMIT is blocked.
+  //
+  // The lease used to be purely advisory — it warned and never gated,
+  // on the reasoning that a stale lock should not strand a curator.
+  // That reasoning does not survive the case Paul named: the proposer
+  // running over a thousand experiments while a curator hand-edits one
+  // of them. Two writers, no gate, and the loser finds out at commit
+  // time or not at all.
+  //
+  // Editing stays free — the draft is per-curator and the baseline has
+  // to remain editable — and steal stays one click away, so nobody is
+  // stranded by a lease whose holder walked off. What is gated is the
+  // WRITE, which is the thing that can collide.
+  const lockedOut = !!lockedBy;
+  const blocked =
+    lockedOut || (hasBaselineProblem && !allOverridden) || hasHardProblem;
 
   const t = diff.totals;
   const parts: string[] = [];
@@ -214,17 +238,39 @@ export function CommitBar({
               }}
               disabled={saving || blocked}
               title={
-                hasHardProblem
-                  ? "Fix the flagged factor problems (grounded category + predicate) to commit."
-                  : blocked
-                    ? "Each factor must have exactly one baseline FV. Tick the per-factor override to commit anyway."
-                    : undefined
+                lockedOut
+                  ? `${lockedBy} holds the editing lease. Take over to commit — their draft is separate and survives.`
+                  : hasHardProblem
+                    ? "Fix the flagged factor problems (grounded category + predicate) to commit."
+                    : blocked
+                      ? "Each factor must have exactly one baseline FV. Tick the per-factor override to commit anyway."
+                      : undefined
               }
             >
               {saving ? "committing…" : "commit"}
             </button>
           </div>
         </div>
+        {lockedOut ? (
+          <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200 flex items-baseline gap-1.5">
+            <span>
+              <span className="font-semibold">{lockedBy}</span> holds the
+              editing lease — commit is blocked so two writers cannot land
+              on top of each other.
+            </span>
+            {onTakeOver ? (
+              <button
+                type="button"
+                onClick={onTakeOver}
+                disabled={takingOver}
+                title={`Take the lease from ${lockedBy}. Their draft is separate and survives.`}
+                className="underline hover:no-underline disabled:opacity-50"
+              >
+                {takingOver ? "taking over…" : "Take over"}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {hasBaselineProblem ? (
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 space-y-1">
             <div className="font-semibold">
