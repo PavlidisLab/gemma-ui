@@ -1814,7 +1814,22 @@ function ProvenanceTools({
       ) : (
         <span
           className={`${base} text-slate-400 dark:text-slate-500 italic cursor-help`}
-          title={`This ${noun} carries no run provenance — no models, switches or git sha were recorded against it. Hand-filed decision tickets and rows created before the agent stamped its identity look like this; it is not a missing feature.`}
+          // 🛑 This said "no models … were recorded" and "it is not a
+          // missing feature". Both were false on the row Paul hovered.
+          //
+          // The model IS recorded — it is what the header chip falls
+          // back to. What is absent is the RUN block.
+          //
+          // And a third case exists that the reassurance denied: an
+          // audit submitted by the agent-api before `0c41dce`, which
+          // never stamped provenance on the service path (only the
+          // eval repo's batch submitter did). That row was minted
+          // minutes earlier by a build that knew its own identity, so
+          // it was exactly a missing feature — and the old wording
+          // sent the reader to check the row's AGE when the
+          // discriminating fact was which path submitted it. Those
+          // rows do not self-heal; they were not backfilled.
+          title={`This ${noun} carries no run block — no switches or git sha were recorded against it, though the model was. Three things look identical here: a hand-filed decision ticket, a row from before the agent stamped its identity, and a service-run ${noun} from before that path stamped provenance at all (fixed agent-side 2026-08-26, not backfilled).`}
         >
           no run details
         </span>
