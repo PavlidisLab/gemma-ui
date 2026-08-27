@@ -14,7 +14,7 @@
  */
 
 import { useMe } from "@/api/auth";
-import { gemmaUrl } from "@/lib/gemmaConfig";
+import { gemma1Url } from "@/lib/gemmaConfig";
 
 /** What every Gemma 1.0 link is called, everywhere. */
 export const GEMMA_1_LABEL = "Gemma 1.0";
@@ -24,5 +24,5 @@ export const GEMMA_1_LABEL = "Gemma 1.0";
 export function useGemma1Url(path: string): string | null {
   const me = useMe();
   const isAdmin = !!me.data?.authorities?.includes("GROUP_ADMIN");
-  return isAdmin ? gemmaUrl(path) : null;
+  return isAdmin ? gemma1Url(path) : null;
 }

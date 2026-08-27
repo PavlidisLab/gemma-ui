@@ -4,10 +4,14 @@
 
 import type { Taxon } from "./types";
 
-/** Base URL for absolute links into the Gemma web app — legacy JSP
- *  pages (``/gene/showGene.html`` etc.) and the copy-paste API
- *  snippets, both of which bypass the dev proxy and so need a real
- *  origin. Resolution order:
+/** Base URL of the Gemma this app TALKS TO — the REST API behind the
+ *  dev proxy, used by the copy-paste API snippets, which bypass the
+ *  proxy and so need a real origin.
+ *
+ *  🛑 Not the Gemma 1.0 webapp. This used to serve both, back when the
+ *  configured base WAS 1.0; it now points at Gemma 2.0, which does not
+ *  serve the JSP pages at all. Use ``gemma1Url`` for those.
+ *  Resolution order:
  *
  *    1. ``VITE_GEMMA_BASE_URL`` — explicit client-side override.
  *       Required for prod builds, where there is no dev proxy.
@@ -98,6 +102,39 @@ export function publicGemmaUrl(path: string): string {
 
   if (/^https:\/\//i.test(baseUrl)) return baseUrl + path;
   return "";
+}
+
+/**
+ * Base URL of the **Gemma 1.0** webapp — the JSP pages
+ * (``/expressionExperiment/showExpressionExperiment.html``,
+ * ``/gene/showGene.html``, …).
+ *
+ * 🛑 A separate host from everything else here, and it has to be. The
+ * 1.0 links were built from ``gemmaUrl``, which resolves to the Gemma
+ * this app talks to — now Gemma 2.0, which does not serve those pages:
+ *
+ *     gemma.msl.ubc.ca/expressionExperiment/…?id=28143   -> 200
+ *     gemma2.msl.ubc.ca/expressionExperiment/…?id=28143  -> 404
+ *
+ * So every "Gemma 1.0" link resolved to a 404 on the new host. They are
+ * admin-only, which is why it stayed quiet.
+ *
+ * Same variable name and default as the curation app's
+ * ``GEMMA_WEB_URL``, deliberately — two apps linking to the same 1.0
+ * should not need two answers for where it lives.
+ *
+ * ``||`` rather than ``??`` on purpose: a variable declared and left
+ * empty is "not configured", and ``??`` would take the empty string and
+ * emit a relative URL that silently resolves against this app's own
+ * origin.
+ */
+const gemma1BaseUrl: string = String(
+  import.meta.env.VITE_GEMMA_WEB_URL || "https://gemma.msl.ubc.ca",
+).replace(/\/+$/, "");
+
+/** Absolute URL into the Gemma 1.0 webapp for ``path``. */
+export function gemma1Url(path: string): string {
+  return gemma1BaseUrl + path;
 }
 
 export const excludedCategories: string[] = [
