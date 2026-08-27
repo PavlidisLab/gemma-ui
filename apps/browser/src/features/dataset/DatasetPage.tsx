@@ -13,6 +13,7 @@ import {
   getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
+  getDatasetOriginalPlatforms,
   getDatasetPlatforms,
   getDatasetSamples,
   getDatasetQuantitationTypes,
@@ -42,6 +43,7 @@ import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
   assayKindLabel,
+  platformDisplay,
   platformRouteParam,
   technologyTypeLabel,
 } from "@/lib/platformConstants";
@@ -204,12 +206,29 @@ function Banner({
     staleTime: 30 * 60_000,
   });
   const platforms = platformsQ.data ?? [];
+  // What the data was submitted ON, before Gemma switched it. Empty
+  // means nothing was switched — so `platforms` already IS the
+  // original and there is no mapping to explain.
+  const originalsQ = useQuery({
+    queryKey: ["datasetOriginalPlatforms", dataset.id],
+    queryFn: ({ signal }) => getDatasetOriginalPlatforms(dataset.id, signal),
+    staleTime: 30 * 60_000,
+  });
+  const originals = originalsQ.data ?? [];
+  const { primary: primaryPlatforms, mappedTo } = platformDisplay(
+    platforms,
+    originals,
+  );
   // The dataset's own curated `assay` annotation first. The platform's
   // technologyType is the fallback and a poor one: Gemma maps
   // sequencing onto generic gene-list platforms, so ordinary RNA-seq
   // reports GENELIST, which the tech vocabulary labels "Other".
+  // The ORIGINAL platform's technology is the honest fallback: the
+  // generic stand-in Gemma switches sequencing onto reports GENELIST,
+  // which the vocabulary labels "Other".
   const kind =
     assayKindLabel(dataset.characteristics) ??
+    technologyTypeLabel(originals[0]?.technologyType) ??
     technologyTypeLabel(platforms[0]?.technologyType);
   const geeq = dataset.geeq;
   const gemma1Url = useGemma1Url(
@@ -318,23 +337,19 @@ function Banner({
               </a>
             )}
           </div>
-          {platforms.length > 0 ? (
-            // Labelled the way Gemma 1.0 labels it, shortName — full name.
-            //
-            // Gemma 1.0 shows a second line here, "As originally submitted:
-            // GPL24247 — Illumina NovaSeq 6000". It is NOT renderable yet:
-            // the bioAssay VO puts the platform a dataset was switched TO
-            // into `originalPlatform`, and the filter contradicts it on the
-            // same dataset — `bioAssays.originalPlatform.technologyType =
-            // SEQUENCING` matches GSE217927 while its samples report
-            // GENELIST. Reading it today would print the generic platform
-            // twice. Filed against gemma-rest 2026-08-26.
+          {primaryPlatforms.length > 0 ? (
+            // The submitted platform leads. What Gemma maps it onto is
+            // plumbing: `Generic_mouse_ncbiIds` is an artifact of how
+            // the data was quantified, while GPL24247 — Illumina
+            // NovaSeq 6000 — is the fact about the experiment. Gemma
+            // 1.0 leads with the mapping and puts the real platform on
+            // a second line; this inverts that.
             <div className="mt-1 text-xs text-slate-600 flex gap-2">
               <span className="shrink-0 text-slate-500">
-                {platforms.length === 1 ? "Platform" : "Platforms"}
+                {primaryPlatforms.length === 1 ? "Platform" : "Platforms"}
               </span>
               <div className="min-w-0 flex flex-col gap-0.5">
-                {platforms.map((p) => (
+                {primaryPlatforms.map((p) => (
                   <div key={p.id} className="min-w-0">
                     <Link
                       to="/platforms/$shortName"
@@ -348,6 +363,24 @@ function Banner({
                     ) : null}
                   </div>
                 ))}
+                {mappedTo.length > 0 ? (
+                  <div className="min-w-0 text-slate-400">
+                    mapped in Gemma to{" "}
+                    {mappedTo.map((p, i) => (
+                      <span key={p.id}>
+                        {i > 0 ? ", " : ""}
+                        <Link
+                          to="/platforms/$shortName"
+                          params={{ shortName: platformRouteParam(p) }}
+                          className="hover:underline"
+                          title={p.name ?? undefined}
+                        >
+                          {p.shortName ?? p.name}
+                        </Link>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

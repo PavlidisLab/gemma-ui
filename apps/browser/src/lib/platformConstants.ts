@@ -136,3 +136,37 @@ export function platformRouteParam(
   const shortName = (p.shortName ?? "").trim();
   return shortName && !/[/?#%]/.test(shortName) ? shortName : String(p.id);
 }
+
+/** A dataset's platforms, arranged for display. */
+export interface PlatformDisplay<P> {
+  /** The platforms to LEAD with — what the data was submitted on. */
+  primary: P[];
+  /** What Gemma switched them onto, or `[]` when nothing was switched
+   *  and so there is no mapping to explain. */
+  mappedTo: P[];
+}
+
+/**
+ * Decide which platforms lead and which are the in-house mapping.
+ *
+ * The submitted platform is the fact about the experiment; the one
+ * Gemma quantified onto is plumbing. So GPL24247 (Illumina NovaSeq
+ * 6000) leads and `Generic_mouse_ncbiIds` follows, which inverts how
+ * Gemma 1.0 orders the same two lines.
+ *
+ * 🛑 `originals` empty means **nothing was switched**, not "unknown".
+ * The server excludes a recorded original that equals the platform in
+ * use, so a non-empty answer always names a real change and an empty
+ * one means `inUse` already IS the original. Treating empty as "we
+ * don't know" would hide the platform on every unswitched dataset.
+ */
+export function platformDisplay<P>(
+  inUse: P[] | null | undefined,
+  originals: P[] | null | undefined,
+): PlatformDisplay<P> {
+  const used = inUse ?? [];
+  const orig = originals ?? [];
+  return orig.length > 0
+    ? { primary: orig, mappedTo: used }
+    : { primary: used, mappedTo: [] };
+}
