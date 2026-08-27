@@ -1,12 +1,19 @@
 /**
  * The curation lock, through the agent.
  *
- * 🛑 **Advisory, and it must stay that way.** The lock drives this
- * chip and warns; it does NOT gate committing. Gemma's
- * `baseline.lastModified` 409 is the correctness guarantee. gembro's
- * §4, verbatim: *"the lock is a courtesy; the token is the contract"* —
- * so nothing here may grow into a permission check, and no caller may
- * read a held lock as authority to proceed or refuse.
+ * 🛑 **The lock GATES committing now.** `CommitBar` blocks it
+ * client-side (`0df972b`) and Gemma refuses the write server-side with
+ * a 409 `LOCK_REQUIRED` naming the holder (`2acff27319`). This header
+ * used to read *"Advisory, and it must stay that way … no caller may
+ * read a held lock as authority to proceed or refuse"* — that described
+ * the era before the reversal and is now false. Do not restore it.
+ *
+ * 🛑 What SURVIVED the reversal: `baseline.lastModified` is still the
+ * correctness guarantee and its 409 still has to be handled. The lock
+ * decides whether a write is PERMITTED, the token whether it is SAFE;
+ * the gate answers only the first, and cannot answer the second — it is
+ * per-dataset and coarse where `lastModified` is per-content and exact.
+ * Removing the baseline check because "the lock handles it" is the bug.
  *
  * Stealing is always allowed and destroys nothing: the other curator's
  * DRAFT is a separate row and survives. The cost of a steal is that the
