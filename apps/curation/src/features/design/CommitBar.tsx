@@ -137,6 +137,20 @@ export function CommitBar({
   // to remain editable — and steal stays one click away, so nobody is
   // stranded by a lease whose holder walked off. What is gated is the
   // WRITE, which is the thing that can collide.
+  //
+  // 🛑 Two limits, so nothing downstream over-trusts this.
+  //
+  // It is CLIENT-SIDE. A caller going straight at Gemma is not stopped
+  // by it, so a held lock is a coordination signal and never proof the
+  // design is unchanged — `baseline.lastModified` remains the
+  // correctness guarantee and the 409 still has to be handled.
+  //
+  // And it currently blocks curator-vs-curator ONLY. The case that
+  // motivated it — a proposer batch running while someone hand-edits
+  // one of its experiments — is not covered, because the agent takes
+  // no lock for its run: `take_curation_lock` is called from exactly
+  // one place, the relay endpoint the UI hits (confirmed by call site,
+  // cab 2026-08-26). Agent-side locking is unbuilt.
   const lockedOut = !!lockedBy;
   const blocked =
     lockedOut || (hasBaselineProblem && !allOverridden) || hasHardProblem;
@@ -255,8 +269,8 @@ export function CommitBar({
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200 flex items-baseline gap-1.5">
             <span>
               <span className="font-semibold">{lockedBy}</span> holds the
-              editing lease — commit is blocked so two writers cannot land
-              on top of each other.
+              editing lease — commit is blocked here so two curators do not
+              land on top of each other.
             </span>
             {onTakeOver ? (
               <button
