@@ -219,6 +219,31 @@ services:
       GEMMA_LOCAL_API_URL: ${GEMMA_LOCAL_API_URL:-http://local-api:8000}
       GEMMA_PROPOSER_URL: http://proposer:8000
       VITE_GEMMA_CURATION_API_KEY: ${GEMMA_CURATION_API_KEY:-dev-token-123}
+      # Backend-mode flag, read once at boot by lib/gemmaMode.ts.
+      #
+      # 🛑 This is a CAPABILITY + DISPLAY flag, not a routing switch.
+      # api/client.ts calls `fetch(path)` with a RELATIVE path on every
+      # request, so where calls actually land is decided entirely by the
+      # proxy table in apps/curation/vite.config.ts — pointing the
+      # backends at a different Gemma does not move the UI out of local
+      # mode, and flipping this does not move any request.
+      #
+      # What it does change: local mode hides the SVD diagnostics and
+      # the real Gemma audit-event history client-side, and serves a
+      # synthetic curator from useMe() so sign-out is a no-op. Remote
+      # mode shows both and turns on the real login/logout path.
+      #
+      # ⚠️ Set VITE_GEMMA_BASE_URL alongside it. Remote mode refuses to
+      # default the base and renders "(unset)" in the mode chip rather
+      # than silently pointing somewhere nobody asked for.
+      #
+      # There was no passthrough here at all before 2026-08-27, so the
+      # mode could not be set without editing this file. Interim knob:
+      # once the store serves GET /rest/v2/__config__, runtime config
+      # takes precedence over these and the mode becomes switchable
+      # without a restart.
+      VITE_GEMMA_MODE: ${VITE_GEMMA_MODE:-}
+      VITE_GEMMA_BASE_URL: ${VITE_GEMMA_BASE_URL:-}
       # Vite watcher fallback — bind-mounts on Docker-on-macOS don't
       # deliver inotify events from the host, so HMR misses workspace
       # package edits (@gemma/heatmap, @gemma/diagnostics, …) without

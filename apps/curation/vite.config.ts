@@ -33,6 +33,21 @@ export default defineConfig(({ mode }) => {
     env.GEMMA_CURATION_URL || "http://localhost:8082";
   const GEMMA_REST_URL =
     env.GEMMA_REST_URL || "http://localhost:8080";
+  // 🛑 In REMOTE mode the curation UI is a pure Gemma client — it does
+  // not use the local store at all (Paul, 2026-08-27: "does the
+  // curation UI still use the store? NO"). So `/rest` targets Gemma and
+  // the request carries the CURATOR's own credentials.
+  //
+  // This reads the same flag the app reads (`lib/gemmaMode.ts`) rather
+  // than a second proxy-only switch, so the proxy and the client can
+  // never disagree about which backend they are talking to.
+  //
+  // ⚠️ `GEMMA_CURATION_UI_BACKEND` stays a LOCAL-mode knob. In remote
+  // mode `/rest` is Gemma unconditionally; there is no store to point
+  // at, so an override there would only produce a half-configured
+  // client that authenticates one way and reads another.
+  const REMOTE_MODE = env.VITE_GEMMA_MODE === "remote";
+  const REST_TARGET = REMOTE_MODE ? GEMMA_REST_URL : CURATION_URL;
   // Explicit local_api upstream — same target as CURATION_URL by
   // default (local_api IS the curation default), but exposed at a
   // distinct path prefix `/local-api` so hooks can hit it when a
@@ -76,7 +91,11 @@ export default defineConfig(({ mode }) => {
     );
   }
 
-  console.log(`[curation] /rest → ${CURATION_URL} (local_api default)`);
+  console.log(
+    REMOTE_MODE
+      ? `[curation] /rest → ${REST_TARGET} (REMOTE mode — Gemma is the backend, curator's own Authorization passed through)`
+      : `[curation] /rest → ${REST_TARGET} (local_api default, Authorization overridden with the dev bearer)`,
+  );
 
   console.log(
     `[curation] /rest/v2/datasets/*/{svd,sample-correlation,mean-variance} → ${GEMMA_REST_URL} (diagnostics fallback)`,
@@ -286,7 +305,7 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/gemma-ro/, ""),
         },
         "/rest": {
-          target: CURATION_URL,
+          target: REST_TARGET,
           changeOrigin: true,
           // Strip Origin + Referer so Tomcat's CORS filter doesn't
           // 403 the request. Verified by curl: any Origin header
@@ -296,14 +315,23 @@ export default defineConfig(({ mode }) => {
           // Override the Authorization header with local_api's dev
           // bearer — the browser sends the user's gemma-rest token
           // from localStorage, which local_api doesn't recognize.
+          //
+          // 🛑 The override is LOCAL-mode only. It replaces whatever the
+          // browser sent, so applying it against Gemma hands Gemma the
+          // store's dev token instead of the curator's session — which
+          // is why real login could not work through this proxy no
+          // matter how the backends were pointed. In remote mode the
+          // header passes through untouched.
           configure: (proxy) => {
             proxy.on("proxyReq", (proxyReq) => {
               proxyReq.removeHeader("origin");
               proxyReq.removeHeader("referer");
-              proxyReq.setHeader(
-                "Authorization",
-                `Bearer ${LOCAL_API_BEARER}`,
-              );
+              if (!REMOTE_MODE) {
+                proxyReq.setHeader(
+                  "Authorization",
+                  `Bearer ${LOCAL_API_BEARER}`,
+                );
+              }
             });
           },
         },
