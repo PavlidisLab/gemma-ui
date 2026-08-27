@@ -26,7 +26,11 @@ import {
   type TicketState,
 } from "@/api/tickets";
 import { navigate } from "@/routes";
-import { CreateScreeningTicketModal } from "@/features/tickets/CreateScreeningTicketModal";
+import {
+  CreateScreeningTicketModal,
+  SCREENING_TICKET_CREATE_ENABLED,
+  SCREENING_TICKET_DISABLED_TITLE,
+} from "@/features/tickets/CreateScreeningTicketModal";
 import { CreateReviewTicketModal } from "@/features/tickets/CreateReviewTicketModal";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import { OntologyLookup } from "./OntologyLookup";
@@ -430,12 +434,23 @@ export function CuratorDashboard({
                 + Import experiment
               </button>
             ) : null}
+            {/* Greyed while the instruction → candidates consumer is
+                shelved — `SCREENING_TICKET_CREATE_ENABLED`. Kept in the
+                header (not removed) so the layout below, and the
+                `ml-auto` hand-off pinned by dashboardImportGate, do not
+                shift when it comes back. */}
             <button
               type="button"
+              disabled={!SCREENING_TICKET_CREATE_ENABLED}
               onClick={() => setShowCreateScreening(true)}
-              title="Create a screening ticket — describe in plain language what datasets to review yes/no"
+              title={
+                SCREENING_TICKET_CREATE_ENABLED
+                  ? "Create a screening ticket — describe in plain language what datasets to review yes/no"
+                  : SCREENING_TICKET_DISABLED_TITLE
+              }
               className={cn(
                 "text-xs px-2.5 py-1 rounded bg-blue-700 text-white hover:bg-blue-800",
+                "disabled:opacity-50 disabled:hover:bg-blue-700",
                 // Only claims the gap when the import button isn't
                 // there to claim it first.
                 mode === "local" ? "" : "ml-auto",

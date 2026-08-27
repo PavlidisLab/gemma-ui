@@ -6,22 +6,57 @@ import { useCreateTicket, type Ticket } from "@/api/tickets";
 /**
  * "New screening ticket" — a natural-language-first create form.
  *
+ * 🛑 **GREYED OUT — see `SCREENING_TICKET_CREATE_ENABLED` below.** The
+ * form works; the step after it does not exist.
+ *
  * A screening ticket asks the curator to decide yes/no on a set of
  * datasets rather than curate them. Per design review: the config IS the
  * plain-language instruction — no mode buttons, no criteria pickers.
  * The curator describes what to screen for ("find GEO datasets like
  * GSE… we might want", or "datasets already in Gemma that still need
- * cell-type curation") and the reviewing agent later interprets that into
- * a candidate list, populating the ticket's targets. This form's only
- * job is to mint the ticket with `type=SCREENING` + the instruction in
- * `body`; everything downstream (candidate population, the yes/no
- * screen, finalize) rides the existing triage substrate.
+ * cell-type curation"). This form's only job is to mint the ticket with
+ * `type=SCREENING` + the instruction in `body`.
+ *
+ * ⚠️ This block used to say the reviewing agent "later interprets that
+ * into a candidate list, populating the ticket's targets". **Nothing
+ * does.** Measured 2026-08-27: every SCREENING producer in both agent
+ * repos builds `targets` FIRST and POSTs an already-populated ticket
+ * (`scrape_geo_and_open_triage.py`, `pubfinder_to_screen_ticket.py`), so
+ * a ticket minted here arrives holding an instruction and stops. Store
+ * evidence: ticket 204 (made here 2026-08-25) sat at 0 targets for 12
+ * days, against ticket 180's 19 from the scrape path.
+ *
+ * Everything DOWNSTREAM of a populated ticket is fine — the yes/no
+ * screen and finalize ride the existing triage substrate and work
+ * today. The missing step is only instruction → candidates.
  *
  * Two fields only: an optional short title (auto-derived from the
  * instruction when blank) and the instruction itself. Centred modal via
  * createPortal (mirrors JsonViewer / ProposerDetailsDialog) so it
  * escapes any overflow context; Escape / click-outside cancels.
  */
+/** Screening-ticket create gate — decision 2026-08-27, following the
+ *  `SHOW_PARK_AFFORDANCE` pattern in `features/audit/auditPresentation.ts`:
+ *  the work stays wired, one const turns it back on.
+ *
+ *  The instruction → candidates consumer was scoped and shelved
+ *  2026-08-26 as a general "prompt → curation ticket" endpoint, and
+ *  re-shelved 2026-08-27 once it was confirmed nothing had been
+ *  written. Until it exists, this form can only produce tickets that go
+ *  nowhere, so the entry point is greyed rather than removed.
+ *
+ *  🛑 GREYED, NOT HIDDEN, and that is the point — a curator who cannot
+ *  see the affordance cannot tell "not built yet" from "I lack the
+ *  permission" or "it moved". Flip to `true` when the consumer lands;
+ *  nothing else here needs to change.
+ *
+ *  Handoffs: `UIB_TO_CAB_2026_08_27_A_SCREENING_TICKET_MADE_IN_THE_UI_NEVER_GETS_CANDIDATES`,
+ *  `CAB_TO_UIB_2026_08_27_YOUR_DIAGNOSIS_IS_RIGHT_AND_THE_CONSUMER_WAS_SCOPED_THEN_SHELVED`. */
+export const SCREENING_TICKET_CREATE_ENABLED = false;
+
+/** Shown on the greyed button. */
+export const SCREENING_TICKET_DISABLED_TITLE = "To be implemented";
+
 export interface CreateScreeningTicketModalProps {
   open: boolean;
   onClose: () => void;
