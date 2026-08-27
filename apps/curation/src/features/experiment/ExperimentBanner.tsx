@@ -1845,15 +1845,23 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const isPublic = visibility.data?.is_public ?? false;
-  // Force-disabled until the end-to-end publish pipeline is wired
-  // up — the local POST works but the real Gemma side isn't ready
-  // and shipping an active button that no-ops misleads curators
-  // (design review 2026-05-25). Once the backend lands, drop the
-  // ``notWiredUp`` override and restore the gated logic below.
-  const notWiredUp = true;
+  // Enabled 2026-08-26. It was force-disabled in 2026-05-25's review
+  // because "the local POST works but the real Gemma side isn't
+  // ready", and an active button that no-ops misleads curators.
+  //
+  // That reasoning was about PRODUCTION readiness, and it kept the one
+  // step that ends the workflow untestable. Paul: "the whole point
+  // here was to exercise the whole workcycle outside of production."
+  // The stack now points at the sandbox throughout, so the cycle can
+  // be walked end to end without touching production.
+  //
+  // 🛑 Know what this does today: it POSTs to the curation STORE's
+  // `/publish`, flipping the visibility record the store keeps. It
+  // does NOT change anything in Gemma — publishing there is a Gemma
+  // write, which this app does not make. The confirm text says so
+  // rather than letting the button imply more than it does.
   const dirty = diff.isDirty;
-  const disabled =
-    notWiredUp || isPublic || dirty || publish.isPending;
+  const disabled = isPublic || dirty || publish.isPending;
 
   // 🛑 "coming soon" described the FEATURE and so read as "nothing is
   // expected of you". Publishing is a step the curator still owes —
@@ -1866,15 +1874,16 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
   // from here yet. Publishing writes to Gemma, and this app is a
   // read-only client of Gemma — it has to go through the agent, which
   // has no publish route yet (preflight / commit / sign / draft / lock).
-  const title = notWiredUp
-    ? "STILL TO DO — this experiment is not published, so the curation is not finished. Publishing cannot be done from here yet: it writes to Gemma, and that goes through the agent, which has no publish route."
-    : isPublic
-      ? "already public"
-      : dirty
-        ? "save your draft changes before publishing"
-        : publish.isPending
-          ? "publishing…"
-          : "make this experiment visible to all Gemma users";
+  const title = isPublic
+    ? "already published"
+    : dirty
+      ? "commit your draft changes before publishing"
+      : publish.isPending
+        ? "publishing…"
+        // Says what it does, not what the word implies. This records
+        // the publish in the curation store; Gemma's own visibility is
+        // unchanged, because this app does not write to Gemma.
+        : "Record this experiment as published in the curation store. Does not change its visibility in Gemma.";
 
   return (
     <>
@@ -1885,20 +1894,12 @@ function PublishButton({ experimentId }: { experimentId: number | string }) {
         onClick={() => setConfirming(true)}
         title={title}
       >
-        {publish.isPending
-          ? "publishing…"
-          : isPublic
-            ? "published"
-            : // Marked as outstanding rather than merely unavailable, so a
-              // disabled control does not read as "nothing left to do".
-              notWiredUp
-              ? "publish — still to do"
-              : "publish"}
+        {publish.isPending ? "publishing…" : isPublic ? "published" : "publish"}
       </button>
       <ConfirmModal
         open={confirming}
         title="Publish this experiment?"
-        body="Makes it visible to all Gemma users. Unpublishing requires admin access in Gemma."
+        body="Records this experiment as published in the curation store. It does NOT change visibility in Gemma — that is a Gemma write, which this app does not make."
         confirmLabel="publish"
         cancelLabel="cancel"
         destructive={false}

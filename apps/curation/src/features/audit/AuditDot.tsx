@@ -45,6 +45,19 @@ export function AuditDot({
   const ctx = useAuditOptional();
   const focusFinding = useFocusFinding();
   if (!ctx) return null;
+  // 🛑 A CLOSED audit shows no dots at all.
+  //
+  // This looked only at per-target dispositions and ignored the review
+  // as a whole, so finalizing left full-strength discs on the design
+  // advertising "MAJOR · ungrounded_fv … (click to open in sidebar)" —
+  // an open finding, on a review the curator had just closed. Paul:
+  // "the little audit disks still show up after closing the audit …
+  // they should be hidden."
+  //
+  // Nothing is lost by hiding: this is derived from the report, not
+  // stored, so reopening the audit brings every dot back exactly as it
+  // was — which is the behaviour Paul asked for in the same breath.
+  if (ctx.isFinalized) return null;
   const all = ctx.findingsByTarget.get(targetId);
   if (!all || all.length === 0) return null;
   const findings = issueCodes
