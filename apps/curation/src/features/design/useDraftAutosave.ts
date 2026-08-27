@@ -122,7 +122,23 @@ export function useDraftAutosave({
   // steadily saves every 60 s from their last edit rather than every
   // 60 s regardless.
   useEffect(() => {
-    if (!enabled || !isDirty) return;
+    if (!enabled) return;
+    // 🛑 The draft went CLEAN — a commit, or an undo back to the saved
+    // state. Nothing used to clear the indicator here: the effect
+    // returned early on `!isDirty`, so "Unsaved changes" outlived the
+    // changes it described and stayed up for the rest of the session.
+    //
+    // Paul committed twice and still saw it, and reasonably read it as
+    // "the commit did not take" — both commits had landed. An
+    // indicator that cannot go back is worse than none: it teaches the
+    // curator to ignore it, including when it is right.
+    //
+    // Only a `dirty` state is cleared. A `saved` timestamp is still
+    // true, and an `error` still needs answering.
+    if (!isDirty) {
+      setState((s) => (s.kind === "dirty" ? { kind: "idle" } : s));
+      return;
+    }
     setState((s) => (s.kind === "saving" ? s : { kind: "dirty" }));
     timer.current = window.setTimeout(() => {
       timer.current = null;

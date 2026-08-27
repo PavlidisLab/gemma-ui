@@ -148,3 +148,41 @@ describe("what the curator is told", () => {
     expect(result.current.state.kind).toBe("offline");
   });
 });
+
+describe("the indicator goes back", () => {
+  it("🛑 stops saying dirty once the draft matches the server again", async () => {
+    // A commit (or an undo back to saved) makes the draft clean. The
+    // effect used to return early on `!isDirty` and nothing cleared the
+    // state, so "Unsaved changes" outlived the changes it described.
+    // Paul committed twice, both landed, and it still said unsaved.
+    const h = mount();
+    expect(h.result.current.state.kind).toBe("dirty");
+    h.rerender({ experimentId: 9, draft: design(1), isDirty: false, enabled: true });
+    await flush();
+    expect(h.result.current.state.kind).toBe("idle");
+  });
+
+  it("keeps a real saved timestamp when the draft goes clean", async () => {
+    // "Saved at 19:04" is still true after a commit — only the dirty
+    // state is a claim that expired.
+    const h = mount();
+    await act(async () => { vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS); });
+    await flush();
+    expect(h.result.current.state.kind).toBe("saved");
+    h.rerender({ experimentId: 9, draft: design(1), isDirty: false, enabled: true });
+    await flush();
+    expect(h.result.current.state.kind).toBe("saved");
+  });
+
+  it("keeps an error up when the draft goes clean — it still needs answering", async () => {
+    put.mockRejectedValueOnce(new Error("boom"));
+    const h = mount();
+    await act(async () => { vi.advanceTimersByTime(AUTOSAVE_INTERVAL_MS); });
+    await flush();
+    expect(h.result.current.state.kind).not.toBe("dirty");
+    const before = h.result.current.state.kind;
+    h.rerender({ experimentId: 9, draft: design(1), isDirty: false, enabled: true });
+    await flush();
+    expect(h.result.current.state.kind).toBe(before);
+  });
+});

@@ -48,9 +48,17 @@ export function SaveIndicator({
   const base = "text-[11px] leading-snug inline-flex items-center gap-1.5";
 
   if (state.kind === "dirty") {
+    // 🛑 This said "Unsaved changes" and sits beside the Commit button,
+    // so it read as "your commit did not take" — which is how Paul read
+    // it, after two commits that had both landed. This indicator is
+    // about the DRAFT BACKUP, a different write entirely: committing
+    // never clears it and was never meant to.
     return (
-      <span className={`${base} text-slate-500 dark:text-slate-400`}>
-        Unsaved changes
+      <span
+        className={`${base} text-slate-500 dark:text-slate-400`}
+        title="Your edits are still only in this browser. The draft backs itself up to the server about every minute; this is separate from committing."
+      >
+        Draft not backed up yet
       </span>
     );
   }
