@@ -1,10 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * The lease lifecycle. The invariant under every case: the lock is
- * ADVISORY. Nothing here may prevent editing — a failure to acquire,
- * an unreachable service, or someone else holding it all leave the
- * curator working, with the chip telling them what is true.
+ * The lease lifecycle. The invariant under every case: nothing here
+ * may prevent EDITING — a failure to acquire, an unreachable service,
+ * or someone else holding it all leave the curator working, with the
+ * chip telling them what is true.
+ *
+ * That is scoped to editing on purpose. COMMIT is gated by the lease
+ * now (`CommitBar` client-side, Gemma server-side); this hook is not
+ * where that happens, and must not grow into it.
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";

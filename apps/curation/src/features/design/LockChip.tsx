@@ -4,11 +4,19 @@
  * gembro's §5: `Editing · you`, or
  * `Alice is editing — last change 4 min ago · [Take over]`.
  *
- * 🛑 **Advisory.** This chip warns; it never gates. Committing is
- * protected by Gemma's `baseline.lastModified` 409, not by the lock —
- * *"the lock is a courtesy; the token is the contract"*. Nothing here
- * disables an action, and nothing downstream may start reading a held
- * lock as permission.
+ * 🛑 **The CHIP never gates** — it renders, and nothing here disables
+ * an action. The LEASE does: `CommitBar` blocks COMMIT while a
+ * different identity holds it (`0df972b`), and Gemma refuses the write
+ * server-side with a 409 `LOCK_REQUIRED` naming the holder
+ * (`2acff27319`). This block used to end *"nothing downstream may
+ * start reading a held lock as permission"* — that described the
+ * advisory era and is now false. Do not restore it.
+ *
+ * 🛑 What SURVIVED that reversal: `baseline.lastModified` is still the
+ * correctness guarantee and its 409 still has to be handled. A held
+ * lock makes a write PERMITTED, never SAFE — it does not mean the row
+ * underneath you stood still. Dropping the baseline check because
+ * "the lock handles it now" is the bug.
  *
  * Taking over is offered without ceremony because it costs nothing:
  * the other curator's draft is a separate row and survives. What they

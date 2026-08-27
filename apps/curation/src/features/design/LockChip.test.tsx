@@ -73,8 +73,10 @@ describe("what it shows", () => {
   });
 
   it("never disables anything — it warns, it does not gate", () => {
-    // 🛑 The lock is advisory; `baseline.lastModified` is the contract.
-    // A chip that greys out a control has become a permission check.
+    // 🛑 The CHIP never gates — the commit gate lives in `CommitBar`
+    // and in Gemma, where the holder can be named. A chip that greys
+    // out a control has become a permission check with no way to say
+    // whose permission, or to offer the take-over that unblocks it.
     render(<LockChip lock={HELD} me="alice" onTakeOver={vi.fn()} />);
     const disabled = screen.queryAllByRole("button").filter(
       (b) => (b as HTMLButtonElement).disabled,

@@ -7,10 +7,15 @@
  * `refresh()` returns empty rather than acquiring when the caller holds
  * no lock, so a save can never take a lease nobody asked for.
  *
- * 🛑 Advisory throughout. A failure to acquire is not a failure to
- * edit: the curator carries on, the chip says who has it, and
- * correctness stays with Gemma's `baseline.lastModified` 409. Nothing
- * here may block, disable, or gate.
+ * 🛑 EDITING is never gated, deliberately. A failure to acquire is not
+ * a failure to edit: the curator carries on, the chip says who has it,
+ * and the draft is per-curator so two people editing cannot collide.
+ * Nothing in THIS hook may block, disable, or gate.
+ *
+ * ⚠️ Read that as scoped to editing — the lease is no longer advisory
+ * in general. COMMIT is gated, client-side in `CommitBar` and
+ * server-side by Gemma (409 `LOCK_REQUIRED`). `baseline.lastModified`
+ * stays the correctness guarantee either way.
  *
  * Only acquires when editing is possible. A read-only viewer taking
  * the lease would lock out the person who can actually change things.
