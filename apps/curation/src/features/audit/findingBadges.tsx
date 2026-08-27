@@ -307,14 +307,41 @@ export function ConsequentsBadges({ finding }: { finding: AuditFinding }) {
       });
     }
   }
+  // 🛑 `consequents` has TWO producers and only one of them means a
+  // removal.
+  //
+  //  - a `_partition_mismatch` absorbs the partition encoded in
+  //    another factor, so accepting the finer split really does
+  //    remove the downstream. That is what this chip was written for.
+  //  - the finding ROLL-UP also populates it, to say "one decision,
+  //    listed once rather than duplicated" — its own docstring:
+  //    "record the absorbed FV target-ids in `consequents` so nothing
+  //    is dropped". Nothing is removed there.
+  //
+  // Rendering the second as a removal inverts the field: an
+  // `ungrounded_fv` on `genotype` (9001) carried
+  // `consequents: ["fv:genotype/wild-type#9001"]` and the card read
+  // "IMPLIES REMOVAL OF `WILD TYPE`" — for a finding whose applyAction
+  // is `needs_curator_decision` with every payload field null. It
+  // proposes no change at all. A curator who believes accepting
+  // deletes the control arm rejects a correct finding, and that
+  // rejection is indistinguishable from real disagreement in the
+  // disposition data.
+  const impliesRemoval = (finding.issue_code ?? "").endsWith(
+    "_partition_mismatch",
+  );
   for (const childId of finding.consequents ?? []) {
     const downstream = findings.find((f) => f.target_id === childId);
     if (!downstream) continue;
     const label = firstBacktick(downstream.rationale) ?? downstream.target_id;
     chips.push({
       key: `down-${childId}`,
-      label: `implies removal of \`${label}\``,
-      title: `Accepting this partition mismatch implies removing ${childId} — click to jump.`,
+      label: impliesRemoval
+        ? `implies removal of \`${label}\``
+        : `also applies to \`${label}\``,
+      title: impliesRemoval
+        ? `Accepting this partition mismatch implies removing ${childId} — click to jump.`
+        : `One decision: this finding also covers ${childId}. Accepting it here applies there too — click to jump.`,
       onClick: () => setActiveFindingKey(findingKey(downstream)),
     });
   }
