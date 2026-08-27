@@ -67,6 +67,18 @@ export function QuantitationTypesPanel({
               <th className="text-left font-medium px-2 py-2 w-20">type</th>
               <th className="text-left font-medium px-2 py-2 w-24">representation</th>
               <th className="text-left font-medium px-2 py-2 w-20">scale</th>
+              {/* The one field the wire carried and the table dropped. It
+                  says WHICH vector class the QT is attached to, which is
+                  how a curator tells a raw QT from the processed view
+                  derived from it — the same distinction the "processed"
+                  badge makes on the name, but stated by the data rather
+                  than inferred from a flag. */}
+              <th
+                className="text-left font-medium px-2 py-2 w-28"
+                title="Vector class this quantitation type is attached to"
+              >
+                vector type
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -108,6 +120,9 @@ export function QuantitationTypesPanel({
                 </td>
                 <td className="px-2 py-1.5 text-slate-700 uppercase text-[11px]">
                   {q.scale || "—"}
+                </td>
+                <td className="px-2 py-1.5 text-slate-700 uppercase text-[11px]">
+                  {q.vector_type || "—"}
                 </td>
               </tr>
             ))}
