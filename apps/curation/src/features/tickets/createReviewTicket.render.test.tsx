@@ -146,6 +146,39 @@ describe("importErrorMessage", () => {
     expect(upstream).toMatch(/timeout/);
   });
 
+  it("names the curator's own expired session, which they can fix", () => {
+    for (const code of [401, 403]) {
+      expect(
+        importErrorMessage(new ApiError("x", code, "Unauthorized", "no token")),
+      ).toMatch(/sign in again/i);
+    }
+  });
+
+  it("does NOT tell them to sign in when it is the SERVER's credentials", () => {
+    // The store flattens every non-404 upstream failure into a 502, so a
+    // rejected server credential arrives looking like unreachability.
+    // Recorded upstream: stale creds are rejected with 401 even on
+    // datasets that would otherwise be readable. Signing in again is
+    // useless here, and sending the curator to do it wastes their time
+    // on the one failure they cannot fix.
+    const m = importErrorMessage(
+      new ApiError("x", 502, "Bad Gateway",
+        "upstream Gemma error: 401 Client Error for url ..."),
+    );
+    expect(m).toMatch(/server's credentials/i);
+    expect(m).not.toMatch(/couldn't be reached/i);
+    expect(m).toMatch(/401/);
+  });
+
+  it("still reads a non-auth 502 as unreachability", () => {
+    // The sniff must not swallow the ordinary case it sits in front of.
+    const m = importErrorMessage(
+      new ApiError("x", 502, "Bad Gateway", "upstream Gemma error: timeout"),
+    );
+    expect(m).toMatch(/couldn't be reached/i);
+    expect(m).not.toMatch(/credentials/i);
+  });
+
   it("passes any other ApiError's detail through rather than flattening it", () => {
     expect(
       importErrorMessage(new ApiError("x", 400, "Bad Request", "accession must not be empty")),

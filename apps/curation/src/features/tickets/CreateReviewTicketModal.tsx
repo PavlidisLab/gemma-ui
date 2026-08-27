@@ -41,14 +41,46 @@ export interface CreateReviewTicketModalProps {
  * else falls through to the server's own detail rather than being
  * flattened into a generic apology.
  *
+ * 🛑 **Two different auth failures, and they need different sentences
+ * because different people can fix them.**
+ *
+ *  - A 401/403 from the STORE is the curator's own session. Signing in
+ *    again fixes it, so say so.
+ *  - A 502 whose detail carries an upstream 401/403 is the SERVER's
+ *    Gemma credentials being rejected. The curator cannot fix that by
+ *    signing in, and telling them to would send them somewhere useless.
+ *
+ * That second case is not hypothetical: `shared/gemma.py` records stale
+ * credentials being rejected with 401 even on datasets that would
+ * otherwise be readable (caught 2026-05-21). The store turns every
+ * non-404 upstream error into a 502, so the original status survives
+ * only in the detail string — hence the sniff rather than a status
+ * check.
+ *
  * Exported for test.
  */
+
+/** Does a 502's detail carry an upstream authorization failure? The
+ *  store flattens the upstream status into prose, so this reads the
+ *  sentence it produced rather than a structured code. */
+function upstreamAuthFailure(detail: string): boolean {
+  return /\b(401|403)\b|unauthor|forbidden|invalid credential/i.test(detail);
+}
+
 export function importErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
+    if (err.status === 401 || err.status === 403) {
+      return "Your Gemma sign-in was rejected or has expired. Sign in again, then retry.";
+    }
     if (err.status === 404) {
       return "Gemma has no experiment with that accession. Check the accession and try again.";
     }
     if (err.status === 502) {
+      if (upstreamAuthFailure(err.detail ?? "")) {
+        return `Gemma rejected this server's credentials, so nothing was imported${
+          err.detail ? ` — ${err.detail}` : "."
+        } Signing in again won't help; the server's Gemma credentials need attention.`;
+      }
       return `Gemma couldn't be reached, so nothing was imported${
         err.detail ? ` — ${err.detail}` : "."
       }`;
