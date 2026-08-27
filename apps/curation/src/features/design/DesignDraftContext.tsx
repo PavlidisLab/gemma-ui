@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { commitConflictOf, type CommitConflict } from "@/api/commitConflict";
 import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
 import { sendCurationEditLog } from "@/api/designEdits";
 import { diffDesign, type DesignDiff } from "./diff";
@@ -121,6 +122,11 @@ export interface DesignDraftValue {
   reload: () => void;
   saving: boolean;
   saveError: string | null;
+  /** The same failure, read as a REASON, when the server sent one.
+   *  `saveError` is the flattened sentence; this is what the curator
+   *  should DO about it. Null on any 409 without a structured reason,
+   *  which is every server today. */
+  saveConflict: CommitConflict | null;
   isLoading: boolean;
   loadError: string | null;
   /** True when a localStorage-cached draft was discarded on mount
@@ -789,6 +795,10 @@ export function DesignDraftProvider({
     // same channel as a /design save failure so CommitBar stays up and
     // the curator retries — a stale polished snapshot would otherwise
     // silently shadow the fresh design at ticket-export time.
+    // Read from the error OBJECT, not from the message string it
+    // flattens to — the reason is a sibling of `detail`, never inside
+    // it.
+    saveConflict: updater.isError ? commitConflictOf(updater.error) : null,
     saveError: updater.isError
       ? (updater.error as Error).message
       : polisher.isError

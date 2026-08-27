@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { CommitConflict } from "@/api/commitConflict";
 import type { DesignDiff } from "./diff";
 import type { Design, DesignValidationState } from "@/features/experiment/types";
 
@@ -29,6 +30,7 @@ export function CommitBar({
   diff,
   saving,
   saveError,
+  saveConflict,
   validation,
   draft,
   onCommit,
@@ -37,6 +39,8 @@ export function CommitBar({
   diff: DesignDiff;
   saving: boolean;
   saveError: string | null;
+  /** The same failure read as a reason, when the server sent one. */
+  saveConflict?: CommitConflict | null;
   /** Optional — when present, the bar gates commit on baseline correctness. */
   validation?: DesignValidationState | null;
   /** Used to resolve factor names in the blocked-state message. */
@@ -303,7 +307,23 @@ export function CommitBar({
             })}
           </div>
         ) : null}
-        {saveError ? (
+        {saveConflict ? (
+          /* A commit 409 has five reasons and five different next
+             moves, and only STALE_BASELINE is a re-read — so the
+             message says what to DO, not just that it failed.
+             🛑 There is no "force" affordance even for REQUIRES_FORCE:
+             sign is the route for a change with consequences, and
+             Gemma gates sign on holding the lock. */
+          <div className="px-3 pb-2 text-[11px] text-rose-700">
+            <span className="font-semibold">commit refused:</span>{" "}
+            {saveConflict.message}
+            {saveConflict.nextMove ? (
+              <div className="text-slate-700 dark:text-slate-300 mt-0.5">
+                {saveConflict.nextMove}
+              </div>
+            ) : null}
+          </div>
+        ) : saveError ? (
           <div className="px-3 pb-2 text-[11px] text-rose-700">
             <span className="font-semibold">save rejected:</span>{" "}
             {humaniseSaveError(saveError)}

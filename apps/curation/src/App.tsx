@@ -1445,7 +1445,8 @@ function SharedCommitBar({
   // looking at someone else's polished gold. The chip strip's
   // FlowContext is the single source of truth for this.
   const readOnly = useIsReadOnly();
-  const { diff, draft, commit, discard, saving, saveError } = useDesignDraft();
+  const { diff, draft, commit, discard, saving, saveError, saveConflict } =
+    useDesignDraft();
   // Autosave. Off in read-only, where a save would write a draft the
   // curator did not author. Declared before the read-only early return
   // so hook order stays stable across renders (rules-of-hooks) — same
@@ -1497,6 +1498,7 @@ function SharedCommitBar({
       diff={diff}
       saving={saving}
       saveError={saveError}
+      saveConflict={saveConflict}
       validation={validation}
       draft={draft}
       onCommit={(overrides) => {
