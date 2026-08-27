@@ -1032,9 +1032,16 @@ function FindingShortRationale({ finding }: { finding: AuditFinding }) {
   const fixTerm = findingFixTerm(finding);
   if (fixTerm) {
     return (
-      <span className="inline-flex items-baseline gap-1 min-w-0 text-[11px]">
+      // 🛑 This is the ACTION BEING PROPOSED — the point of the card —
+      // and it was the quietest thing on its own row: a 10px slate-500
+      // verb beside a term chip, next to a solid-filled consequents
+      // badge that shouted. Paul: "the emphasis is on the 'also' —
+      // it's very easy to miss the headline", then "the headline
+      // should be even more obvious and bigger; it's the action that
+      // is proposed."
+      <span className="inline-flex items-baseline gap-1.5 min-w-0 text-[13px]">
         <span className="text-slate-400 dark:text-slate-500">·</span>
-        <span className="uppercase tracking-wide text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+        <span className="uppercase tracking-wide text-[11px] font-bold text-slate-800 dark:text-slate-100">
           {fixTerm.verb}
         </span>
         {fixTerm.category ? (
