@@ -1528,6 +1528,34 @@ export function FindingDetailsEditor({
     />
   ) : null;
 
+  /** The partial-adopt action, or nothing when there is no proposer
+   *  factor to take from.
+   *
+   *  🛑 Defined ONCE because the branches that need it kept being
+   *  found one at a time. It was on two factor-card branches and
+   *  missing from the `decide` footer (Paul, 9001 genotype); adding it
+   *  there left the `noActionableDelta` footer — the treatment card,
+   *  same screen — still showing only "Agree (nothing to apply)" while
+   *  its own comparison offered `reference substance role OBI:0000025`.
+   *  A shared const is the thing that stops the next branch being a
+   *  fourth round trip. */
+  const chooseActions: ActionButton[] = canOpenAdoptPicker
+    ? [
+        {
+          key: "choose",
+          kind: "secondary",
+          label: "Choose…",
+          onClick: () =>
+            setAdoptPlan(
+              adoptSides
+                ? buildFactorAdoptPlan(adoptSides.current, adoptSides.agent)
+                : null,
+            ),
+          title: `Pick which parts of ${identities.proposer}'s factor to take — the category, the sample grouping, or one value's label or statement.`,
+        },
+      ]
+    : [];
+
   // Partition-mismatch findings — agent and gold disagree on the
   // partition shape of a same-label factor along a clean
   // finer/coarser axis. One card, two primary buttons (adopt
@@ -2854,7 +2882,8 @@ export function FindingDetailsEditor({
               // be actionable (e.g. wrong_fv_partition, conflated).
               // Surface an Agree button so the curator can accept
               // the finding without mutating the draft.
-              onAgree
+              [
+                ...(onAgree
                 ? [
                     {
                       key: "agree",
@@ -2879,7 +2908,13 @@ export function FindingDetailsEditor({
                         "Use Focus to jump to the element and edit it directly.",
                     } satisfies ActionButton,
                   ]
-                : []
+                : []),
+                // Same picker the other footers offer. Its absence here
+                // is what Paul saw on the treatment card: "nothing to
+                // apply" is true of the FINDING, not of the proposal
+                // sitting in the comparison above it.
+                ...chooseActions,
+              ]
             : actionShape === "match"
               ? [
                   // Match findings: keep + adopt collapse to the same
@@ -2931,42 +2966,7 @@ export function FindingDetailsEditor({
                       },
                     ]
                   : []),
-                // Partial adopt, offered wherever there IS a proposer
-                // factor to take from.
-                //
-                // 🛑 Its absence here was the gap Paul hit on 9001: a
-                // `decide`-shaped card renders through this branch, so
-                // the only options were "no action needed" and "I've
-                // addressed this" — both terminal, neither mutating —
-                // while the comparison column right above showed a
-                // grounded term (`wild type genotype EFO:0005168`) the
-                // proposer was offering. Nothing on screen could take
-                // it. Paul: "there's no accept proposal that applies
-                // it … it could be at the factor level too."
-                //
-                // The picker covers both levels the ask names — the
-                // whole factor, or one value's label or statement — so
-                // this is the existing affordance reaching a branch it
-                // never reached, not a new one.
-                ...(canOpenAdoptPicker
-                  ? [
-                      {
-                        key: "choose",
-                        kind: "secondary" as const,
-                        label: "Choose…",
-                        onClick: () =>
-                          setAdoptPlan(
-                            adoptSides
-                              ? buildFactorAdoptPlan(
-                                  adoptSides.current,
-                                  adoptSides.agent,
-                                )
-                              : null,
-                          ),
-                        title: `Pick which parts of ${identities.proposer}'s factor to take — the category, the sample grouping, or one value's label or statement.`,
-                      },
-                    ]
-                  : []),
+                ...chooseActions,
                 // Per-row save only makes sense when there are
                 // multiple rows the curator picks independently —
                 // tags are a single decision (category + value
