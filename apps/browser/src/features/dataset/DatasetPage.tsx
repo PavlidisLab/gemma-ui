@@ -13,6 +13,7 @@ import {
   getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
+  getDatasetOriginalPlatforms,
   getDatasetPlatforms,
   getDatasetSamples,
   getDatasetQuantitationTypes,
@@ -39,6 +40,13 @@ import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
+import { datasetSource } from "@/lib/externalSource";
+import {
+  assayKindLabel,
+  platformDisplay,
+  platformRouteParam,
+  technologyTypeLabel,
+} from "@/lib/platformConstants";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { capitalizeFirstLetter } from "@/lib/filter";
 import type {
@@ -182,7 +190,46 @@ function Banner({
 }: {
   dataset: Dataset; activeTab: TabId; onTabChange: (t: TabId) => void; isAdmin: boolean;
 }) {
-  const geo = dataset.accession?.accession;
+  // Where the data actually came from. Source-aware: not every
+  // dataset is from GEO — ArrayExpress, CELLxGENE and SRA imports
+  // exist, and a direct upload has no source at all.
+  //
+  // 🛑 This read `dataset.accession?.accession` where the field is a
+  // STRING, so it was always `undefined` and the link never rendered.
+  // The type declared the object shape, so nothing caught it.
+  const source = datasetSource(dataset);
+  // What KIND of data, and on what. Same query key as the tab below,
+  // so react-query serves both from one request rather than two.
+  const platformsQ = useQuery({
+    queryKey: ["datasetPlatforms", dataset.id],
+    queryFn: ({ signal }) => getDatasetPlatforms(dataset.id, signal),
+    staleTime: 30 * 60_000,
+  });
+  const platforms = platformsQ.data ?? [];
+  // What the data was submitted ON, before Gemma switched it. Empty
+  // means nothing was switched — so `platforms` already IS the
+  // original and there is no mapping to explain.
+  const originalsQ = useQuery({
+    queryKey: ["datasetOriginalPlatforms", dataset.id],
+    queryFn: ({ signal }) => getDatasetOriginalPlatforms(dataset.id, signal),
+    staleTime: 30 * 60_000,
+  });
+  const originals = originalsQ.data ?? [];
+  const { primary: primaryPlatforms, mappedTo } = platformDisplay(
+    platforms,
+    originals,
+  );
+  // The dataset's own curated `assay` annotation first. The platform's
+  // technologyType is the fallback and a poor one: Gemma maps
+  // sequencing onto generic gene-list platforms, so ordinary RNA-seq
+  // reports GENELIST, which the tech vocabulary labels "Other".
+  // The ORIGINAL platform's technology is the honest fallback: the
+  // generic stand-in Gemma switches sequencing onto reports GENELIST,
+  // which the vocabulary labels "Other".
+  const kind =
+    assayKindLabel(dataset.characteristics) ??
+    technologyTypeLabel(originals[0]?.technologyType) ??
+    technologyTypeLabel(platforms[0]?.technologyType);
   const geeq = dataset.geeq;
   const gemma1Url = useGemma1Url(
     `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
@@ -211,15 +258,71 @@ function Banner({
             <h1 className="text-sm text-slate-600 leading-snug min-w-0">{dataset.name}</h1>
           </div>
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+            {me.data && typeof dataset.isPublic === "boolean" ? (
+              // Only shown to someone signed in: to a logged-out
+              // visitor every reachable dataset is public by
+              // definition, so the badge would carry no information.
+              // Gemma answers /datasets/{id}/visibility with 403 when
+              // anonymous for the same reason — and `isPublic` rides
+              // along on the dataset payload, so this costs no call.
+              //
+              // Gated on the flag being PRESENT, not on it being true:
+              // a payload that omits it is not making the claim
+              // "private", and rendering one from its absence is how a
+              // missing field turns into a stated fact.
+              <span
+                title={
+                  dataset.isPublic
+                    ? "Public — visible to everyone, signed in or not."
+                    : "Private — visible only to users it is shared with."
+                }
+                className={
+                  "text-[10px] px-1.5 py-0.5 rounded border font-mono self-center " +
+                  (dataset.isPublic
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : "bg-rose-50 text-rose-700 border-rose-300")
+                }
+              >
+                {dataset.isPublic ? "Public" : "Private"}
+              </span>
+            ) : null}
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
-            {geo && (
-              <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${geo}`}
+            {kind ? <span className="text-slate-800">{kind}</span> : null}
+            {dataset.lastUpdated ? (
+              /* This is `curationDetails.lastUpdated` — verified
+                 identical on the wire — so it moves when ANY audit
+                 event fires, not when the expression data changes. The
+                 tooltip says so; "Last updated" alone would be read as
+                 "the data is newer than my copy", which it does not
+                 mean. Facts first, links after. */
+              <span
+                title={`Curation record last changed ${new Date(dataset.lastUpdated).toString()}. Reflects curation and audit activity, not a change to the expression data.`}
+              >
+                Last updated{" "}
+                <span className="text-slate-800">
+                  {new Date(dataset.lastUpdated).toLocaleDateString(undefined, {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              </span>
+            ) : null}
+            {source?.href ? (
+              <a href={source.href}
                 target="_blank" rel="noopener noreferrer"
+                title={`open ${source.label} on ${source.database}`}
                 className="text-sky-700 hover:underline inline-flex items-center gap-1">
-                {geo}<ExternalLink size={11} />
+                {source.database}: {source.label}<ExternalLink size={11} />
               </a>
-            )}
+            ) : source ? (
+              // Known source, no URL we trust for it — show the
+              // accession anyway rather than nothing.
+              <span title={`from ${source.database}`}>
+                {source.database}: {source.label}
+              </span>
+            ) : null}
             {gemma1Url && (
               <a href={gemma1Url} target="_blank" rel="noopener noreferrer"
                 className="text-sky-700 hover:underline inline-flex items-center gap-1">
@@ -234,6 +337,53 @@ function Banner({
               </a>
             )}
           </div>
+          {primaryPlatforms.length > 0 ? (
+            // The submitted platform leads. What Gemma maps it onto is
+            // plumbing: `Generic_mouse_ncbiIds` is an artifact of how
+            // the data was quantified, while GPL24247 — Illumina
+            // NovaSeq 6000 — is the fact about the experiment. Gemma
+            // 1.0 leads with the mapping and puts the real platform on
+            // a second line; this inverts that.
+            <div className="mt-1 text-xs text-slate-600 flex gap-2">
+              <span className="shrink-0 text-slate-500">
+                {primaryPlatforms.length === 1 ? "Platform" : "Platforms"}
+              </span>
+              <div className="min-w-0 flex flex-col gap-0.5">
+                {primaryPlatforms.map((p) => (
+                  <div key={p.id} className="min-w-0">
+                    <Link
+                      to="/platforms/$shortName"
+                      params={{ shortName: platformRouteParam(p) }}
+                      className="text-sky-700 hover:underline"
+                    >
+                      {p.shortName ?? p.name}
+                    </Link>
+                    {p.shortName && p.name ? (
+                      <span className="text-slate-500"> — {p.name}</span>
+                    ) : null}
+                  </div>
+                ))}
+                {mappedTo.length > 0 ? (
+                  <div className="min-w-0 text-slate-400">
+                    mapped in Gemma to{" "}
+                    {mappedTo.map((p, i) => (
+                      <span key={p.id}>
+                        {i > 0 ? ", " : ""}
+                        <Link
+                          to="/platforms/$shortName"
+                          params={{ shortName: platformRouteParam(p) }}
+                          className="hover:underline"
+                          title={p.name ?? undefined}
+                        >
+                          {p.shortName ?? p.name}
+                        </Link>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
         {SHOW_GEEQ && geeq && <GeeqChip geeq={geeq} />}
@@ -2654,7 +2804,7 @@ function ResultSetHeatmap({
   });
   const platformShortName =
     platformsQ.data?.length === 1
-      ? (platformsQ.data[0].shortName ?? undefined)
+      ? platformRouteParam(platformsQ.data[0])
       : undefined;
 
   const designQ = useQuery({

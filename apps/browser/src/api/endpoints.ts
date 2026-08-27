@@ -225,6 +225,31 @@ export async function getDatasetPlatforms(
   return r.data ?? [];
 }
 
+/**
+ * The platform(s) a dataset's data was ORIGINALLY submitted on, before
+ * Gemma switched it onto something else — for sequencing, typically a
+ * generic gene-list platform.
+ *
+ * A LIST: a dataset's assays need not all have come from one submitted
+ * platform. **Empty means nothing was switched**, never "we don't
+ * know" — a recorded original that equals the platform in use is a
+ * no-op and is excluded server-side, so a non-empty answer always
+ * names something that actually changed.
+ *
+ * Costs one small request. Reading this used to mean pulling the whole
+ * assay list, since per-assay serialization was the only route to it.
+ */
+export async function getDatasetOriginalPlatforms(
+  datasetId: number | string,
+  signal?: AbortSignal,
+): Promise<Platform[]> {
+  const r = await apiGet<PaginatedResponse<Platform>>(
+    `${BASE}/datasets/${datasetId}/platforms?original=true`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
 /** Single platform's full entity — used by PlatformDetailPage. */
 export async function getPlatformById(
   id: number | string,
