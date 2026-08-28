@@ -20,6 +20,7 @@
  */
 
 import { taxonLabel, type TaxonBearingRow } from "@/lib/taxon";
+import { platformFields, type PlatformBearingRow } from "@/lib/platform";
 import type {
   Biomaterial,
   Design,
@@ -261,18 +262,14 @@ interface ProposedStatementOverlay {
  *  platform / external_source without an extra fetch. Only the
  *  banner-relevant fields are read; the full DatasetMeta type lives
  *  in design.ts. */
-export interface DatasetMetaSlim extends TaxonBearingRow {
+export interface DatasetMetaSlim
+  extends TaxonBearingRow,
+    PlatformBearingRow {
   /** 🛑 Read via `taxonLabel(meta)`. Gemma sends the taxon nested and
    *  has no `taxonCommonName`; `TaxonBearingRow` carries both shapes. */
   taxon_common_name?: string | null;
   technology_type?: string | null;
   assay?: string | null;
-  platform?: string | null;
-  platform_short_name?: string | null;
-  platform_id?: number | null;
-  original_platform?: string | null;
-  original_platform_short_name?: string | null;
-  original_platform_id?: number | null;
 }
 
 export function composeCurationDesign(
@@ -432,12 +429,10 @@ export function composeCurationDesign(
     taxon: taxonLabel(meta),
     technology_type: meta?.technology_type ?? "",
     assay: meta?.assay ?? "",
-    platform: meta?.platform ?? "",
-    platform_short_name: meta?.platform_short_name ?? "",
-    platform_id: meta?.platform_id ?? null,
-    original_platform: meta?.original_platform ?? "",
-    original_platform_short_name: meta?.original_platform_short_name ?? "",
-    original_platform_id: meta?.original_platform_id ?? null,
+    // Flat scalars from the store, `platforms[]` / `originalPlatforms[]`
+    // from Gemma — see lib/platform.ts. Gemma carried neither until
+    // 2026-08-28, so this whole line rendered blank in remote mode.
+    ...platformFields(meta),
     // `gold_data_version` / `annotation_version` / `baseline` used to be
     // copied through by hand here. They ride in `...carried` now, along
     // with everything else — which is the whole point of the change.

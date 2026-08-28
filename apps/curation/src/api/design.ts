@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import type { TaxonBearingRow } from "@/lib/taxon";
+import type { PlatformBearingRow } from "@/lib/platform";
 import type { Design } from "@/features/experiment/types";
 import {
   composeCurationDesign,
@@ -155,7 +156,7 @@ export function usePreboardSnapshot(experimentId: number | string) {
   });
 }
 
-export interface DatasetMeta extends TaxonBearingRow {
+export interface DatasetMeta extends TaxonBearingRow, PlatformBearingRow {
   id?: number;
   short_name?: string | null;
   name?: string | null;
@@ -180,12 +181,6 @@ export interface DatasetMeta extends TaxonBearingRow {
    *  ``GENELIST`` (RNA-seq), ``OTHER``. */
   technology_type?: string | null;
   assay?: string | null;
-  platform?: string | null;
-  platform_short_name?: string | null;
-  platform_id?: number | null;
-  original_platform?: string | null;
-  original_platform_short_name?: string | null;
-  original_platform_id?: number | null;
 }
 
 async function fetchDatasetMeta(experimentId: number | string): Promise<DatasetMeta> {

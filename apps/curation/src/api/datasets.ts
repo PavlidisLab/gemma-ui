@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { taxonLabel } from "@/lib/taxon";
+import { platformFields } from "@/lib/platform";
 import type { Design } from "@/features/experiment/types";
 import type { WorkflowDatasetListResponse } from "./workflowTypes";
 
@@ -191,7 +192,10 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
           // GEO-derived optional fields (preboarded rows only;
           // undefined elsewhere). Pass-through from WorkflowDatasetRow.
           assay:                r.assay,
-          platform_short_name:  r.platform_short_name,
+          // Flat from the store, `platforms[]` from Gemma — see
+          // lib/platform.ts. Gemma gained the field 2026-08-28; before
+          // that the list's platform column was blank in remote mode.
+          platform_short_name:  platformFields(r).platform_short_name,
           external_uri:         r.external_uri,
           accession:            r.accession,
           external_database:    r.external_database,
