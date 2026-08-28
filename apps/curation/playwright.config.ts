@@ -43,6 +43,21 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
+    // The dev server the specs drive. Defaults to the local-mode
+    // compose container.
+    //
+    // 🛑 The suite must not care what MODE that server is in — the
+    // session is pinned in `e2e/_mocks.ts` for exactly that reason, and
+    // every backend call is HAR-replayed. Before that pinning, flipping
+    // :5175 to remote mode turned all 36 @critical specs red without a
+    // line of app code changing, because `useMe()` 403d and every route
+    // rendered the login screen.
+    //
+    // To drive a DIFFERENT server — a second container on another port,
+    // a host-run `npm run dev`, a deployed build — set the env var and
+    // nothing else changes:
+    //
+    //   PLAYWRIGHT_BASE_URL=http://localhost:5176 npm run e2e
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5175",
     trace: "on-first-retry",
     screenshot: "only-on-failure",

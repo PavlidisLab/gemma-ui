@@ -36,6 +36,30 @@ const BACKEND_RE = /\/(rest|local-api)\/|\/find-(publication|term)/;
  *
  * Call in ``beforeEach`` BEFORE ``page.goto``.
  */
+/**
+ * The session the specs run as.
+ *
+ * 🛑 **Pinned so the gate does not depend on the dev server's MODE.**
+ * `useMe()` returns a synthetic curator in local mode and fetches
+ * `/rest/v2/me` in remote mode; against Gemma without a session that
+ * 403s, `App` renders `<LoginPage/>` for every route, and every spec
+ * then times out waiting for content behind a login screen. That is
+ * exactly what happened on 2026-08-28 when the shared container at
+ * :5175 was switched to remote — 36 specs went red without a line of
+ * app code changing.
+ *
+ * Serving this makes the suite answer the same way in either mode,
+ * which is what "data-mocked and deterministic" was always supposed to
+ * mean. Registered AFTER the HAR route so it wins: Playwright matches
+ * handlers in reverse registration order.
+ */
+const SESSION_USER = {
+  username: "e2e-curator",
+  full_name: "E2E Curator",
+  email: "e2e@example.org",
+  authorities: ["GROUP_ADMIN"],
+};
+
 export async function mockExperiment(page: Page, harName: string) {
   const update = !!process.env.PWHAR_UPDATE;
   // ``.zip`` keeps the whole recording (index + response bodies) in one
@@ -45,4 +69,16 @@ export async function mockExperiment(page: Page, harName: string) {
     update,
     notFound: update ? "fallback" : "abort",
   });
+  // Not recorded into the HAR: in local mode the app never asks, so
+  // re-recording would not capture it, and the specs must work in both
+  // modes rather than in whichever one the HAR happened to see.
+  if (!update) {
+    await page.route("**/rest/v2/me", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(SESSION_USER),
+      }),
+    );
+  }
 }
