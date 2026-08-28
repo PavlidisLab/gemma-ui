@@ -232,3 +232,54 @@ describe("what gemma2's design read does NOT carry", () => {
     expect(f.id).toBe(11727);
   });
 });
+
+/**
+ * The title and abstract come from the DATASET, not the design.
+ *
+ * 🛑 Gemma's `ExperimentalDesign` carries `name: ""` — an empty string,
+ * which `??` passes straight through — on every dataset checked, and a
+ * `description` holding the GEO "Overall design" line rather than the
+ * abstract. So the composed design had no title, and the page rendered
+ * "experiment 517" where "GSE6306 — Sample Matching by Inferred Agonal
+ * Stress in Gene Expression Analyses of the Brain" belongs.
+ *
+ * Both fixtures verbatim from ee 517 / GSE6306 on gemma2.
+ */
+describe("composeCurationDesign — title and abstract", () => {
+  const DESIGN_517 = { id: 614, name: "", description: " Overall design: Agonal Stress Rating comparison" };
+  const META_517 = {
+    shortName: "GSE6306",
+    name: "Sample Matching by Inferred Agonal Stress in Gene Expression Analyses of the Brain",
+    description: "Gene expression patterns in the brain are strongly influenced by the severity of physiological stress at death.",
+  };
+  const compose = (design: unknown, meta: unknown) =>
+    composeCurationDesign(
+      snakeify(design) as G2Design,
+      517,
+      "GSE6306",
+      null,
+      null,
+      snakeify(meta) as Parameters<typeof composeCurationDesign>[5],
+    );
+
+  it("takes the title from the dataset when the design's name is empty", () => {
+    expect(DESIGN_517.name).toBe("");
+    expect(compose(DESIGN_517, META_517).title).toBe(META_517.name);
+  });
+
+  it("keeps the design's own title when it has one — local mode is untouched", () => {
+    const local = { ...DESIGN_517, name: "A title the store supplied" };
+    expect(compose(local, META_517).title).toBe("A title the store supplied");
+  });
+
+  it("falls back to the dataset's abstract when the design has no description", () => {
+    const noDesc = { ...DESIGN_517, description: "" };
+    expect(compose(noDesc, META_517).description).toBe(META_517.description);
+  });
+
+  it("leaves both undefined when neither side carries them", () => {
+    const d = compose({ id: 1, name: "", description: "" }, {});
+    expect(d.title).toBeUndefined();
+    expect(d.description).toBeUndefined();
+  });
+});

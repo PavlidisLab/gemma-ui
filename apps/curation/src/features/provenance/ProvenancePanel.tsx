@@ -21,6 +21,7 @@
 import { useMemo } from "react";
 
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { useGemmaMode } from "@/lib/gemmaMode";
 
 import { useProvenanceRun } from "./ProvenanceContext";
 import { publicationTraces } from "./publicationTrace";
@@ -51,6 +52,15 @@ export function ProvenancePanel({
     [draft?.publications],
   );
   const nothingToTrace = refs.length === 0;
+  // 🛑 The lookup is `POST /rest/v2/datasets/{id}/provenance/lookup`,
+  // a CURATION STORE route. `/rest` is a catch-all whose meaning
+  // changes with mode, so in remote mode that POST goes at Gemma, which
+  // has no such route: the button 404s and reports "not available on
+  // this backend yet" every time. A control that cannot work is a dead
+  // end, and the sentence beside it describes the deployment rather
+  // than this experiment. Say where the answer lives instead, and do
+  // not offer the button.
+  const storeConnected = useGemmaMode().mode === "local";
 
   const Wrapper = bare ? "div" : "section";
   return (
@@ -59,6 +69,13 @@ export function ProvenancePanel({
         <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
           Provenance
         </span>
+        {!storeConnected ? (
+          <span className="text-[11px] text-slate-500 dark:text-slate-400">
+            Provenance is recorded in the curation store, which is not
+            connected in remote mode.
+          </span>
+        ) : null}
+        {storeConnected ? (
         <button
           type="button"
           className="btn btn-sm"
@@ -76,6 +93,7 @@ export function ProvenancePanel({
               ? `Re-populate ${refs.length}`
               : `Populate provenance (${refs.length})`}
         </button>
+        ) : null}
 
         {/* 🛑 Three different silences, three different sentences — but
             all on one line. An undeployed endpoint is not a fact about

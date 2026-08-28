@@ -270,6 +270,14 @@ export interface DatasetMetaSlim
   taxon_common_name?: string | null;
   technology_type?: string | null;
   assay?: string | null;
+  /** The dataset's own title and abstract, from
+   *  `/rest/v2/datasets/{id}`. 🛑 These are NOT the same fields as the
+   *  design payload's — Gemma's `ExperimentalDesign` has its own `name`
+   *  (empty on every dataset checked) and a `description` that carries
+   *  the GEO "Overall design" line. The experiment's real title and
+   *  abstract only exist here. */
+  name?: string | null;
+  description?: string | null;
 }
 
 export function composeCurationDesign(
@@ -423,8 +431,19 @@ export function composeCurationDesign(
     // populated PMID list. Fixed 2026-06-11 (design review GSE102415).
     publications: g2.publications ?? [],
     external_source: externalSource ?? null,
-    title: g2.name ?? undefined,
-    description: g2.description ?? undefined,
+    // 🛑 `||`, not `??`, and the dataset row as the fallback.
+    //
+    // Gemma's ExperimentalDesign carries `name: ""` — an EMPTY STRING,
+    // which `??` passes straight through — on every dataset checked, so
+    // the composed design had no title and the page rendered "experiment
+    // 517" where "GSE6306 · Sample Matching by Inferred Agonal Stress…"
+    // belongs. The real title is on `/rest/v2/datasets/{id}`, which this
+    // adapter already fetches for the taxon and platform.
+    //
+    // Design first so local mode is untouched: the store's design
+    // payload carries both fields directly.
+    title: g2.name || meta?.name || undefined,
+    description: g2.description || meta?.description || undefined,
     overall_design: g2.overall_design ?? undefined,
     taxon: taxonLabel(meta),
     technology_type: meta?.technology_type ?? "",
