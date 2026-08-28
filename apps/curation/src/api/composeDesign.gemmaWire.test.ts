@@ -283,3 +283,135 @@ describe("composeCurationDesign — title and abstract", () => {
     expect(d.description).toBeUndefined();
   });
 });
+
+/**
+ * A grounded value does not need a statement.
+ *
+ * 🛑 Gemma emits an S-P-O row only when there is something to SAY about
+ * the subject. A plain value carries its ontology identity in
+ * `characteristics[]` and ships `statements: []`, which is the ORDINARY
+ * shape for a simple grounded value, not an edge case — all six of
+ * ee 517's organism-part values are it.
+ *
+ * The adapter read only `statements`, so those composed with a bare
+ * `free_text_label` and nothing else, and every surface that asks "is
+ * this grounded" — the sample-details reassign picker, the chips, the
+ * validator — rendered a real UBERON term in free-text italics.
+ *
+ * Fixtures verbatim from `GET /datasets/517/design`.
+ */
+describe("composeCurationDesign — values grounded by characteristic", () => {
+  const ORGANISM_PART_WIRE = {
+    id: 614,
+    experimentalFactors: [
+      {
+        id: 1234,
+        name: "OrganismPart",
+        type: "categorical",
+        category: { category: "organism part", categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000635" },
+        values: [
+          {
+            id: 3598,
+            value: null,
+            summary: "nucleus accumbens",
+            isMeasurement: false,
+            statements: [],
+            characteristics: [
+              {
+                id: 1,
+                category: "organism part",
+                categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+                value: "nucleus accumbens",
+                valueUri: "http://purl.obolibrary.org/obo/UBERON_0001882",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    bioMaterialAssignments: [],
+  };
+
+  const composed = () =>
+    composeCurationDesign(
+      snakeify(ORGANISM_PART_WIRE) as G2Design,
+      517,
+      "GSE6306",
+    );
+
+  it("carries the UBERON term through, not just the label", () => {
+    const [fv] = composed().factors[0].factor_values;
+    expect(fv.free_text_label).toBe("nucleus accumbens");
+    expect(fv.statements).toHaveLength(1);
+    expect(fv.statements[0].subject?.label).toBe("nucleus accumbens");
+    expect(fv.statements[0].subject?.uri).toBe(
+      "http://purl.obolibrary.org/obo/UBERON_0001882",
+    );
+  });
+
+  it("makes it a SUBJECT-ONLY statement — a characteristic says nothing more", () => {
+    const [fv] = composed().factors[0].factor_values;
+    expect(fv.statements[0].predicate).toBeNull();
+    expect(fv.statements[0].object).toBeNull();
+    expect(fv.statements[0].category?.label).toBe("organism part");
+  });
+
+  it("does NOT add a phantom row to a value that has real statements", () => {
+    // An FV carrying both keeps its own. ee 1658's FV 77277 is that
+    // case: one statement AND one characteristic naming the same term.
+    const both = {
+      ...ORGANISM_PART_WIRE,
+      experimentalFactors: [
+        {
+          ...ORGANISM_PART_WIRE.experimentalFactors[0],
+          values: [
+            {
+              ...ORGANISM_PART_WIRE.experimentalFactors[0].values[0],
+              statements: [
+                {
+                  category: "treatment",
+                  subject: "hypochlorous acid",
+                  subjectUri: "http://purl.obolibrary.org/obo/CHEBI_24757",
+                  predicate: "delivered at dose",
+                  object: "0.4 mM",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const fv = composeCurationDesign(
+      snakeify(both) as G2Design,
+      517,
+      "GSE6306",
+    ).factors[0].factor_values[0];
+    expect(fv.statements).toHaveLength(1);
+    expect(fv.statements[0].predicate?.label).toBe("delivered at dose");
+  });
+
+  it("skips a characteristic carrying neither a value nor a URI", () => {
+    const empty = {
+      ...ORGANISM_PART_WIRE,
+      experimentalFactors: [
+        {
+          ...ORGANISM_PART_WIRE.experimentalFactors[0],
+          values: [
+            {
+              id: 9,
+              summary: "x",
+              statements: [],
+              characteristics: [{ id: 2, category: "organism part", value: "  ", valueUri: null }],
+            },
+          ],
+        },
+      ],
+    };
+    const fv = composeCurationDesign(
+      snakeify(empty) as G2Design,
+      517,
+      "GSE6306",
+    ).factors[0].factor_values[0];
+    expect(fv.statements).toEqual([]);
+  });
+});

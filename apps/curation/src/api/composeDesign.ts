@@ -488,7 +488,7 @@ function composeFactor(
       id: v.id,
       free_text_label: v.summary || v.value || "",
       is_baseline: ov.is_baseline ?? v.is_baseline ?? false,
-      statements: (v.statements ?? []).map(composeStatement),
+      statements: composeFvStatements(v),
       // Overlay wins when populated — proposal payload typically
       // carries the canonical curator-blessed assignment. Fall back
       // to the assignments table from the canonical /design.
@@ -569,6 +569,45 @@ function materialiseProposedStatement(
   };
 }
 
+
+/** A factor value's statements — from its S-P-O rows, or from its
+ *  characteristics when it has none.
+ *
+ *  🛑 A grounded value does not need a statement. Gemma emits an S-P-O
+ *  row only when there is something to SAY about the subject; a plain
+ *  value carries its ontology identity in `characteristics[]` instead:
+ *
+ *      FV 3598  summary "nucleus accumbens"  statements []
+ *               characteristics [{ value "nucleus accumbens",
+ *                                  valueUri UBERON_0001882 }]
+ *
+ *  Dropping those left the composed value with a bare
+ *  `free_text_label` and nothing else, so every surface that asks "is
+ *  this grounded" — the sample-details reassign picker, the chips, the
+ *  validator — read a real UBERON term as free text. All six of ee 517's
+ *  organism-part values are this shape, and it is the ORDINARY shape for
+ *  a simple grounded value, not an edge case.
+ *
+ *  A characteristic becomes a subject-only statement, which is what it
+ *  is: a subject named, with no predicate or object. Only when there are
+ *  no real statements — an FV carrying both keeps its own, so nothing
+ *  gains a phantom row.
+ *
+ *  The browser app already knew this (`DatasetPage.tsx`: "FVs with no
+ *  S-P-O statements still carry ontology identity in their
+ *  characteristics"). This side did not. */
+function composeFvStatements(v: G2FactorValue): Statement[] {
+  const stmts = (v.statements ?? []).map(composeStatement);
+  if (stmts.length > 0) return stmts;
+  return (v.characteristics ?? [])
+    .filter((c) => (c?.value ?? "").trim() || c?.value_uri)
+    .map((c) => ({
+      category: { label: c.category ?? "", uri: c.category_uri ?? null },
+      subject: { label: c.value ?? "", uri: c.value_uri ?? null },
+      predicate: null,
+      object: null,
+    }));
+}
 
 function composeStatement(s: G2Statement): Statement {
   return {
