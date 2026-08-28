@@ -53,6 +53,22 @@ const BACKEND_RE = /\/(rest|local-api)\/|\/find-(publication|term)/;
  * mean. Registered AFTER the HAR route so it wins: Playwright matches
  * handlers in reverse registration order.
  */
+/**
+ * The backend MODE the specs run in.
+ *
+ * 🛑 Same failure as the session pin above, one layer over. `mode` is a
+ * capability flag read at boot: the design editor's commit is blocked in
+ * remote mode (the whole-design PUT would go straight at Gemma), so the
+ * bar renders "blocked" instead of "uncommitted" and six design-editor
+ * specs stop finding it — again without a line of spec code changing.
+ *
+ * `resolveGemmaMode` gives runtime config precedence over build-time
+ * env, so serving this pins the mode whatever the container was built
+ * with. Local is the right pin: it is the mode the fixtures were
+ * recorded in and the one whose full capability set the specs exercise.
+ */
+const RUNTIME_CONFIG = { mode: "local" };
+
 const SESSION_USER = {
   username: "e2e-curator",
   full_name: "E2E Curator",
@@ -78,6 +94,13 @@ export async function mockExperiment(page: Page, harName: string) {
         status: 200,
         contentType: "application/json",
         body: JSON.stringify(SESSION_USER),
+      }),
+    );
+    await page.route("**/rest/v2/__config__", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(RUNTIME_CONFIG),
       }),
     );
   }

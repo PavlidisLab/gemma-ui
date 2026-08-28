@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import type { CommitConflict } from "@/api/commitConflict";
 import type { DesignDiff } from "./diff";
 import type { Design, DesignValidationState } from "@/features/experiment/types";
@@ -68,6 +69,18 @@ export function CommitBar({
   const [overrideState, setOverrideState] = useState<
     Record<number, { checked: boolean; reason: string }>
   >({});
+  // 🛑 Remote mode blocks the commit, before the click.
+  //
+  // Commit's write path is the older whole-design PUT, and `/rest` is a
+  // catch-all whose meaning changes with mode — that same relative path
+  // reaches the curation store locally and a real Gemma remotely. The
+  // mutation refuses there too (`REMOTE_DESIGN_SAVE_REFUSED`); this is
+  // the half the curator can see, so the button says why rather than
+  // failing after the fact.
+  //
+  // Editing stays free, exactly as under someone else's lease: the
+  // draft is local and has to remain workable. Only the WRITE is gated.
+  const remoteMode = useGemmaMode().mode === "remote";
   if (!diff.isDirty) return null;
 
   // Only factors whose missing baseline should *block commit* are
@@ -153,7 +166,10 @@ export function CommitBar({
   // cab 2026-08-26). Agent-side locking is unbuilt.
   const lockedOut = !!lockedBy;
   const blocked =
-    lockedOut || (hasBaselineProblem && !allOverridden) || hasHardProblem;
+    remoteMode ||
+    lockedOut ||
+    (hasBaselineProblem && !allOverridden) ||
+    hasHardProblem;
 
   const t = diff.totals;
   const parts: string[] = [];
@@ -252,7 +268,9 @@ export function CommitBar({
               }}
               disabled={saving || blocked}
               title={
-                lockedOut
+                remoteMode
+                  ? "Design commit is disabled in remote mode — this write would go straight to Gemma."
+                  : lockedOut
                   ? `${lockedBy} holds the editing lease. Take over to commit — their draft is separate and survives.`
                   : hasHardProblem
                     ? "Fix the flagged factor problems (grounded category + predicate) to commit."
@@ -265,6 +283,17 @@ export function CommitBar({
             </button>
           </div>
         </div>
+        {remoteMode ? (
+          <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200">
+            <span className="font-semibold">Remote mode</span> — commit is
+            blocked here. This save is the older whole-design write, which
+            in remote mode goes straight to Gemma rather than to the
+            curation store. The preflight → commit → sign chain that
+            replaces it cannot map this draft&rsquo;s ids yet, so nothing
+            writes. Your edits are kept; switch to local mode to commit
+            them.
+          </div>
+        ) : null}
         {lockedOut ? (
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200 flex items-baseline gap-1.5">
             <span>

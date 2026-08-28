@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import type { Design } from "@/features/experiment/types";
 import {
   composeCurationDesign,
@@ -397,10 +398,49 @@ export function normaliseDesignForSave(design: Design): Design {
 }
 
 
+/** Thrown instead of PUTting a whole design at a real Gemma. Its
+ *  message is what the curator reads, so it says what to do. */
+export const REMOTE_DESIGN_SAVE_REFUSED =
+  "Design commit is disabled in remote mode. This save is the older " +
+  "whole-design PUT, which would write straight to Gemma; the " +
+  "preflight -> commit -> sign chain that replaces it cannot map this " +
+  "draft's ids yet. Switch to local mode to commit.";
+
 export function useUpdateDesign(experimentId: number | string, reviewer = "") {
   const qc = useQueryClient();
+  // 🛑 The hook, not the bare resolver. `resolveGemmaMode()` reads
+  // build-time env only; `useGemmaMode()` returns what the provider
+  // resolved, runtime config included. Reading the other one here would
+  // let the button and the mutation disagree — CommitBar enabled while
+  // the write refuses is a dead end, and the reverse is a silent write.
+  const { mode } = useGemmaMode();
   return useMutation({
     mutationFn: async (design: Design) => {
+      // 🛑 REFUSE in remote mode. Not a preference — a safety gate.
+      //
+      // `/rest` is a catch-all whose meaning changes with mode: this
+      // same relative path reaches the curation store locally and a
+      // real Gemma remotely. `require_gemma_write_base` guards the
+      // AGENT's writes and cannot guard this one, because it never
+      // reaches the agent.
+      //
+      // The chain built to replace this endpoint — preflight, commit,
+      // sign — cannot take over yet: every commit item names its target
+      // by `gemmaId` or `clientRef`, and the store's design carries
+      // neither (`gemma_factor_id` is null on every experiment checked,
+      // and its ids are small locals against Gemma's five-digit ones).
+      // Mapping the draft today would send everything as a `clientRef`
+      // and Gemma would CREATE it all, duplicating a dataset's design
+      // instead of updating it. So until that identity mapping exists,
+      // the correct remote behaviour is to do nothing at all.
+      //
+      // Gated here rather than only at the callsite so a second caller
+      // cannot be added without meeting it. CommitBar reads the same
+      // mode and blocks the button, so the curator sees this before the
+      // click rather than as a failure after it.
+      if (mode === "remote") {
+        throw new Error(REMOTE_DESIGN_SAVE_REFUSED);
+      }
       const params = reviewer
         ? `?reviewer=${encodeURIComponent(reviewer)}`
         : "";
