@@ -22,10 +22,23 @@ const BROWSER_URL: string =
   (import.meta.env.VITE_BROWSER_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://localhost:5183";
 
-/** Absolute URL into the browser app for the given path. */
+/** Absolute URL into the browser app for the given route.
+ *
+ *  🛑 **The browser app is HASH-routed** (`createHashHistory()` in
+ *  apps/browser/src/main.tsx), so its routes live under the FRAGMENT.
+ *  This used to emit `<base>/browser` — a real path — which 404s on any
+ *  host that serves the app as static files. It looked fine in local
+ *  dev only because vite's SPA fallback answers every path with
+ *  index.html, and the hash router then quietly showed its default
+ *  route instead of the one asked for.
+ *
+ *  Measured 2026-08-27: `https://gemma2.msl.ubc.ca/` is the browser app
+ *  ("Gemma Browser", an SPA) and answers 200, while `/browser` and
+ *  `/admin/system` both 404 there. The fragment is what addresses a
+ *  route. */
 export function browserUrl(path: string = "/"): string {
   const p = path.startsWith("/") ? path : `/${path}`;
-  return `${BROWSER_URL}${p}`;
+  return `${BROWSER_URL}/#${p}`;
 }
 
 /** Admin lives in the browser app under ``/admin/system``. */

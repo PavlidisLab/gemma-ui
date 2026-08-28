@@ -244,6 +244,22 @@ services:
       # without a restart.
       VITE_GEMMA_MODE: ${VITE_GEMMA_MODE:-}
       VITE_GEMMA_BASE_URL: ${VITE_GEMMA_BASE_URL:-}
+      # Where the top bar's "Browse" / "Admin" tabs point. The browser
+      # site and the curation site are separate vite builds on different
+      # origins, so those links need an absolute URL to the OTHER app.
+      #
+      # Falls back to http://localhost:5183 (lib/appLinks.ts), the
+      # local-mode browser container — correct for local dev and wrong
+      # anywhere else. Like VITE_GEMMA_MODE, there was no passthrough
+      # here before 2026-08-27, so it could not be set without editing
+      # this file.
+      #
+      # ⚠️ It must point at a host serving the BROWSER APP, not at a
+      # Gemma REST host: `Admin` resolves to `<url>/admin/system`, which
+      # is a route in our browser app. gemma2.msl.ubc.ca 404s on both
+      # /browser and /admin/system (measured 2026-08-27), so pointing
+      # this at it produces two dead links.
+      VITE_BROWSER_URL: ${VITE_BROWSER_URL:-}
       # Vite watcher fallback — bind-mounts on Docker-on-macOS don't
       # deliver inotify events from the host, so HMR misses workspace
       # package edits (@gemma/heatmap, @gemma/diagnostics, …) without
