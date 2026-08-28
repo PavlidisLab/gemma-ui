@@ -1,27 +1,32 @@
 /**
- * Build-time backend-mode chip for the global header.
+ * Backend-mode chip for the global header.
  *
- * Visible on every page (TopBar) so a curator can never lose track
- * of which backend their writes will land on. Three severity tiers:
+ * Visible on every page (AppHeader) so a curator can never lose track
+ * of which backend they are pointed at. Three tiers:
  *
- *   - LOCAL (slate) — talking to the local standalone server. No
- *     warning; full capability set.
- *   - REMOTE / staging (amber) — talking to staging Gemma. Today's
- *     staging shares the prod DB; chip popover spells that out.
+ *   - LOCAL (slate) — the local curation store. Full capability set;
+ *     writes land in the local SQLite DB.
+ *   - REMOTE / unverified (amber) — a Gemma host not on the known
+ *     production list. We cannot say what is behind it.
+ *   - REMOTE / prod (red) — a known production Gemma host.
  *
- * 🛑 The popover used to call remote mode "read-mostly", which was
- * wrong in both directions. This app never writes to Gemma itself —
- * drafts and the editing lease go through the AGENT relay on its own
- * prefix — so "mostly" overstated what it does. And remote mode is not
- * a narrower version of local: the curation store is absent there, so
- * tickets / audits / groups / candidates have no backend at all rather
- * than a reduced one. Both are now stated, along with the pipeline
- * dispatch endpoints, which DO post straight at the host.
- *   - REMOTE / prod (red) — talking to prod Gemma. Big red warning;
- *     every write goes through a confirmation modal.
+ * 🛑 Two things this popover said that were not true. Both are fixed
+ * here rather than softened:
+ *
+ * 1. It promised, on the prod and staging tiers, that "each
+ *    PUT/POST/DELETE will require an explicit confirmation". No write
+ *    path in this app consults ``isProd`` or ``mode`` — this component
+ *    is the only reader of either — so no such confirmation exists.
+ *    The chip is where a curator goes to find out whether their writes
+ *    are guarded, which makes it the worst place to promise a guard.
+ * 2. The prod tier could not fire for the host we actually point at.
+ *    ``gemma2.msl.ubc.ca`` matched neither the prod set nor the
+ *    staging substring test, so production rendered in the mildest
+ *    remote tier. Unrecognized hosts now fail closed to amber, and
+ *    the mild sky tier is gone.
  *
  * Click → expands a popover with the full base URL, the auth method,
- * the severity rationale, and a copy-of-the-other-mode hint.
+ * the tier rationale, and how to switch.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -54,30 +59,24 @@ export function ModeChip() {
 
   const severity = info.isProd
     ? "prod"
-    : info.isStaging
-      ? "staging"
-      : info.mode === "remote"
-        ? "remote-other"
-        : "local";
+    : info.isUnverified
+      ? "unverified"
+      : "local";
 
   const palette = {
     local:
       "bg-slate-100 text-slate-700 border-slate-300 dark:bg-slate-700 dark:text-slate-200 dark:border-slate-600",
-    "remote-other":
-      "bg-sky-100 text-sky-900 border-sky-400 dark:bg-sky-900/40 dark:text-sky-100 dark:border-sky-600",
-    staging:
+    unverified:
       "bg-amber-100 text-amber-900 border-amber-400 dark:bg-amber-900/50 dark:text-amber-100 dark:border-amber-600",
     prod:
       "bg-rose-200 text-rose-900 border-rose-500 dark:bg-rose-900/60 dark:text-rose-100 dark:border-rose-500",
   }[severity];
 
   const label = info.mode.toUpperCase();
-  // Strip a leading "staging-" prefix in the chip text so the chip
-  // stays short; the popover carries the full host.
-  const shortHost =
-    info.baseHost === "(unset)"
-      ? "(unset)"
-      : info.baseHost.replace(/^staging-/, "");
+  // Verbatim. The chip used to strip a leading "staging-" to stay
+  // short, which rendered staging-gemma.msl.ubc.ca as the prod
+  // hostname — the one pair of hosts that must never read alike.
+  const hostLabel = info.baseHost;
 
   return (
     <div ref={ref} className="relative inline-block">
@@ -93,7 +92,7 @@ export function ModeChip() {
       >
         <span>{label}</span>
         <span className="opacity-70">·</span>
-        <span className="normal-case font-normal">{shortHost}</span>
+        <span className="normal-case font-normal">{hostLabel}</span>
       </button>
 
       {open ? (
@@ -139,25 +138,15 @@ export function ModeChip() {
 
           {severity === "prod" ? (
             <p className="text-rose-700 dark:text-rose-300 leading-snug">
-              <strong>Production data.</strong> Every write modifies the
-              live Gemma database. Each PUT/POST/DELETE will require an
-              explicit confirmation.
+              <strong>Production Gemma.</strong> This host serves the
+              live corpus — the same database the public site reads.
             </p>
-          ) : severity === "staging" ? (
+          ) : severity === "unverified" ? (
             <p className="text-amber-800 dark:text-amber-200 leading-snug">
-              <strong>Staging Gemma.</strong> Note that today's staging
-              shares the prod database — writes here land in real Gemma.
-              Same confirmation flow as prod-mode applies.
-            </p>
-          ) : severity === "remote-other" ? (
-            <p className="text-sky-800 dark:text-sky-200 leading-snug">
-              <strong>Remote Gemma host.</strong> Reads come from Gemma.
-              Curation writes — the draft and the editing lease — go
-              through the <strong>agent relay</strong>, not from here.
-              Tickets, audits, groups and candidates live in the curation
-              store, which is not connected in this mode, so those
-              surfaces will not load. Pipeline actions (step dispatch,
-              GEEQ recalculate) do post straight to this host.
+              <strong>Unrecognized Gemma host.</strong> Not on the known
+              production list — and a hostname cannot tell a sandbox
+              from production, so treat anything you write here as real
+              until someone has checked which database is behind it.
             </p>
           ) : (
             <p className="text-slate-600 dark:text-slate-300 leading-snug">
@@ -165,10 +154,28 @@ export function ModeChip() {
               — audits, dispositions, design edits, inter-curator-audit
               packages — and those writes land in the local SQLite DB.
               Anything that reaches <strong>Gemma</strong> still goes
-              through the <strong>agent relay</strong>; this app never
-              writes to Gemma itself.
+              through the <strong>agent relay</strong>; in this mode the
+              app never writes to Gemma itself.
             </p>
           )}
+
+          {info.mode === "remote" ? (
+            <p className="text-slate-600 dark:text-slate-300 leading-snug">
+              Curation writes — the draft, the editing lease, preflight,
+              commit and sign — go through the{" "}
+              <strong>agent relay</strong> on its own prefix, not from
+              here. The curation store is not connected in this mode, so
+              tickets, audits, groups and candidates will not load.
+              <br />
+              🛑 Pipeline step dispatch, GEEQ recalculate, DEA runs,
+              outlier flags, quantitation-type edits, curationDetails,
+              short-name, publish and the older whole-design save post{" "}
+              <strong>straight at this host</strong> from the browser.
+              Nothing asks you to confirm, and the agent&rsquo;s
+              write-target guard cannot cover them — they never reach
+              the agent.
+            </p>
+          ) : null}
 
           {info.baseUrl === "(unset)" ? (
             <p className="text-rose-700 dark:text-rose-300 leading-snug">

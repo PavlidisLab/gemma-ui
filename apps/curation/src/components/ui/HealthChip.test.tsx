@@ -80,7 +80,7 @@ function renderChip({
     baseUrl: "http://localhost:8082",
     baseHost: "localhost:8082",
     isProd: false,
-    isStaging: false,
+    isUnverified: false,
     authLabel: "dev-token (local server)",
     ontologyHost: "example-gemma-host.test",
     ontologySplit: true,

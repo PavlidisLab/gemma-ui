@@ -69,6 +69,40 @@ compose default.
 | `GEMMA_WRITE_TARGET` | Arms the agent's Gemma writes. Empty = refused. Only set it together with `GEMMA_BASE_URL`, to the same host. |
 | `ANTHROPIC_API_KEY` | The proposer's LLM key. No default; blank means every propose/audit fails on auth. |
 
+## Which host is production?
+
+Measured 2026-08-28 against `/rest/v2/datasets/count`:
+
+| host | anonymous | as `administrator` | tier |
+|---|---:|---:|---|
+| `gemma.msl.ubc.ca` | 23,744 | 25,694 | production |
+| `gemma2.msl.ubc.ca` | 23,547 | 25,695 | production |
+| anything else | — | — | unverified |
+
+🛑 **The count is a function of who is asking.** A logged-in
+GROUP_ADMIN sees the non-public datasets an anonymous caller does not,
+so a corpus size means nothing without the credential that produced it.
+`REMOTE_CATALOGUE_CAP`'s 25,695 is the authenticated figure, because
+that is the walk the UI actually does.
+
+Both hosts carry the real corpus, and authenticated they are within one
+dataset of each other. That similarity is not evidence of a safe copy —
+it is what one database looks like under two names.
+`staging-gemma.msl.ubc.ca` no longer serves `/rest/v2` at all (404).
+
+The mode chip reads that list — `PROD_GEMMA_HOSTS` in
+`apps/curation/src/lib/gemmaMode.ts` — and **fails closed**: a remote
+host that is not on it takes the amber warning tier, never a mild one,
+because a hostname cannot tell a sandbox from production.
+
+🛑 **The chip does not promise a confirmation step, because there is
+none.** No write path in this app consults the mode or the tier. In
+remote mode, pipeline step dispatch, GEEQ recalculate, DEA runs, outlier
+flags, quantitation-type edits, `curationDetails`, short-name, publish
+and the older whole-design save post straight at the host from the
+browser. The agent's `require_gemma_write_base` guard cannot cover them
+— they never reach the agent.
+
 ## Recreating the UI container
 
 ```sh
