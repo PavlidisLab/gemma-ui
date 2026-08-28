@@ -1,11 +1,13 @@
 import {
   useDatasets,
+  REMOTE_CATALOGUE_CAP,
   datasetMatchesQuery,
   type DatasetSummary,
 } from "@/api/datasets";
 import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import {
   getCurationLocksFor,
   lockHolderPhrase,
@@ -116,6 +118,10 @@ export function ExperimentList({
     () => rows.map((r) => Number(r.experiment_id)).filter(Number.isFinite),
     [rows],
   );
+  // At the cap means "there is more we did not fetch", not "this is all".
+  const truncated =
+    useGemmaMode().mode === "remote" &&
+    (data?.length ?? 0) >= REMOTE_CATALOGUE_CAP;
   const visibleKey = visibleIds.join(",");
   const { data: lockData } = useQuery({
     queryKey: ["curation-locks", "by-ids", visibleKey],
@@ -220,6 +226,21 @@ export function ExperimentList({
           ) : rows.length === 0 ? (
             <EmptyState filter={filter} statusFilter={statusFilter} />
           ) : (
+            <>
+            {/* 🛑 Say when the catalogue is a prefix. Remote mode stops
+                after REMOTE_CATALOGUE_CAP rows because walking Gemma's
+                25,000+ at its 100-row page cap hangs the page. Without
+                this line a curator searching for an experiment that is
+                past the cut reads "not found" and concludes it is not in
+                Gemma — the wrong answer, given confidently. */}
+            {truncated ? (
+              <div className="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-b border-amber-200 dark:text-amber-200 dark:bg-amber-900/30 dark:border-amber-800">
+                Showing the first {REMOTE_CATALOGUE_CAP} experiments. Gemma
+                holds far more — an experiment missing from this list may
+                simply be past the cut, so search Gemma directly rather
+                than reading its absence here as an answer.
+              </div>
+            ) : null}
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-xs text-slate-600 uppercase tracking-wide">
                 <tr>
@@ -262,6 +283,7 @@ export function ExperimentList({
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </div>
       </main>

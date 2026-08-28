@@ -94,6 +94,18 @@ export function datasetMatchesQuery(r: DatasetSummary, query: string): boolean {
   );
 }
 
+/** How many catalogue rows remote mode will pull before stopping.
+ *
+ *  Five pages at Gemma's 100-row cap. Enough for the list to be useful
+ *  on arrival, far short of the 25,695 rows a full walk would need — and
+ *  a walk that long does not load, it hangs.
+ *
+ *  🛑 Consumers showing a list built from `useDatasets` MUST say when
+ *  they are at this cap. A silently truncated catalogue reads as "that
+ *  experiment is not in Gemma", which is the wrong answer to give a
+ *  curator about a corpus of 25,000. */
+export const REMOTE_CATALOGUE_CAP = 500;
+
 export function useDatasets(options: { refetchInterval?: number | false } = {}) {
   return useQuery({
     queryKey: KEY,
@@ -111,7 +123,22 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
       // failed EVERY page in remote mode, so the catalogue came back
       // empty and the quick-search had nothing to match against.
       // Measured on gemma2, 2026-08-28.
-      const PAGE = resolveGemmaMode().mode === "remote" ? 100 : 1000;
+      const remote = resolveGemmaMode().mode === "remote";
+      const PAGE = remote ? 100 : 1000;
+      // 🛑 Do NOT page the whole catalogue against Gemma.
+      //
+      // This loop materializes every row so the list can filter and sort
+      // client-side. That is right for the curation store (636 rows, one
+      // request) and impossible against Gemma: 25,695 datasets at its
+      // 100-row cap is 257 SEQUENTIAL requests, which hangs the page
+      // rather than loading it. Measured on gemma2, 2026-08-28.
+      //
+      // So remote mode takes a bounded prefix and says so. The honest
+      // fix is server-side search — the client should ask Gemma to
+      // filter rather than pulling the corpus over to filter it here —
+      // but a partial list that admits it beats a page that never
+      // finishes.
+      const maxRows = remote ? REMOTE_CATALOGUE_CAP : Infinity;
       const raw: WorkflowDatasetListResponse["data"] = [];
       for (let offset = 0; ; offset += PAGE) {
         const resp = await api.get<WorkflowDatasetListResponse>(
@@ -123,7 +150,8 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
         // against an empty page looping forever.
         if (
           resp.data.length < PAGE ||
-          raw.length >= (resp.total_elements ?? raw.length)
+          raw.length >= (resp.total_elements ?? raw.length) ||
+          raw.length >= maxRows
         ) {
           break;
         }
