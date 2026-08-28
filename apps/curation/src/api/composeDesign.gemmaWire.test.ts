@@ -272,9 +272,25 @@ describe("composeCurationDesign — title and abstract", () => {
     expect(compose(local, META_517).title).toBe("A title the store supplied");
   });
 
-  it("falls back to the dataset's abstract when the design has no description", () => {
-    const noDesc = { ...DESIGN_517, description: "" };
-    expect(compose(noDesc, META_517).description).toBe(META_517.description);
+  it("the ABSTRACT is the description, not the design's own blurb", () => {
+    // 🛑 The two fields are different things. `/datasets/517` carries
+    // the abstract; `/datasets/517/design` carries " Overall design:
+    // Agonal Stress Rating comparison" and nothing else. Taking the
+    // design's put the overall-design line in the abstract slot, and
+    // OverviewPanel then lifts that line out into its own row and
+    // removes it from the body — so a dataset with a full abstract
+    // rendered "(no description — click to add)".
+    const d = compose(DESIGN_517, META_517);
+    expect(d.description).toBe(META_517.description);
+    expect(d.overall_design).toBe(DESIGN_517.description);
+  });
+
+  it("falls back to the design's description when there is no abstract", () => {
+    // Local mode: the store's dataset row carries no `description`, so
+    // both fields read exactly as they did before.
+    const d = compose(DESIGN_517, { shortName: "GSE6306", name: "t" });
+    expect(d.description).toBe(DESIGN_517.description);
+    expect(d.overall_design).toBeUndefined();
   });
 
   it("leaves both undefined when neither side carries them", () => {

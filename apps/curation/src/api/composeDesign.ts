@@ -298,6 +298,8 @@ export function composeCurationDesign(
   meta?: DatasetMetaSlim | null,
 ): Design {
   const fvOverlay = overlay?.factor_values ?? {};
+  /** The experiment's abstract, which only the dataset row carries. */
+  const abstract = (meta?.description ?? "").trim();
 
   // Derive per-FV biomaterial-short-name lists from the assignments
   // table. We split the ``bio_material_name`` on '|' since Gemma's
@@ -452,8 +454,31 @@ export function composeCurationDesign(
     // Design first so local mode is untouched: the store's design
     // payload carries both fields directly.
     title: g2.name || meta?.name || undefined,
-    description: g2.description || meta?.description || undefined,
-    overall_design: g2.overall_design ?? undefined,
+    // 🛑 The dataset's `description` is the ABSTRACT. The design
+    // payload's is the ExperimentalDesign's own blurb, which on Gemma
+    // is the GEO "Overall design" line and nothing else:
+    //
+    //   /datasets/517         description "Gene expression patterns in
+    //                                      the brain are strongly…"
+    //   /datasets/517/design  description " Overall design: Agonal
+    //                                      Stress Rating comparison"
+    //
+    // Taking the design's first put the overall-design line in the
+    // abstract slot — and `OverviewPanel` then LIFTS that line out into
+    // its own "design (GEO)" row and removes it from the body, so the
+    // description rendered as "(no description — click to add)" on a
+    // dataset with a full abstract.
+    //
+    // So the abstract wins, and the design's own description becomes
+    // the overall design when it is not already set. Local mode is
+    // untouched: the store's dataset row carries no `description` at
+    // all, so `abstract` is empty there and both fields read exactly as
+    // they did.
+    description: abstract || g2.description || undefined,
+    overall_design:
+      g2.overall_design ||
+      (abstract ? g2.description || undefined : undefined) ||
+      undefined,
     taxon: taxonLabel(meta),
     // 🛑 `assay` has NO Gemma equivalent and is not going to get one.
     // It is GEO's `gdstype` sentence, fetched from eutils by the store's
