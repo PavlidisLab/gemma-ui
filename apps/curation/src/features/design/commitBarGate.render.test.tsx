@@ -38,10 +38,17 @@ const DIFF = {
   totals: { addedFvs: 0, modifiedFvs: 0, removedFvs: 0 },
 } as unknown as DesignDiff;
 
+/** 🛑 ``baseline_satisfied`` DERIVES from ``baseline_count`` unless a
+ *  test states otherwise, because the real producer computes it as
+ *  ``count >= 1 || gemmaDetects``. A fixture free to set a count of 1
+ *  alongside ``satisfied: false`` describes a state nothing can produce,
+ *  and a gate tested against an impossible state proves nothing. Pass
+ *  ``baseline_satisfied`` explicitly for the case that matters: count 0,
+ *  satisfied anyway, because Gemma resolved it. */
 const factorState = (
   patch: Partial<FactorValidationState>,
-): FactorValidationState =>
-  ({
+): FactorValidationState => {
+  const base = {
     factor_id: 7,
     baseline_count: 0,
     baseline_required: true,
@@ -53,7 +60,12 @@ const factorState = (
     ungrounded_categories: [],
     unknown_predicates: 0,
     ...patch,
-  }) as unknown as FactorValidationState;
+  };
+  return {
+    baseline_satisfied: (base.baseline_count ?? 0) >= 1,
+    ...base,
+  } as unknown as FactorValidationState;
+};
 
 const validation = (
   factors: FactorValidationState[],
@@ -141,6 +153,46 @@ describe("commit gate — baseline override", () => {
     const { commit } = renderBar(
       validation([factorState({ baseline_count: 1 })]),
     );
+    expect((commit as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /**
+   * 🛑 Marking a baseline is a nice-to-have, not a requirement.
+   *
+   * Gemma does not need an FV flagged to run a DEA against it: its own
+   * detector falls back to a level whose statements read as a control.
+   * A factor Gemma already resolves has a reference, so asking the
+   * curator to mark one is asking for work that changes nothing.
+   *
+   * Measured on 100 gemma2 datasets: of 136 factors this gate applies
+   * to, Gemma resolves 103 (76%). Gating on the raw MARKED count asked
+   * for all 136 in remote mode, where nothing is ever marked — Gemma
+   * has never set `isBaseline` for anyone. An override on everything
+   * trains people to tick without reading, which is worse than no gate.
+   */
+  it("Gemma resolved it → nothing marked, and no gate", () => {
+    const { commit } = renderBar(
+      validation([
+        factorState({ baseline_count: 0, baseline_satisfied: true }),
+      ]),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+  });
+
+  it("neither marked nor resolvable → still asks, with the sign-off", () => {
+    // The genuinely ambiguous case, which is where defining a baseline
+    // earns its keep. 16 of the 33 that reach here are `timepoint` —
+    // bare durations, "2 h" beside "6 h", where no control term applies.
+    const { commit } = renderBar(
+      validation([
+        factorState({ baseline_count: 0, baseline_satisfied: false }),
+      ]),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(true);
+    // Tickable, not a hard block — Paul: "we have a sign off, you check
+    // a box, I think that's okay".
+    fireEvent.click(screen.getByRole("checkbox"));
     expect((commit as HTMLButtonElement).disabled).toBe(false);
   });
 });

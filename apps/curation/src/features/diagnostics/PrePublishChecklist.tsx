@@ -567,12 +567,26 @@ function buildItems({
   // (cell line) also flow through here even though the
   // ValidatorBanner still flags them — the curator's already
   // acknowledged the warning at design time.
-  // ``>= 1``, not ``=== 1``: a dataset that is really two experiments in
-  // one carries a reference per sub-experiment, and blocking publish on
-  // that would refuse a design the curator marked deliberately. Only the
-  // absence of any reference fails.
+  // 🛑 ``baseline_satisfied``, not the raw marked count.
+  //
+  // Gemma does not need an FV flagged to run a DEA against it — its own
+  // detector takes the marked one first and falls back to a level whose
+  // statements read as a control ("reference substance role", "wild type
+  // genotype", "female"). So a factor Gemma already resolves HAS a
+  // reference, and asking the curator to mark one is asking for work
+  // that changes nothing. ``baseline_satisfied`` is marked-or-detected;
+  // ``gemmaBaseline.ts`` mirrors the Java detector.
+  //
+  // Measured on 100 gemma2 datasets: of 136 factors this check applies
+  // to, Gemma resolves 103 (76%) on its own. Reading the raw count
+  // reported a problem on all 136 in remote mode, where nothing is ever
+  // marked — Gemma has never set ``isBaseline`` for anyone.
+  //
+  // Not ``=== 1``: a dataset that is really two experiments in one
+  // carries a reference per sub-experiment. Only the absence of any
+  // reference, marked or inferable, fails.
   const baselinesOk = validation.factors.every(
-    (s) => !s.baseline_blocks_commit || s.baseline_count >= 1,
+    (s) => !s.baseline_blocks_commit || s.baseline_satisfied,
   );
   const noUnknownPredicates = validation.factors.every(
     (s) => s.unknown_predicates === 0,

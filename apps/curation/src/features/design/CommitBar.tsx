@@ -90,14 +90,30 @@ export function CommitBar({
   // category) — the ValidatorBanner still surfaces a "no baseline
   // marked" bullet so the curator considers it, but commit isn't
   // gated.
-  // ``=== 0``, not ``!== 1``: more than one marked baseline is legal
-  // (a two-experiments-in-one dataset carries a reference per
-  // sub-experiment) and must not gate the commit. Only the absence of
-  // any reference does. The ValidatorBanner asks about the multi case
-  // in its slate advisory channel instead.
+  // 🛑 ``baseline_satisfied``, not the raw marked count — marking is a
+  // nice-to-have, not a requirement.
+  //
+  // Gemma resolves a baseline itself when a level reads as a control,
+  // and a factor it already resolves does not need the curator to mark
+  // one. Measured on 100 gemma2 datasets: of 136 factors this gate
+  // applies to, 103 (76%) are resolved by Gemma. Reading the raw count
+  // asked for all 136 in remote mode, where nothing is ever marked —
+  // an override on everything trains people to tick without reading,
+  // which is worse than no gate at all.
+  //
+  // What is left is the genuinely ambiguous case, which is where
+  // defining it earns its keep: of the 33 that resolve neither way, 16
+  // are ``timepoint`` (bare durations — "2 h" beside "6 h"), the rest
+  // spread over developmental stage, treatment, genotype, age. Those
+  // still ask, and the per-factor tick below is the sign-off.
+  //
+  // More than one marked baseline is legal (a two-experiments-in-one
+  // dataset carries a reference per sub-experiment) and must not gate
+  // the commit. The ValidatorBanner asks about the multi case in its
+  // slate advisory channel instead.
   const baselineProblem = validation
     ? validation.factors.filter(
-        (f) => f.baseline_blocks_commit && f.baseline_count === 0,
+        (f) => f.baseline_blocks_commit && !f.baseline_satisfied,
       )
     : [];
   const hasBaselineProblem = baselineProblem.length > 0;
@@ -275,7 +291,7 @@ export function CommitBar({
                   : hasHardProblem
                     ? "Fix the flagged factor problems (grounded category + predicate) to commit."
                     : blocked
-                      ? "Each factor must have exactly one baseline FV. Tick the per-factor override to commit anyway."
+                      ? "Gemma could not infer a reference level for these factors, and none is marked. Tick the per-factor sign-off to commit anyway."
                       : undefined
               }
             >
