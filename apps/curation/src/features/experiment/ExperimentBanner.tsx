@@ -2078,7 +2078,14 @@ export function TicketContextChip({
         type="button"
         onClick={() => prevTarget && navigateTo(prevTarget.target_id)}
         disabled={!prevTarget}
-        title="Previous member (also: [ key)"
+        // 🛑 No key hint here. `[` / `]` are bound inside
+        // SetNavigatorPopover and TicketNavigatorPopover ONLY, and only
+        // while a popover is open — these buttons sit in the banner with
+        // no popover, so the hint promised a shortcut that does nothing
+        // where it was read. It is stale copy: these buttons were added
+        // to REPLACE the popover-only hint (see the note above), and the
+        // promise was carried onto them by mistake.
+        title="Previous member"
         aria-label="previous member"
         className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
       >
@@ -2094,7 +2101,7 @@ export function TicketContextChip({
         type="button"
         onClick={() => nextTarget && navigateTo(nextTarget.target_id)}
         disabled={!nextTarget}
-        title="Next member (also: ] key)"
+        title="Next member"
         aria-label="next member"
         className="text-[14px] font-bold leading-none text-slate-600 hover:text-slate-900 disabled:text-slate-300 disabled:cursor-not-allowed dark:text-slate-300 dark:hover:text-slate-100 dark:disabled:text-slate-600 px-0.5"
       >
