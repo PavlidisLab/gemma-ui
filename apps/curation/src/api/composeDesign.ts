@@ -636,7 +636,16 @@ function materialiseProposedStatement(
  *
  *  The browser app already knew the underlying fact (`DatasetPage.tsx`:
  *  "FVs with no S-P-O statements still carry ontology identity in their
- *  characteristics"). This side did not. */
+ *  characteristics"). This side did not.
+ *
+ *  ⏭ Gemma changed the same day (`94ac6e85e3`): `statements` now lists
+ *  EVERY statement, bare ones included, with `predicate` / `object`
+ *  absent rather than null. Reading `statements` alone is lossless
+ *  there now — but not here. The store's `local_api` is a separate
+ *  producer on the same shape, and this adapter serves both, so the
+ *  merge stays until both sides are known to carry the full list. It
+ *  absorbed the change without an edit, which is the argument for
+ *  merging rather than picking an array. */
 function composeFvStatements(v: G2FactorValue): Statement[] {
   const byId = new Map<number, Statement>();
   const bySubject = new Map<string, Statement>();

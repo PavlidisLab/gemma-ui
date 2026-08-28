@@ -430,6 +430,46 @@ describe("composeCurationDesign — values grounded by characteristic", () => {
     expect(fv.statements[0].predicate?.label).toBe("p");
   });
 
+  it("2026-08-28 wire: `statements` now lists the bare rows too — still one row each", () => {
+    // 🛑 Gemma changed under us the same day. `statements` used to hold
+    // only the predicated rows; it now lists EVERY statement, with
+    // `predicate` and `object` ABSENT (not null) on the bare ones.
+    // Verified on gemma2 `94ac6e85e3`: ee 517 FV 3598 ships the same id
+    // in both arrays, where `statements` was `[]` that morning.
+    //
+    // The merge absorbs it without a change — each statement replaces
+    // the characteristic it shares an id with — and that is the point
+    // of merging rather than choosing an array: the shape moved and the
+    // reader did not have to.
+    const fv = fvWith(
+      [
+        {
+          id: 29972441,
+          category: "organism part",
+          categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+          value: "nucleus accumbens",
+          valueUri: "http://purl.obolibrary.org/obo/UBERON_0001882",
+        },
+      ],
+      [
+        {
+          id: 29972441,
+          category: "organism part",
+          categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+          subjectId: "http://gemma.msl.ubc.ca/ont/TGFVO/3598/1",
+          subject: "nucleus accumbens",
+          subjectUri: "http://purl.obolibrary.org/obo/UBERON_0001882",
+        },
+      ],
+    );
+    expect(fv.statements).toHaveLength(1);
+    expect(fv.statements[0].subject?.uri).toBe(
+      "http://purl.obolibrary.org/obo/UBERON_0001882",
+    );
+    // Absent, not null-and-cleared — nothing was said about it.
+    expect(fv.statements[0].predicate).toBeNull();
+  });
+
   it("keeps a characteristic that NO statement predicates", () => {
     // 🛑 The reason this merges by id rather than letting statements
     // win wholesale. Zero of 698 factor values measured were partly
