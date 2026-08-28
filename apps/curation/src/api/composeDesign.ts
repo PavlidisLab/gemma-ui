@@ -19,6 +19,7 @@
  * enough to render the editor read-only.
  */
 
+import { taxonLabel, type TaxonBearingRow } from "@/lib/taxon";
 import type {
   Biomaterial,
   Design,
@@ -260,7 +261,9 @@ interface ProposedStatementOverlay {
  *  platform / external_source without an extra fetch. Only the
  *  banner-relevant fields are read; the full DatasetMeta type lives
  *  in design.ts. */
-export interface DatasetMetaSlim {
+export interface DatasetMetaSlim extends TaxonBearingRow {
+  /** 🛑 Read via `taxonLabel(meta)`. Gemma sends the taxon nested and
+   *  has no `taxonCommonName`; `TaxonBearingRow` carries both shapes. */
   taxon_common_name?: string | null;
   technology_type?: string | null;
   assay?: string | null;
@@ -426,7 +429,7 @@ export function composeCurationDesign(
     title: g2.name ?? undefined,
     description: g2.description ?? undefined,
     overall_design: g2.overall_design ?? undefined,
-    taxon: meta?.taxon_common_name ?? "",
+    taxon: taxonLabel(meta),
     technology_type: meta?.technology_type ?? "",
     assay: meta?.assay ?? "",
     platform: meta?.platform ?? "",

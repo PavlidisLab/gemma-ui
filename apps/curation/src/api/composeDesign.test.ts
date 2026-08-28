@@ -358,3 +358,46 @@ describe("composeCurationDesign — identity ladder", () => {
     expect(d.factors[0].local_factor_id).toBe("local-8f7f40227569");
   });
 });
+
+/**
+ * The composed design's taxon, from either producer.
+ *
+ * 🛑 `meta` here is `/rest/v2/datasets/{id}`, and Gemma sends **no
+ * `taxonCommonName`** on it — measured on gemma2 2026-08-28, absent from
+ * every key of that payload, with a nested `taxon` object in its place.
+ * Reading only the flat name made this `""` on every remote dataset, and
+ * an empty taxon is not inert: `PrePublishChecklist` renders an amber
+ * "no taxon set" chip from it, so the checklist reported a curation
+ * problem on datasets that have a species.
+ *
+ * Second site of the same defect — the catalogue list was the first, and
+ * there it crashed the search box rather than misreporting. One reader
+ * (`taxonLabel`) serves both.
+ */
+describe("composeCurationDesign — taxon from either wire shape", () => {
+  const compose = (meta: unknown) =>
+    composeCurationDesign(
+      G2_NO_FACTORS,
+      42,
+      "GSE-test",
+      null,
+      null,
+      meta as Parameters<typeof composeCurationDesign>[5],
+    );
+
+  it("reads Gemma's nested taxon object", () => {
+    expect(
+      compose({ taxon: { common_name: "human", scientific_name: "Homo sapiens" } })
+        .taxon,
+    ).toBe("human");
+  });
+
+  it("reads local_api's flat taxon_common_name", () => {
+    expect(compose({ taxon_common_name: "mouse" }).taxon).toBe("mouse");
+  });
+
+  it("is a string, never undefined, when neither shape carries one", () => {
+    expect(compose({}).taxon).toBe("");
+    expect(compose(null).taxon).toBe("");
+  });
+});

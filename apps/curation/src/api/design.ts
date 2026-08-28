@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { useGemmaMode } from "@/lib/gemmaMode";
+import type { TaxonBearingRow } from "@/lib/taxon";
 import type { Design } from "@/features/experiment/types";
 import {
   composeCurationDesign,
@@ -154,10 +155,17 @@ export function usePreboardSnapshot(experimentId: number | string) {
   });
 }
 
-export interface DatasetMeta {
+export interface DatasetMeta extends TaxonBearingRow {
   id?: number;
   short_name?: string | null;
   name?: string | null;
+  /** 🛑 Read it with `taxonLabel(meta)`, never directly. Gemma sends
+   *  no `taxonCommonName` — measured on gemma2 2026-08-28, absent from
+   *  every key of `/datasets/{id}` — and carries a nested `taxon`
+   *  object instead, which `TaxonBearingRow` above declares. Reading
+   *  this field alone made the composed design's taxon `""` on every
+   *  remote dataset, and the pre-publish checklist then reported
+   *  "no taxon set" in amber on datasets that have one. */
   taxon_common_name?: string | null;
   /** Source database label — "GEO", "ArrayExpress", "CELLxGENE",
    *  etc. Absent on true direct-upload datasets. */

@@ -20,12 +20,10 @@
  * one wire change away.
  */
 import { describe, expect, it } from "vitest";
-import {
-  datasetMatchesQuery,
-  taxonLabel,
-  type DatasetSummary,
-} from "./datasets";
-import type { WorkflowDatasetRow } from "./workflowTypes";
+import { datasetMatchesQuery, type DatasetSummary } from "./datasets";
+// `taxonLabel` lives in lib/taxon so `DatasetMeta` (design.ts) reads the
+// same rule — the same field was missing on `/datasets/{id}` too.
+import { taxonLabel, type TaxonBearingRow } from "@/lib/taxon";
 
 /** Gemma's shape, after `snakeify` — trimmed from a live gemma2 row. */
 const GEMMA_ROW = {
@@ -39,7 +37,7 @@ const GEMMA_ROW = {
     common_name: "human",
     ncbi_id: 9606,
   },
-} as unknown as WorkflowDatasetRow;
+} as unknown as TaxonBearingRow;
 
 /** local_api's shape — a flat common name, no nested object. */
 const STORE_ROW = {
@@ -47,7 +45,7 @@ const STORE_ROW = {
   short_name: "GSE3253",
   name: "Some study",
   taxon_common_name: "mouse",
-} as unknown as WorkflowDatasetRow;
+} as unknown as TaxonBearingRow;
 
 describe("taxonLabel — one datum, two wire shapes", () => {
   it("reads local_api's flat taxon_common_name", () => {
@@ -59,19 +57,19 @@ describe("taxonLabel — one datum, two wire shapes", () => {
   });
 
   it("falls back to the scientific name when there is no common one", () => {
-    const r = { taxon: { scientific_name: "Danio rerio" } } as unknown as WorkflowDatasetRow;
+    const r = { taxon: { scientific_name: "Danio rerio" } } as unknown as TaxonBearingRow;
     expect(taxonLabel(r)).toBe("Danio rerio");
   });
 
   it("returns a string — never undefined — when neither shape carries one", () => {
-    expect(taxonLabel({} as WorkflowDatasetRow)).toBe("");
+    expect(taxonLabel({} as TaxonBearingRow)).toBe("");
     expect(
-      taxonLabel({ taxon: null } as unknown as WorkflowDatasetRow),
+      taxonLabel({ taxon: null } as unknown as TaxonBearingRow),
     ).toBe("");
   });
 
   it("invents nothing: an empty flat name does not become a label", () => {
-    const r = { taxon_common_name: "" } as unknown as WorkflowDatasetRow;
+    const r = { taxon_common_name: "" } as unknown as TaxonBearingRow;
     expect(taxonLabel(r)).toBe("");
   });
 });

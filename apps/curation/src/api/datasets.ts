@@ -1,11 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
+import { taxonLabel } from "@/lib/taxon";
 import type { Design } from "@/features/experiment/types";
-import type {
-  WorkflowDatasetListResponse,
-  WorkflowDatasetRow,
-} from "./workflowTypes";
+import type { WorkflowDatasetListResponse } from "./workflowTypes";
 
 /**
  * Summary row for the curation UI's landing page. Returned by
@@ -104,39 +102,6 @@ export function datasetMatchesQuery(r: DatasetSummary, query: string): boolean {
     hay(r.title).includes(q) ||
     hay(r.taxon).includes(q)
   );
-}
-
-/** The catalogue's taxon, from either producer's shape.
- *
- *  🛑 The two backends disagree and the type only describes one of them.
- *  local_api sends a flat `taxon_common_name` string;
- *  **Gemma has no such field** — measured on gemma2 2026-08-28, it is
- *  absent from all 30 keys of every row — and carries a nested `taxon`
- *  object instead, `{common_name, scientific_name, ncbi_id, …}` once
- *  `snakeify` has been through it.
- *
- *  Reading only the flat name left `taxon` undefined on every remote row.
- *  `WorkflowDatasetRow` declares it `string` (non-optional), so nothing
- *  typechecked it, the list rendered an em dash because it happens to
- *  coalesce, and the quick search crashed the dashboard because it did
- *  not.
- *
- *  Shape normalization at the ingestion boundary, which is the rule —
- *  it picks between two spellings of a datum both producers really send,
- *  and invents nothing when neither does. */
-export function taxonLabel(r: WorkflowDatasetRow): string {
-  const flat = (r as { taxon_common_name?: string | null }).taxon_common_name;
-  if (typeof flat === "string" && flat) return flat;
-  const nested = (
-    r as {
-      taxon?:
-        | { common_name?: string | null; scientific_name?: string | null }
-        | string
-        | null;
-    }
-  ).taxon;
-  if (typeof nested === "string") return nested;
-  return nested?.common_name || nested?.scientific_name || "";
 }
 
 /** How many catalogue rows remote mode will pull before stopping.

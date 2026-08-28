@@ -103,3 +103,44 @@ export function taxonSortPriority(
   if (c === "rat" || s === "rattus norvegicus") return 2;
   return 3;
 }
+
+/** One row's taxon, whichever shape its producer used.
+ *
+ * 🛑 The curation store and Gemma disagree, and every UI type in this
+ * repo declares only the store's spelling.
+ *
+ *   local_api  ->  `taxon_common_name: "human"`            (flat)
+ *   Gemma      ->  `taxon: { common_name, scientific_name, … }`
+ *                  and **no `taxonCommonName` at all** — measured on
+ *                  gemma2 2026-08-28, absent from every key of
+ *                  `/datasets` and `/datasets/{id}` alike.
+ *
+ * Reading only the flat name left the taxon `undefined` on every remote
+ * row. It reached two places: the catalogue search, where
+ * `.toLowerCase()` on it crashed the dashboard, and the composed
+ * design, where it became `""` and the pre-publish checklist reported
+ * "no taxon set" in amber on datasets that have one.
+ *
+ * Shape normalization at the ingestion boundary — it picks between two
+ * spellings of a datum both producers really send, and returns `""`
+ * when neither does rather than inventing one.
+ *
+ * Structurally typed on purpose: the two callers hold different row
+ * types, and a helper named for one payload does not get reached for by
+ * someone holding another. */
+export interface TaxonBearingRow {
+  taxon_common_name?: string | null;
+  taxon?:
+    | { common_name?: string | null; scientific_name?: string | null }
+    | string
+    | null;
+}
+
+export function taxonLabel(r: TaxonBearingRow | null | undefined): string {
+  if (!r) return "";
+  const flat = r.taxon_common_name;
+  if (typeof flat === "string" && flat) return flat;
+  const nested = r.taxon;
+  if (typeof nested === "string") return nested;
+  return nested?.common_name || nested?.scientific_name || "";
+}
