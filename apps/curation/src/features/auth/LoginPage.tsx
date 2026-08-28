@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useLogin } from "@/api/session";
+import { useGemmaMode } from "@/lib/gemmaMode";
 
 /**
  * Login form — modelled on Gemma's `login.jsp` form-login UX
@@ -8,6 +9,7 @@ import { useLogin } from "@/api/session";
  * land when this leaves the intranet.
  */
 export function LoginPage() {
+  const { baseHost, mode } = useGemmaMode();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const login = useLogin();
@@ -26,13 +28,29 @@ export function LoginPage() {
       >
         <div>
           <h1 className="text-lg font-semibold">Gemma Curation</h1>
+          {/* 🛑 The host is READ, not written in. This said
+              "gemma.msl.ubc.ca" — Gemma 1.x — while remote mode
+              authenticates against whatever `VITE_GEMMA_BASE_URL`
+              names, today gemma2. A login screen naming the wrong
+              server is the worst place to be wrong about which one
+              you are talking to. */}
           <p className="text-xs text-slate-500 mt-1">
             Sign in with your Gemma credentials. The login is verified
             against{" "}
-            <code className="font-mono">/rest/v2/users/me</code> on
-            gemma.msl.ubc.ca; your session reads and writes the local
-            curation surface and pulls fresh data from Gemma when you
-            import or refresh.
+            <code className="font-mono">/rest/v2/users/me</code> on{" "}
+            <code className="font-mono">{baseHost}</code>
+            {mode === "local" ? (
+              <>
+                ; your session reads and writes the local curation
+                surface and pulls fresh data from Gemma when you import
+                or refresh.
+              </>
+            ) : (
+              <>
+                . The curation store is not connected in this mode, so
+                tickets, audits, groups and candidates will not load.
+              </>
+            )}
           </p>
         </div>
 

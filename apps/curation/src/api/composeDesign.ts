@@ -265,6 +265,12 @@ interface ProposedStatementOverlay {
 export interface DatasetMetaSlim
   extends TaxonBearingRow,
     PlatformBearingRow {
+  /** When Gemma first saw this dataset — the banner's "loaded at".
+   *  Live 2026-08-28; it is the `action "C"` audit event, lifted onto
+   *  the VO so the banner does not read 213 events for one timestamp.
+   *  🛑 Display only: `auditTrail.*` is unregistered from the dataset
+   *  filter surface, so it cannot be sorted or filtered on. */
+  date_created?: string | null;
   /** 🛑 Read via `taxonLabel(meta)`. Gemma sends the taxon nested and
    *  has no `taxonCommonName`; `TaxonBearingRow` carries both shapes. */
   taxon_common_name?: string | null;
@@ -446,12 +452,20 @@ export function composeCurationDesign(
     description: g2.description || meta?.description || undefined,
     overall_design: g2.overall_design ?? undefined,
     taxon: taxonLabel(meta),
-    technology_type: meta?.technology_type ?? "",
+    // 🛑 `assay` has NO Gemma equivalent and is not going to get one.
+    // It is GEO's `gdstype` sentence, fetched from eutils by the store's
+    // preboarding pass; Gemma's nearest record is the SOFT-derived
+    // source metadata, which does not carry it and is not on the dataset
+    // REST surface (gembro, 2026-08-28). Blank in remote mode is the
+    // truth, not a gap to fill.
     assay: meta?.assay ?? "",
     // Flat scalars from the store, `platforms[]` / `originalPlatforms[]`
-    // from Gemma — see lib/platform.ts. Gemma carried neither until
-    // 2026-08-28, so this whole line rendered blank in remote mode.
+    // from Gemma — see lib/platform.ts. Carries `technology_type` too,
+    // resolved from the dataset or, when its platforms disagree, from
+    // the platforms themselves. Gemma answered null for that field on
+    // 300 of 300 until 2026-08-28.
     ...platformFields(meta),
+    loaded_at: meta?.date_created ?? undefined,
     // `gold_data_version` / `annotation_version` / `baseline` used to be
     // copied through by hand here. They ride in `...carried` now, along
     // with everything else — which is the whole point of the change.

@@ -163,6 +163,9 @@ export interface DatasetMeta extends TaxonBearingRow, PlatformBearingRow {
   /** The experiment's abstract. Distinct from the design payload's
    *  `description`, which on Gemma is the GEO "Overall design" line. */
   description?: string | null;
+  /** When Gemma first saw this dataset — the banner's "loaded at".
+   *  Display only; see `DatasetMetaSlim.date_created`. */
+  date_created?: string | null;
   /** 🛑 Read it with `taxonLabel(meta)`, never directly. Gemma sends
    *  no `taxonCommonName` — measured on gemma2 2026-08-28, absent from
    *  every key of `/datasets/{id}` — and carries a nested `taxon`

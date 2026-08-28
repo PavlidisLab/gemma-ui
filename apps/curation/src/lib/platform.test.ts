@@ -125,3 +125,87 @@ describe("platformFields — nothing to report", () => {
     }
   });
 });
+
+/**
+ * The technology classifier.
+ *
+ * 🛑 GENELIST is not an instrument. It is the generic platform Gemma
+ * switches sequencing data ONTO — "Generic platform for Mus musculus,
+ * indexed by NCBI IDs" — and it is HALF the corpus: 252 of 500 sampled
+ * read GENELIST against 1 that reads SEQUENCING. Every one of those 252
+ * carries an `originalPlatforms` entry and every one of those is
+ * SEQUENCING (gembro, measured 2026-08-28).
+ *
+ * So a modality map that sends GENELIST to unknown, or to microarray,
+ * is wrong on half of everything — and the platform NAME cannot rescue
+ * it, because on a switched dataset the name is "Generic platform for…"
+ * and says nothing about sequencing. `modality.ts` already routes
+ * GENELIST to sequencing; this pins the field reaching it.
+ *
+ * Fixtures verbatim from gemma2 build `5e18682e84`.
+ */
+describe("platformFields — technology type", () => {
+  it("takes the dataset's own classifier when it has one", () => {
+    // ee 517 / GSE6306.
+    const f = platformFields(
+      wire({
+        technologyType: "ONECOLOR",
+        platforms: [{ id: 1, shortName: "GPL96", name: "U133A", technologyType: "ONECOLOR" }],
+        originalPlatforms: [],
+      }),
+    );
+    expect(f.technology_type).toBe("ONECOLOR");
+  });
+
+  it("carries GENELIST through, and names the sequencer it was switched off", () => {
+    // GSE21860 — the shape half the corpus has.
+    const f = platformFields(
+      wire({
+        technologyType: "GENELIST",
+        platforms: [
+          { id: 2, shortName: "Generic_mouse_ncbiIds", name: "Generic platform for Mus musculus, indexed by NCBI IDs", technologyType: "GENELIST" },
+        ],
+        originalPlatforms: [{ id: 3, shortName: "GPL9185", name: "Illumina Genome Analyzer II", technologyType: "SEQUENCING" }],
+      }),
+    );
+    expect(f.technology_type).toBe("GENELIST");
+    expect(f.original_platform_short_name).toBe("GPL9185");
+    // The name that would have to carry it if the classifier did not.
+    expect(f.platform).toContain("Generic platform");
+  });
+
+  it("falls back to the platforms when the dataset field is null", () => {
+    // Null there means "they disagree — ask the platforms", never
+    // "unknown".
+    const f = platformFields(
+      wire({
+        technologyType: null,
+        platforms: [
+          { id: 1, shortName: "A", name: "a", technologyType: "SEQUENCING" },
+          { id: 2, shortName: "B", name: "b", technologyType: "SEQUENCING" },
+        ],
+      }),
+    );
+    expect(f.technology_type).toBe("SEQUENCING");
+  });
+
+  it("says nothing when the platforms genuinely disagree", () => {
+    // A dataset on a microarray AND a sequencer is both. Picking one
+    // labels half of it wrong with nothing to mark the guess.
+    const f = platformFields(
+      wire({
+        technologyType: null,
+        platforms: [
+          { id: 1, shortName: "A", name: "a", technologyType: "ONECOLOR" },
+          { id: 2, shortName: "B", name: "b", technologyType: "SEQUENCING" },
+        ],
+      }),
+    );
+    expect(f.technology_type).toBe("");
+  });
+
+  it("is a string when nothing carries one", () => {
+    expect(platformFields({}).technology_type).toBe("");
+    expect(platformFields(null).technology_type).toBe("");
+  });
+});

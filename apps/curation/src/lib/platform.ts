@@ -30,6 +30,10 @@ export interface PlatformRef {
   id?: number | null;
   short_name?: string | null;
   name?: string | null;
+  /** `ONECOLOR` | `TWOCOLOR` | `DUALMODE` | `SEQUENCING` | `GENELIST`
+   *  | `OTHER`. Added to the reference 2026-08-28 alongside the
+   *  dataset-level field. */
+  technology_type?: string | null;
 }
 
 /** Structurally typed, like `TaxonBearingRow`: the callers hold
@@ -44,9 +48,24 @@ export interface PlatformBearingRow {
   original_platform_id?: number | null;
   platforms?: PlatformRef[] | null;
   original_platforms?: PlatformRef[] | null;
+  /** The dataset's own classifier.
+   *
+   *  🛑 It answers ONLY when the dataset's platforms agree. A dataset on
+   *  a microarray and a sequencer is both, and null there means "ask the
+   *  platforms" — not "unknown". The old details-path rule took whichever
+   *  platform the iterator reached first, which labelled half of such a
+   *  dataset wrong with nothing to distinguish that from a real answer.
+   *
+   *  Null on 0 of 500 sampled after the 2026-08-28 fix; before it, null
+   *  on 300 of 300. */
+  technology_type?: string | null;
 }
 
 export interface PlatformFields {
+  /** The dataset's technology, resolved. Empty string when the
+   *  platforms disagree — a dataset that is genuinely both is not a
+   *  question this field can answer, and picking one would be a guess. */
+  technology_type: string;
   platform: string;
   platform_short_name: string;
   platform_id: number | null;
@@ -74,6 +93,23 @@ function loneId(refs: PlatformRef[]): number | null {
     : null;
 }
 
+/** The technology every platform agrees on, or "" when they do not.
+ *
+ *  🛑 `GENELIST` is NOT an instrument. It is the generic platform Gemma
+ *  switches sequencing data ONTO ("Generic platform for Mus musculus,
+ *  indexed by NCBI IDs"), and it is **half the corpus** — 252 of 500
+ *  sampled, against 1 that reads SEQUENCING. Every one of those 252
+ *  carries an `originalPlatforms` entry and every one of those is
+ *  SEQUENCING (gembro, measured 2026-08-28). `modality.ts` maps it to
+ *  sequencing on that basis; anything else reading this field has to
+ *  know the same thing. */
+function agreedTechnology(refs: PlatformRef[]): string {
+  const seen = new Set(
+    refs.map((r) => (r?.technology_type || "").trim()).filter(Boolean),
+  );
+  return seen.size === 1 ? [...seen][0] : "";
+}
+
 export function platformFields(
   r: PlatformBearingRow | null | undefined,
 ): PlatformFields {
@@ -84,6 +120,9 @@ export function platformFields(
   const flat = (v: string | null | undefined) =>
     typeof v === "string" && v.trim() ? v.trim() : "";
   return {
+    // Dataset-level first — it is null precisely when the platforms
+    // disagree, and then the platforms are the only honest source.
+    technology_type: flat(r?.technology_type) || agreedTechnology(current),
     platform: flat(r?.platform) || joinNames(current, "name"),
     platform_short_name:
       flat(r?.platform_short_name) || joinNames(current, "short_name"),
