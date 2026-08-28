@@ -356,38 +356,82 @@ describe("composeCurationDesign — values grounded by characteristic", () => {
     expect(fv.statements[0].category?.label).toBe("organism part");
   });
 
-  it("does NOT add a phantom row to a value that has real statements", () => {
-    // An FV carrying both keeps its own. ee 1658's FV 77277 is that
-    // case: one statement AND one characteristic naming the same term.
-    const both = {
-      ...ORGANISM_PART_WIRE,
-      experimentalFactors: [
-        {
-          ...ORGANISM_PART_WIRE.experimentalFactors[0],
-          values: [
-            {
-              ...ORGANISM_PART_WIRE.experimentalFactors[0].values[0],
-              statements: [
-                {
-                  category: "treatment",
-                  subject: "hypochlorous acid",
-                  subjectUri: "http://purl.obolibrary.org/obo/CHEBI_24757",
-                  predicate: "delivered at dose",
-                  object: "0.4 mM",
-                },
-              ],
-            },
-          ],
-        },
-      ],
-    };
-    const fv = composeCurationDesign(
-      snakeify(both) as G2Design,
+  /** Wrap one FV's characteristics + statements and compose it. */
+  const fvWith = (characteristics: unknown[], statements: unknown[]) =>
+    composeCurationDesign(
+      snakeify({
+        ...ORGANISM_PART_WIRE,
+        experimentalFactors: [
+          {
+            ...ORGANISM_PART_WIRE.experimentalFactors[0],
+            values: [{ id: 77277, summary: "s", characteristics, statements }],
+          },
+        ],
+      }) as G2Design,
       517,
       "GSE6306",
     ).factors[0].factor_values[0];
+
+  it("a statement REPLACES the characteristic it predicates — one row, not two", () => {
+    // 🛑 ee 1658 FV 77277: the characteristic and the statement are the
+    // same row, id 30133596, same term, same URI. The statement is that
+    // characteristic with a predicate and object filled in.
+    const fv = fvWith(
+      [
+        {
+          id: 30133596,
+          category: "treatment",
+          categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+          value: "hypochlorous acid",
+          valueUri: "http://purl.obolibrary.org/obo/CHEBI_24757",
+        },
+      ],
+      [
+        {
+          id: 30133596,
+          category: "treatment",
+          categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+          subject: "hypochlorous acid",
+          subjectUri: "http://purl.obolibrary.org/obo/CHEBI_24757",
+          predicate: "delivered at dose",
+          object: "0.4 mM",
+        },
+      ],
+    );
     expect(fv.statements).toHaveLength(1);
     expect(fv.statements[0].predicate?.label).toBe("delivered at dose");
+    expect(fv.statements[0].object?.label).toBe("0.4 mM");
+  });
+
+  it("joins on the term when a statement arrives without an id", () => {
+    // Never seen on the wire — ids were present on 42 of 42 measured —
+    // but a missing id must not double the row.
+    const fv = fvWith(
+      [{ id: 1, category: "treatment", value: "aspirin", valueUri: "u" }],
+      [{ category: "treatment", subject: "aspirin", subjectUri: "u", predicate: "p", object: "o" }],
+    );
+    expect(fv.statements).toHaveLength(1);
+    expect(fv.statements[0].predicate?.label).toBe("p");
+  });
+
+  it("keeps a characteristic that NO statement predicates", () => {
+    // 🛑 The reason this merges by id rather than letting statements
+    // win wholesale. Zero of 698 factor values measured were partly
+    // predicated — but zero measured is not zero possible, and a
+    // wholesale swap would silently drop the unpredicated half.
+    const fv = fvWith(
+      [
+        { id: 1, category: "treatment", value: "aspirin", valueUri: "ua" },
+        { id: 2, category: "organism part", value: "liver", valueUri: "ul" },
+      ],
+      [
+        { id: 1, category: "treatment", subject: "aspirin", subjectUri: "ua", predicate: "delivered at dose", object: "5 mg" },
+      ],
+    );
+    expect(fv.statements).toHaveLength(2);
+    expect(fv.statements[0].predicate?.label).toBe("delivered at dose");
+    expect(fv.statements[1].subject?.label).toBe("liver");
+    expect(fv.statements[1].predicate).toBeNull();
   });
 
   it("skips a characteristic carrying neither a value nor a URI", () => {

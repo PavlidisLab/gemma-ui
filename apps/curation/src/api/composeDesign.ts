@@ -37,6 +37,9 @@ import type {
 // ─── Gemma 2.0 wire shapes (post-snakeify) ───────────────────────
 
 interface G2Term {
+  /** Shared with the statement that predicates it — see
+   *  `composeFvStatements`. */
+  id?: number;
   category?: string | null;
   category_uri?: string | null;
   value?: string | null;
@@ -570,43 +573,83 @@ function materialiseProposedStatement(
 }
 
 
-/** A factor value's statements — from its S-P-O rows, or from its
- *  characteristics when it has none.
+/** A factor value's annotations, merged by id.
  *
- *  🛑 A grounded value does not need a statement. Gemma emits an S-P-O
- *  row only when there is something to SAY about the subject; a plain
- *  value carries its ontology identity in `characteristics[]` instead:
+ *  🛑 **A characteristic and a statement are THE SAME ROW** (Paul,
+ *  2026-08-28). `statements` is not a second collection beside
+ *  `characteristics` — it is the subset of them that carries a
+ *  predicate, serialized with the subject columns renamed:
+ *
+ *      characteristic   id · category · value   · valueUri
+ *      statement        id · category · subject · subjectUri · predicate · object
+ *
+ *  The wire proves it: on ee 1658 FV 77277 the characteristic and the
+ *  statement are both id `30133596`, same term, same URI. Measured over
+ *  698 factor values in 60 datasets, statement ids are a subset of
+ *  characteristic ids on 42 of 42 FVs that have both, and never once a
+ *  set the characteristics do not contain.
+ *
+ *  So a plain grounded value ships `statements: []` and lives entirely
+ *  in `characteristics` —
  *
  *      FV 3598  summary "nucleus accumbens"  statements []
  *               characteristics [{ value "nucleus accumbens",
  *                                  valueUri UBERON_0001882 }]
  *
- *  Dropping those left the composed value with a bare
- *  `free_text_label` and nothing else, so every surface that asks "is
- *  this grounded" — the sample-details reassign picker, the chips, the
- *  validator — read a real UBERON term as free text. All six of ee 517's
- *  organism-part values are this shape, and it is the ORDINARY shape for
- *  a simple grounded value, not an edge case.
+ *  — and reading only `statements` left it with a bare
+ *  `free_text_label`, so every surface that asks "is this grounded"
+ *  read a real UBERON term as free text. That is the ORDINARY shape for
+ *  a simple value, not an edge case: all six of ee 517's organism-part
+ *  values are it.
  *
- *  A characteristic becomes a subject-only statement, which is what it
- *  is: a subject named, with no predicate or object. Only when there are
- *  no real statements — an FV carrying both keeps its own, so nothing
- *  gains a phantom row.
+ *  ⚠️ Merged by id rather than "statements win", which is the same
+ *  answer on every FV measured and is right for a different reason: an
+ *  FV whose characteristics are only PARTLY predicated would lose the
+ *  rest under a wholesale swap. Zero of 698 had that shape — but zero
+ *  measured is not zero possible, and the merge cannot drop a row
+ *  whatever the wire does next.
  *
- *  The browser app already knew this (`DatasetPage.tsx`: "FVs with no
- *  S-P-O statements still carry ontology identity in their
+ *  The browser app already knew the underlying fact (`DatasetPage.tsx`:
+ *  "FVs with no S-P-O statements still carry ontology identity in their
  *  characteristics"). This side did not. */
 function composeFvStatements(v: G2FactorValue): Statement[] {
-  const stmts = (v.statements ?? []).map(composeStatement);
-  if (stmts.length > 0) return stmts;
-  return (v.characteristics ?? [])
-    .filter((c) => (c?.value ?? "").trim() || c?.value_uri)
-    .map((c) => ({
+  const byId = new Map<number, Statement>();
+  const bySubject = new Map<string, Statement>();
+  /** The term a row names, for joining a statement that arrived
+   *  without an id. A characteristic and the statement predicating it
+   *  name the same term, so this is the row's own identity, not a
+   *  guess about which rows go together. */
+  const termKey = (label: string, uri: string | null) =>
+    `${label.trim().toLowerCase()}|${uri ?? ""}`;
+  const out: Statement[] = [];
+  for (const c of v.characteristics ?? []) {
+    if (!c) continue;
+    if (!(c.value ?? "").trim() && !c.value_uri) continue;
+    const s: Statement = {
       category: { label: c.category ?? "", uri: c.category_uri ?? null },
       subject: { label: c.value ?? "", uri: c.value_uri ?? null },
       predicate: null,
       object: null,
-    }));
+    };
+    out.push(s);
+    if (typeof c.id === "number") byId.set(c.id, s);
+    bySubject.set(termKey(c.value ?? "", c.value_uri ?? null), s);
+  }
+  for (const raw of v.statements ?? []) {
+    if (!raw) continue;
+    const composed = composeStatement(raw);
+    // The predicated reading of a characteristic already listed
+    // REPLACES it in place — same row, more said about it. Joined on
+    // the shared id, which the wire always carries; on the term itself
+    // when it does not, so a missing id cannot double the row.
+    const seat =
+      (typeof raw.id === "number" ? byId.get(raw.id) : undefined) ??
+      bySubject.get(termKey(raw.subject ?? "", raw.subject_uri ?? null));
+    const at = seat ? out.indexOf(seat) : -1;
+    if (at >= 0) out[at] = composed;
+    else out.push(composed);
+  }
+  return out;
 }
 
 function composeStatement(s: G2Statement): Statement {
