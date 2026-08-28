@@ -582,3 +582,60 @@ export function useTermRelations(uri: string | null | undefined, enabled: boolea
     retry: false,
   });
 }
+
+
+/** How many rows an experiment's inferred-concepts row will ever show.
+ *  Well above what the fan-out bar leaves (32% retention corpus-wide,
+ *  7 rows on the richest dataset measured), so it is a guard rather
+ *  than a display cap. */
+const INFERRED_LIMIT = 100;
+
+/**
+ * What Gemma can infer about an EXPERIMENT from its own annotations.
+ *
+ * 🛑 **`seedDirection=SUBJECT_TO_OBJECT` is sent explicitly and must
+ * stay.** The server default is `OBJECT_TO_SUBJECT`, which returns
+ * nothing for 22 of 29 datasets sampled — measured on GSE28044, the
+ * default gives 1 row where this gives 7. An earlier handoff said to
+ * leave the default alone; that advice predates the cut-off rules and
+ * is wrong. Omitting this reads as "nothing to infer" on most
+ * experiments.
+ *
+ * 🛑 **The result is APPROXIMATE and the UI must say so.** The server
+ * applies a fan-out bar (`maxSubjectBreadth`, default 3 on the dataset
+ * walk) that drops any subject relating to more than three objects under
+ * one predicate. It is a heuristic aimed at ChEBI role closures — on
+ * GSE28044 it drops 19 of 26 rows, mostly `has role` — and it will drop
+ * true relations whose subject happens to be broad.
+ *
+ * ⚠️ Empty is the COMMON case, not a failure: whole datasets legitimately
+ * infer nothing once the vehicle-control role noise is barred (GSE315959
+ * went 195 rows → 0, which is the right answer for it).
+ *
+ * Routed to the ontology host by the existing `/rest/v2/annotations/*`
+ * proxy exception, so this needs no relay.
+ */
+export function useDatasetInferredConcepts(
+  experimentId: number | string | null | undefined,
+  enabled: boolean = true,
+) {
+  return useQuery<RelationRow[]>({
+    queryKey: ["dataset-inferred-concepts", String(experimentId ?? "")],
+    enabled: enabled && experimentId != null && experimentId !== "",
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        dataset: String(experimentId),
+        seedDirection: "SUBJECT_TO_OBJECT",
+        limit: String(INFERRED_LIMIT),
+      });
+      const res = await api.get<RelationRow[] | { data?: RelationRow[] }>(
+        `/rest/v2/annotations/relations?${params.toString()}`,
+      );
+      const rows = Array.isArray(res) ? res : (res?.data ?? []);
+      return Array.isArray(rows) ? rows : [];
+    },
+    // Moves when the maintenance job runs, not while a curator reads.
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+}

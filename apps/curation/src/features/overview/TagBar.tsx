@@ -34,6 +34,10 @@ import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { augmentInferredFromFactors } from "./augmentFactorTags";
 import { isProtectedTagCategory } from "@/features/experiment/types";
+import {
+  InferredConceptsRow,
+  SHOW_INFERRED_CONCEPTS,
+} from "./InferredConceptsRow";
 import { FactorsRow } from "./factorChips";
 import {
   addTag,
@@ -225,6 +229,27 @@ function TagBarLegend() {
           <span className="font-medium">Mixed</span> — the category
           surfaces from more than one source.
         </span>
+        {/* Gated on the same const as the row. A legend advertising a
+            chip the curator can never see is worse than no entry — it
+            sends them looking for something that is switched off.
+            Not a TAG_PALETTE entry either: this chip is not a tag, so it
+            is drawn the way the row draws it rather than borrowing a tag
+            palette and implying it is one. */}
+        {SHOW_INFERRED_CONCEPTS ? (
+          <>
+        <span className="inline-flex items-baseline gap-1 px-1.5 py-0.5 text-[11px] rounded border border-dashed border-indigo-400 text-indigo-800 dark:border-indigo-500 dark:text-indigo-200">
+          <span className="font-medium">breast cancer</span>
+        </span>
+        <span>
+          <span className="font-medium">Inferred</span> — selected
+          concepts inferred by ontology and curated relationships to
+          annotated concepts. Not attached to this experiment and not
+          editable. Dashed because it is derived rather than asserted.
+          Approximate: broad terms are filtered out, so some true
+          relations are dropped with them.
+        </span>
+          </>
+        ) : null}
       </div>
       <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
         <div className="font-medium text-slate-700 dark:text-slate-200 mb-1">
@@ -1038,6 +1063,12 @@ export function TagBar({
         }
         return rows;
       })}
+      {/* Last row in the block, after every asserted category. What
+          Gemma can DERIVE from the rows above belongs below them: it is
+          a consequence of the annotations, not one of them. Renders
+          nothing when there is nothing to infer, which is the common
+          case. */}
+      <InferredConceptsRow experimentId={experimentId} />
       {draft ? (
         <div className="flex items-center gap-1 pl-2 pt-0.5">
           <button
