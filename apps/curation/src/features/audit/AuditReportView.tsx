@@ -192,7 +192,12 @@ const TARGET_KIND_LABEL: Record<AuditTargetKind, string> = {
   factor: "Factor",
   fv: "Factor value",
   tag: "Tag",
-  characteristic: "Characteristic",
+  // 🛑 "Statement", not "Characteristic". They are the same thing — a
+  // statement is a characteristic with the predicate columns filled in,
+  // same row and same id on the wire — and the distinction is not
+  // useful for dataset curation (Paul, 2026-08-28). Both wire values
+  // are still accepted; only the word the curator reads is one.
+  characteristic: "Statement",
   assignment: "Sample assignment",
   publication: "Publication",
   statement: "Statement",

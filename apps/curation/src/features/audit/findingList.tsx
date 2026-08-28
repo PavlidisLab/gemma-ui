@@ -586,14 +586,29 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   }
   // One source of truth for both render order and section headers —
   // adding a new AuditTargetKind only touches this list.
-  const GROUPS: { kind: AuditTargetKind; header: string }[] = [
-    { kind: "factor",         header: "Experimental factors" },
-    { kind: "fv",             header: "Design — factor values" },
-    { kind: "tag",            header: "Experiment tags" },
-    { kind: "characteristic", header: "Characteristics" },
-    { kind: "assignment",     header: "Sample assignments" },
-    { kind: "statement",      header: "Statements" },
-    { kind: "experiment",     header: "Experiment" },
+  //
+  // 🛑 One section for `characteristic` AND `statement`, because they
+  // are the same thing. A statement is a characteristic with the
+  // predicate columns filled in — same row, same id on the wire — and
+  // Paul's ruling is that the distinction is not useful for dataset
+  // curation, so the UI says "statement" for both.
+  //
+  // Safe to collapse, measured by cab 2026-08-28: across 357 stored
+  // dispositions and 196 stored reviews, `characteristic` and
+  // `statement` appear ZERO times, and no agents-side emitter produces
+  // either. `statement` is reserved for Phase 2 (predicate/object on an
+  // FV); `characteristic` never arrived at all. So there is nothing
+  // keyed on the split and no migration behind it — but the kinds stay
+  // distinct in `AuditTargetKind` because they are still separate
+  // values on the wire, and `target_kind` is persisted in disposition
+  // and review payloads.
+  const GROUPS: { kinds: AuditTargetKind[]; header: string }[] = [
+    { kinds: ["factor"],                     header: "Experimental factors" },
+    { kinds: ["fv"],                          header: "Design — factor values" },
+    { kinds: ["tag"],                         header: "Experiment tags" },
+    { kinds: ["statement", "characteristic"], header: "Statements" },
+    { kinds: ["assignment"],                  header: "Sample assignments" },
+    { kinds: ["experiment"],                  header: "Experiment" },
   ];
 
   // Boss-critic review feed → grouped verdicts (round-collapsed +
@@ -618,12 +633,16 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   // finding card (per-kind actionable + matches, orphan matches,
   // routed boss annotations, ok-toggle), so when it's false the body
   // would otherwise be silent.
-  const hasGroupContent = GROUPS.some(({ kind: k }) => {
-    const items = groupedActionable.get(k) ?? [];
-    const matchesForKind = visibleMatches.filter((m) => m.target_kind === k);
-    return items.length + matchesForKind.length + bossRoutedForKind(k).length > 0;
-  });
-  const knownKindsForOrphan = new Set(GROUPS.map((g) => g.kind));
+  const hasGroupContent = GROUPS.some(({ kinds }) =>
+    kinds.some((k) => {
+      const items = groupedActionable.get(k) ?? [];
+      const matchesForKind = visibleMatches.filter((m) => m.target_kind === k);
+      return (
+        items.length + matchesForKind.length + bossRoutedForKind(k).length > 0
+      );
+    }),
+  );
+  const knownKindsForOrphan = new Set(GROUPS.flatMap((g) => g.kinds));
   const orphanMatches = visibleMatches.filter(
     (m) => !knownKindsForOrphan.has(m.target_kind),
   );
@@ -753,17 +772,21 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
         />
       ) : null}
 
-      {GROUPS.map(({ kind: groupKind, header }) => {
-        const items = groupedActionable.get(groupKind) ?? [];
-        const matchesForKind = visibleMatches.filter(
-          (m) => m.target_kind === groupKind,
+      {GROUPS.map(({ kinds, header }) => {
+        // The section's identity — its React key, its help text, and
+        // the loading-caption test — is its FIRST kind. The rest are
+        // synonyms folded into the same section.
+        const groupKind = kinds[0];
+        const items = kinds.flatMap((k) => groupedActionable.get(k) ?? []);
+        const matchesForKind = visibleMatches.filter((m) =>
+          kinds.includes(m.target_kind),
         );
         // Boss-critic verdicts routed to this section. Each attaches
         // under the finding card it's about (first slug match wins);
         // any without a matching card render standalone at the section
         // tail so a boss verdict about a factor with no finding still
         // lands WITH that factor, not back in the top panel.
-        const bossForKind = bossRoutedForKind(groupKind);
+        const bossForKind = kinds.flatMap((k) => bossRoutedForKind(k));
         if (
           items.length === 0 &&
           matchesForKind.length === 0 &&
@@ -886,7 +909,7 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
           through to a residual list — defensive guard for future
           kinds we don't have a section for yet. */}
       {(() => {
-        const knownKinds = new Set(GROUPS.map((g) => g.kind));
+        const knownKinds = new Set(GROUPS.flatMap((g) => g.kinds));
         const orphan = visibleMatches.filter(
           (m) => !knownKinds.has(m.target_kind),
         );
