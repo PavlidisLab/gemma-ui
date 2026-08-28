@@ -182,15 +182,24 @@ describe("composeCurationDesign — real gemma2 bytes", () => {
 
 describe("what gemma2's design read does NOT carry", () => {
   /**
-   * 🛑 Measured, not inferred: across 26 datasets (ee 1658, 3333, 19536,
-   * 24976, 50540, 91442 plus 20 sampled at offset 400), `isBaseline`
-   * appears on **0 of 309 factor values**. The key is absent, not false.
+   * Measured across 26 datasets (ee 1658, 3333, 19536, 24976, 50540,
+   * 91442 plus 20 sampled at offset 400): `isBaseline` appears on
+   * **0 of 309 factor values**. The key is absent, not false.
    *
-   * So every FV composes as non-baseline in remote mode. The UI must not
-   * invent one — a baseline is a curation decision, and Gemma decides it
-   * — but it must not report its absence as a curator error either.
-   * Filed with gembro as a wire question; pinned here so the day the
-   * field appears, this test says so.
+   * 🛑 This is SETTLED, not a wire question — do not re-file it. The
+   * field is mapped and serialized (`AbstractFactorValueValueObject`,
+   * `@JsonInclude(NON_NULL)`); the key is missing because the value is
+   * null, and it is null because no writer in Gemma has ever set true —
+   * production measured 153,448 null, 41,556 zero, 0 ones. A serialization
+   * gap was diagnosed here twice and was wrong both times.
+   *
+   * ⇒ **An absent key means "nobody has said", never "not the
+   * baseline"**, and it will mean that for most factor values for a long
+   * time. The card still shows Gemma's own detection (hollow, via
+   * `gemmaAutoDetectsBaseline`) rather than nothing. Pinned so the day
+   * real flags start arriving, this test says so — the store's
+   * substring guess has to stop firing at that moment or it ORs itself
+   * onto the real flag.
    */
   it("no isBaseline on any factor value", () => {
     const wireFvs = GEMMA_DESIGN_WIRE.experimentalFactors.flatMap(
@@ -211,6 +220,8 @@ describe("what gemma2's design read does NOT carry", () => {
    * tell from the payload alone. It stays null rather than guessing.
    *
    * This is the same identity gap that blocks retiring `PUT /design`.
+   * Nothing to file: the id IS on the wire, and which producer sent the
+   * payload is the thing the adapter lacks, not a missing Gemma field.
    */
   it("no gemmaFactorId — identity stays null rather than guessed from id", () => {
     const [wf] = GEMMA_DESIGN_WIRE.experimentalFactors;
