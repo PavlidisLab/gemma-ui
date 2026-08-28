@@ -8,6 +8,15 @@
  *     warning; full capability set.
  *   - REMOTE / staging (amber) — talking to staging Gemma. Today's
  *     staging shares the prod DB; chip popover spells that out.
+ *
+ * 🛑 The popover used to call remote mode "read-mostly", which was
+ * wrong in both directions. This app never writes to Gemma itself —
+ * drafts and the editing lease go through the AGENT relay on its own
+ * prefix — so "mostly" overstated what it does. And remote mode is not
+ * a narrower version of local: the curation store is absent there, so
+ * tickets / audits / groups / candidates have no backend at all rather
+ * than a reduced one. Both are now stated, along with the pipeline
+ * dispatch endpoints, which DO post straight at the host.
  *   - REMOTE / prod (red) — talking to prod Gemma. Big red warning;
  *     every write goes through a confirmation modal.
  *
@@ -142,14 +151,22 @@ export function ModeChip() {
             </p>
           ) : severity === "remote-other" ? (
             <p className="text-sky-800 dark:text-sky-200 leading-snug">
-              Remote Gemma host. Capability set is narrower than local;
-              read-mostly. Confirmation modals fire on writes.
+              <strong>Remote Gemma host.</strong> Reads come from Gemma.
+              Curation writes — the draft and the editing lease — go
+              through the <strong>agent relay</strong>, not from here.
+              Tickets, audits, groups and candidates live in the curation
+              store, which is not connected in this mode, so those
+              surfaces will not load. Pipeline actions (step dispatch,
+              GEEQ recalculate) do post straight to this host.
             </p>
           ) : (
             <p className="text-slate-600 dark:text-slate-300 leading-snug">
-              Local standalone curation server. Full capability set —
-              audits, dispositions, design edits, inter-curator-audit
-              packages. Writes land in the local SQLite DB.
+              <strong>Local curation store.</strong> Full capability set
+              — audits, dispositions, design edits, inter-curator-audit
+              packages — and those writes land in the local SQLite DB.
+              Anything that reaches <strong>Gemma</strong> still goes
+              through the <strong>agent relay</strong>; this app never
+              writes to Gemma itself.
             </p>
           )}
 

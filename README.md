@@ -39,6 +39,14 @@ npm run dev:browser    # GemBrow port (port set in apps/browser/vite.config.ts)
 npm run typecheck      # both apps
 ```
 
+## Configuration
+
+Which backend the curation UI talks to, what `local` vs `remote` mode
+change, and every variable involved: [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md).
+
+🛑 Start there before assuming the mode flag routes anything — it does
+not; the vite proxy table does.
+
 ## Per-app docs
 
 - [`apps/curation/README.md`](./apps/curation/README.md) +
