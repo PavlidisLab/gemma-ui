@@ -30,7 +30,7 @@
  * safety one).
  */
 
-import type { CurationLock } from "@/api/curationLock";
+import { lockHolderPhrase, type CurationLock } from "@/api/curationLock";
 
 /** "4 min ago" / "just now". Minutes, because the question this
  *  answers is "has this person stepped away", and that is not a
@@ -100,13 +100,21 @@ export function LockChip({
 
   // Someone else. Name them when the server said who — and say the
   // vaguer thing rather than guess when it did not.
-  const who = lock.locked_by || "Someone else";
+  // One phrase source across the chip, the dashboard panel and the
+  // experiment list — see `lockHolderPhrase`. A batch and a person are
+  // different answers to "should I wait or take over", so they must not
+  // read alike.
+  const { who, kind, detail } = lockHolderPhrase(lock);
   const since = relativeSince(lock.locked_at);
+  // "is editing" is a person at a keyboard; a batch is not editing, it
+  // is working through a run. Saying "editing" of a job invites the
+  // curator to wait for someone to finish a sentence.
+  const verb = kind === "batch" ? "is curating" : "is editing";
 
   return (
     <span className={`${base} text-amber-800 dark:text-amber-300`}>
-      <span>
-        {who} is editing
+      <span title={detail ? `Run: ${detail}` : undefined}>
+        {who} {verb}
         {since ? ` — last change ${since}` : ""}
       </span>
       {onTakeOver ? (

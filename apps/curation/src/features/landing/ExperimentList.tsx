@@ -5,6 +5,14 @@ import {
 } from "@/api/datasets";
 import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import {
+  getCurationLocksFor,
+  lockHolderPhrase,
+  LOCKS_ROUTE_ABSENT,
+  type CurationLock,
+} from "@/api/curationLock";
+import { LOCK_POLL_MS } from "@/features/design/useCurationLock";
 import { useStickyState } from "@/lib/useStickyState";
 import { AppHeader } from "@/components/ui/AppHeader";
 import {
@@ -92,6 +100,35 @@ export function ExperimentList({
     })
     .slice()
     .sort((a, b) => compareRows(a, b, sort.key) * (sort.dir === "asc" ? 1 : -1));
+
+  // Which of the rows on screen are being worked on right now.
+  //
+  // This is the by-ids read — the list HAS its ids, which is exactly the
+  // question `POST .../locks/query` answers. (The dashboard's "what's
+  // under curation" is the inverse query and needs its own listing; see
+  // UnderCurationPanel.) Only HELD datasets come back, so a missing id
+  // means unlocked, and an empty map against a quiet page is the healthy
+  // answer rather than a broken route.
+  //
+  // 🛑 The key is a stable string, not the array: a fresh array identity
+  // every render would refetch on every keystroke in the filter box.
+  const visibleIds = useMemo(
+    () => rows.map((r) => Number(r.experiment_id)).filter(Number.isFinite),
+    [rows],
+  );
+  const visibleKey = visibleIds.join(",");
+  const { data: lockData } = useQuery({
+    queryKey: ["curation-locks", "by-ids", visibleKey],
+    queryFn: () => getCurationLocksFor(visibleIds),
+    refetchInterval: LOCK_POLL_MS,
+    enabled: visibleIds.length > 0,
+  });
+  // When the route is absent, no row gets a marker. That is honest here
+  // in a way it would not be on the dashboard: a table with no markers
+  // asserts nothing, whereas an empty panel saying "nothing is under
+  // curation" would be a confident all-clear we cannot support.
+  const lockByExperiment =
+    lockData && lockData !== LOCKS_ROUTE_ABSENT ? lockData : {};
 
   function toggleSort(key: SortKey) {
     setSort((s) =>
@@ -220,6 +257,7 @@ export function ExperimentList({
                     r={r}
                     onSelect={onSelect}
                     tickets={ticketsByExp.get(r.experiment_id) ?? []}
+                    lock={lockByExperiment[String(r.experiment_id)]}
                   />
                 ))}
               </tbody>
@@ -235,14 +273,18 @@ function Row({
   r,
   onSelect,
   tickets,
+  lock,
 }: {
   r: DatasetSummary;
   onSelect: (experimentId: number | string) => void;
   /** Open/in-progress tickets that target this experiment. Empty
    *  array when none — column renders an em-dash placeholder. */
   tickets: Ticket[];
+  /** Set only when this experiment is currently held. */
+  lock?: CurationLock;
 }) {
   const updated = formatTimestamp(r.updated_at);
+  const holder = lock ? lockHolderPhrase(lock) : null;
   // "Thin" / preboarded — imported as a shell, design body has no
   // biomaterials, factors, or tags yet. Reuses the same amber chip
   // styling that PreboardingDetailPage uses on the per-row landing
@@ -265,6 +307,26 @@ function Row({
           {isThin ? (
             <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
               preboarded
+            </span>
+          ) : null}
+          {/* Someone is on this right now. Names the holder in the
+              tooltip rather than the cell — the column's job is
+              identity, and a name here would compete with it. Filled =
+              a job, hollow = a person, matching UnderCurationPanel. */}
+          {holder ? (
+            <span
+              title={
+                holder.kind === "batch"
+                  ? `${holder.who} is curating this${holder.detail ? ` — run ${holder.detail}` : ""}`
+                  : `${holder.who} is editing this`
+              }
+              className={
+                holder.kind === "batch"
+                  ? "text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-900 dark:bg-sky-900/40 dark:text-sky-200"
+                  : "text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border border-sky-300 text-sky-800 dark:border-sky-700 dark:text-sky-200"
+              }
+            >
+              under curation
             </span>
           ) : null}
         </div>

@@ -26,6 +26,7 @@ import {
   type TicketState,
 } from "@/api/tickets";
 import { navigate } from "@/routes";
+import { UnderCurationPanel } from "@/features/landing/UnderCurationPanel";
 import {
   CreateScreeningTicketModal,
   SCREENING_TICKET_CREATE_ENABLED,
@@ -388,6 +389,11 @@ export function CuratorDashboard({
             quick-search, so "what's the term for X?" doesn't require
             opening an experiment first. Collapsed by default. */}
         <OntologyLookup />
+
+        {/* What is being worked on right now, corpus-wide. Above the
+            ticket list because "is someone already on this" is the
+            question that changes what you pick up next. */}
+        <UnderCurationPanel />
 
         {/* Tickets — live from local-api /rest/v2/tickets. */}
         <section>
