@@ -186,16 +186,37 @@ export interface DatasetMeta extends TaxonBearingRow, PlatformBearingRow {
   assay?: string | null;
 }
 
+/** Dig the single dataset row out of whatever `/rest/v2/datasets/{id}`
+ *  handed back.
+ *
+ *  🛑 This endpoint is PAGINATED. Its envelope carries `groupBy`,
+ *  `sort`, `offset`, `limit`, `totalElements`, `filter` and
+ *  `inferredTerms` alongside `data`, so `unwrapGemmaEnvelope` in
+ *  client.ts deliberately leaves it wrapped — pagination fields are
+ *  useful to list callers and it cannot know which kind it is looking
+ *  at. Its own comment says the caller picks `.data` explicitly. This
+ *  one did not.
+ *
+ *  The cost: `Array.isArray(envelope)` is false, so the whole envelope
+ *  was returned AS the metadata, and every field read off it —
+ *  `short_name`, `name`, `taxon`, `platforms`, `accession` — came back
+ *  undefined. In remote mode that emptied the banner's title, taxon,
+ *  platform and GEO link at once, and looked like four separate bugs.
+ *
+ *  Handles all three shapes: the bare row, the bare array, and the
+ *  envelope around either. */
+export function firstDatasetRow(raw: unknown): DatasetMeta {
+  if (!raw || typeof raw !== "object") return {};
+  if (Array.isArray(raw)) return (raw[0] as DatasetMeta) ?? {};
+  const obj = raw as Record<string, unknown>;
+  if ("data" in obj) return firstDatasetRow(obj.data);
+  return obj as DatasetMeta;
+}
+
 async function fetchDatasetMeta(experimentId: number | string): Promise<DatasetMeta> {
   try {
-    // Gemma 2.0 returns the dataset envelope as a single-element
-    // array. The short-name + title we need for the banner live on
-    // that first row.
-    const raw = await api.get<DatasetMeta | DatasetMeta[]>(
-      `/rest/v2/datasets/${experimentId}`,
-    );
-    if (Array.isArray(raw)) return raw[0] ?? {};
-    return raw ?? {};
+    const raw = await api.get<unknown>(`/rest/v2/datasets/${experimentId}`);
+    return firstDatasetRow(raw);
   } catch {
     return {};
   }
