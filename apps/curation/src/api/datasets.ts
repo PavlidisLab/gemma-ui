@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import type { Design } from "@/features/experiment/types";
 import type { WorkflowDatasetListResponse } from "./workflowTypes";
 
@@ -104,7 +105,13 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
       // (a hardcoded ``limit=100`` left GSE277000 unreachable at row
       // 340/430). local_api caps ``limit`` at 1000, so loop on
       // ``offset`` until we've pulled ``total_elements``.
-      const PAGE = 1000;
+      // 🛑 Page size is a BACKEND fact, not a preference. local_api caps
+      // `limit` at 1000; Gemma caps it at 100 and rejects anything
+      // larger with `400 The provided limit cannot exceed 100` — which
+      // failed EVERY page in remote mode, so the catalogue came back
+      // empty and the quick-search had nothing to match against.
+      // Measured on gemma2, 2026-08-28.
+      const PAGE = resolveGemmaMode().mode === "remote" ? 100 : 1000;
       const raw: WorkflowDatasetListResponse["data"] = [];
       for (let offset = 0; ; offset += PAGE) {
         const resp = await api.get<WorkflowDatasetListResponse>(

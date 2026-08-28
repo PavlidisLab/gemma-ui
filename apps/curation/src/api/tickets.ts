@@ -451,11 +451,19 @@ export function useMyTickets(
       light ? "light" : "full",
     ],
     queryFn: async () => {
-      const all = await api.get<Ticket[]>(
+      const raw = await api.get<Ticket[]>(
         light ? "/rest/v2/tickets?include_targets=false" : "/rest/v2/tickets",
       );
-      if (includeClosed) return all ?? [];
-      return (all ?? []).filter(
+      // 🛑 Coerce at the source, not at each caller. Tickets live in the
+      // curation store; in remote mode `/rest/v2/tickets` reaches Gemma,
+      // which has no such collection and answers with something that is
+      // not a list. `all ?? []` passes an OBJECT straight through, and
+      // the dashboard's `(tickets ?? []).filter(...)` then threw and
+      // took the whole page down with it. An empty list is also the
+      // truthful answer there: Gemma has no tickets.
+      const all: Ticket[] = Array.isArray(raw) ? raw : [];
+      if (includeClosed) return all;
+      return all.filter(
         (t) => t.state === "OPEN" || t.state === "IN_PROGRESS",
       );
     },

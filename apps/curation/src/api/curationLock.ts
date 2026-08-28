@@ -177,9 +177,18 @@ export async function getActiveCurationLocks(): Promise<ActiveLocksResult> {
     const rows = await api.get<ActiveCurationLock[]>("/curation-lock/active");
     return Array.isArray(rows) ? rows : [];
   } catch (e) {
-    // 404 = not built. 501 in case it lands behind a not-implemented
-    // stub. Anything else is a real failure and must surface.
-    if (e instanceof ApiError && (e.status === 404 || e.status === 501)) {
+    // 404 = not built. 501 if it lands behind a not-implemented stub.
+    // 🛑 422 too, and that one is not obvious: the relay exposes
+    // `/curation-lock/{experimentId}`, so until an `active` route exists
+    // FastAPI matches THIS path and fails to parse "active" as an id —
+    // a validation error, not a missing route. Treating it as a real
+    // failure put an error banner on the dashboard where "not built
+    // yet" is the honest answer. Observed against the running relay,
+    // 2026-08-28.
+    if (
+      e instanceof ApiError &&
+      (e.status === 404 || e.status === 501 || e.status === 422)
+    ) {
       return LOCKS_ROUTE_ABSENT;
     }
     throw e;
