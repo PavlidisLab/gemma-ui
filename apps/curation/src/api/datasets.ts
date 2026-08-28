@@ -2,7 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 import type { Design } from "@/features/experiment/types";
-import type { WorkflowDatasetListResponse } from "./workflowTypes";
+import type {
+  WorkflowDatasetListResponse,
+  WorkflowDatasetRow,
+} from "./workflowTypes";
 
 /**
  * Summary row for the curation UI's landing page. Returned by
@@ -86,12 +89,54 @@ const KEY = ["datasets"] as const;
 export function datasetMatchesQuery(r: DatasetSummary, query: string): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
+  // 🛑 Coalesce EVERY field, not just the one typed optional.
+  //
+  // A search box must not be able to throw. The catalogue has two
+  // producers with different wire shapes, so a field one of them omits
+  // arrives here as `undefined` however the type reads. `taxon` did:
+  // Gemma sends no `taxonCommonName` at all, `r.taxon.toLowerCase()`
+  // raised a TypeError inside the caller's `useMemo`, and the whole
+  // dashboard unmounted the moment a curator typed a character.
+  const hay = (v: unknown) => (typeof v === "string" ? v.toLowerCase() : "");
   return (
-    r.short_name.toLowerCase().includes(q) ||
-    (r.accession ?? "").toLowerCase().includes(q) ||
-    r.title.toLowerCase().includes(q) ||
-    r.taxon.toLowerCase().includes(q)
+    hay(r.short_name).includes(q) ||
+    hay(r.accession).includes(q) ||
+    hay(r.title).includes(q) ||
+    hay(r.taxon).includes(q)
   );
+}
+
+/** The catalogue's taxon, from either producer's shape.
+ *
+ *  🛑 The two backends disagree and the type only describes one of them.
+ *  local_api sends a flat `taxon_common_name` string;
+ *  **Gemma has no such field** — measured on gemma2 2026-08-28, it is
+ *  absent from all 30 keys of every row — and carries a nested `taxon`
+ *  object instead, `{common_name, scientific_name, ncbi_id, …}` once
+ *  `snakeify` has been through it.
+ *
+ *  Reading only the flat name left `taxon` undefined on every remote row.
+ *  `WorkflowDatasetRow` declares it `string` (non-optional), so nothing
+ *  typechecked it, the list rendered an em dash because it happens to
+ *  coalesce, and the quick search crashed the dashboard because it did
+ *  not.
+ *
+ *  Shape normalization at the ingestion boundary, which is the rule —
+ *  it picks between two spellings of a datum both producers really send,
+ *  and invents nothing when neither does. */
+export function taxonLabel(r: WorkflowDatasetRow): string {
+  const flat = (r as { taxon_common_name?: string | null }).taxon_common_name;
+  if (typeof flat === "string" && flat) return flat;
+  const nested = (
+    r as {
+      taxon?:
+        | { common_name?: string | null; scientific_name?: string | null }
+        | string
+        | null;
+    }
+  ).taxon;
+  if (typeof nested === "string") return nested;
+  return nested?.common_name || nested?.scientific_name || "";
 }
 
 /** How many catalogue rows remote mode will pull before stopping.
@@ -161,7 +206,7 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
           experiment_id:      r.id,
           short_name:         r.short_name,
           title:              r.name,
-          taxon:              r.taxon_common_name,
+          taxon:              taxonLabel(r),
           updated_at:         r.last_updated,
           n_factors:          0,
           n_fvs:              0,
