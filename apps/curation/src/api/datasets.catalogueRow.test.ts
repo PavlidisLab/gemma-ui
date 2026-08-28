@@ -20,7 +20,11 @@
  * one wire change away.
  */
 import { describe, expect, it } from "vitest";
-import { datasetMatchesQuery, type DatasetSummary } from "./datasets";
+import {
+  datasetMatchesQuery,
+  datasetSummaryFromRow,
+  type DatasetSummary,
+} from "./datasets";
 // `taxonLabel` lives in lib/taxon so `DatasetMeta` (design.ts) reads the
 // same rule — the same field was missing on `/datasets/{id}` too.
 import { taxonLabel, type TaxonBearingRow } from "@/lib/taxon";
@@ -109,5 +113,39 @@ describe("datasetMatchesQuery — cannot throw", () => {
 
   it("an empty query matches everything, missing fields included", () => {
     expect(datasetMatchesQuery(BARE, "   ")).toBe(true);
+  });
+});
+
+/**
+ * The catalogue row's counts.
+ *
+ * 🛑 Neither producer sends factor / FV / tag counts on a list row —
+ * not the store's `WorkflowDatasetRow`, not Gemma's
+ * `ExpressionExperimentValueObject` — and the mapper wrote a literal
+ * `0` for all three. So the list reported "0 factors (0 FVs) 0 tags"
+ * for every dataset in both modes, and a curator clicking through to
+ * GSE6306 found one factor with six values.
+ *
+ * A zero is a claim. Undefined is the truth, and the column renders a
+ * dash for it.
+ */
+describe("datasetSummaryFromRow — counts it cannot know", () => {
+  const row = { id: 1, short_name: "GSE6306", name: "t" } as never;
+
+  it("leaves the design counts undefined rather than zero", () => {
+    const s = datasetSummaryFromRow(row);
+    expect(s.n_factors).toBeUndefined();
+    expect(s.n_fvs).toBeUndefined();
+    expect(s.n_tags).toBeUndefined();
+  });
+
+  it("still reports the sample count, which the row does carry", () => {
+    const s = datasetSummaryFromRow({
+      id: 1,
+      short_name: "GSE6306",
+      name: "t",
+      number_of_bio_assays: 1218,
+    } as never);
+    expect(s.n_biomaterials).toBe(1218);
   });
 });

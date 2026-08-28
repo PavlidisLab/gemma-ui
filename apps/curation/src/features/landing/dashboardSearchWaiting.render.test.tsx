@@ -129,7 +129,10 @@ describe("dashboard quick-search — waiting state", () => {
     datasetsState.isError = true;
     const input = open();
     fireEvent.change(input, { target: { value: "GSE43825" } });
-    expect(screen.getByText(/couldn't load the catalogue/i)).toBeTruthy();
+    // "reach", not "load": remote mode now asks Gemma for the match
+    // instead of filtering a catalogue it holds, so the same readout
+    // covers a failed search as well as a failed catalogue fetch.
+    expect(screen.getByText(/couldn't reach the catalogue/i)).toBeTruthy();
     expect(screen.queryByText("no matches")).toBeNull();
   });
 

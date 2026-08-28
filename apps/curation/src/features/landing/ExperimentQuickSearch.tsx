@@ -1,7 +1,11 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useDatasets, datasetMatchesQuery } from "@/api/datasets";
+import {
+  useDatasets,
+  useDatasetSearch,
+  datasetMatchesQuery,
+} from "@/api/datasets";
 import { experimentTicketsQueryOptions, type Ticket } from "@/api/tickets";
 import { navigate } from "@/routes";
 import { Spinner } from "@/components/ui/Spinner";
@@ -69,13 +73,32 @@ export function ExperimentQuickSearch({
     tickets: Ticket[];
   } | null>(null);
 
+  // 🛑 In remote mode the matching happens on the SERVER.
+  //
+  // The catalogue this box filters is a bounded prefix of Gemma's
+  // ~25,700 (`REMOTE_CATALOGUE_CAP`), so a client-side filter answers
+  // "no matches" for anything past the cut — GSE107613 is real, sits at
+  // id 14164, and this box said nothing about it. Gemma's `query=`
+  // searches the whole corpus, by accession and by title.
+  //
+  // Local mode keeps filtering in the browser: the store is ~600 rows
+  // already in hand, and a round trip per keystroke would be a
+  // regression there.
+  const search = useDatasetSearch(query);
   const matches = useMemo(
     () =>
-      query.trim()
-        ? (datasets ?? []).filter((r) => datasetMatchesQuery(r, query))
-        : [],
-    [datasets, query],
+      !query.trim()
+        ? []
+        : search.data
+          ? search.data
+          : (datasets ?? []).filter((r) => datasetMatchesQuery(r, query)),
+    [datasets, query, search.data],
   );
+  // "Nothing to match against yet" now has two sources: the catalogue
+  // still loading (local) and the search still in flight (remote). Both
+  // must read as "still looking" rather than "no matches", which is the
+  // wrong answer given confidently and the one that arrives first.
+  const pending = catalogueLoading || (search.isFetching && !search.data);
 
   async function runSearch(e: React.FormEvent) {
     e.preventDefault();
@@ -86,7 +109,7 @@ export function ExperimentQuickSearch({
     }
     // Guarded here as well as on the button because Enter submits a
     // form past a disabled one.
-    if (catalogueLoading) return;
+    if (pending) return;
     // Many (or zero) hits → hand off to the browse table with the
     // filter pre-applied; the curator disambiguates there.
     if (matches.length !== 1) {
@@ -127,10 +150,10 @@ export function ExperimentQuickSearch({
    *  the compact variant's tooltip so they cannot disagree. */
   const readout: string | null = !query.trim()
     ? null
-    : catalogueLoading
+    : pending
       ? "searching…"
-      : catalogueFailed
-        ? "couldn't load the catalogue"
+      : catalogueFailed || search.isError
+        ? "couldn't reach the catalogue"
         : matches.length === 0
           ? "no matches"
           : matches.length === 1
@@ -189,7 +212,7 @@ export function ExperimentQuickSearch({
               className="pointer-events-none absolute right-6 top-1/2 -translate-y-1/2 text-[10px] tabular-nums text-slate-400 dark:text-slate-500"
               aria-hidden
             >
-              {catalogueLoading
+              {pending
                 ? "…"
                 : catalogueFailed
                   ? "!"
@@ -222,15 +245,15 @@ export function ExperimentQuickSearch({
         </div>
         <button
           type="submit"
-          disabled={resolving || catalogueLoading}
+          disabled={resolving || pending}
           className="text-sm px-3 py-2 rounded bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
-          title={catalogueLoading ? "Loading the experiment catalogue…" : undefined}
+          title={pending ? "Looking…" : undefined}
         >
           {resolving ? "Opening…" : "Search"}
         </button>
         {readout ? (
           <span className="text-xs text-slate-500 dark:text-slate-400 tabular-nums inline-flex items-center gap-1.5">
-            {catalogueLoading ? <Spinner size={11} /> : null}
+            {pending ? <Spinner size={11} /> : null}
             {readout}
           </span>
         ) : null}

@@ -4,7 +4,10 @@ import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { taxonLabel } from "@/lib/taxon";
 import { platformFields } from "@/lib/platform";
 import type { Design } from "@/features/experiment/types";
-import type { WorkflowDatasetListResponse } from "./workflowTypes";
+import type {
+  WorkflowDatasetListResponse,
+  WorkflowDatasetRow,
+} from "./workflowTypes";
 
 /**
  * Summary row for the curation UI's landing page. Returned by
@@ -17,10 +20,19 @@ export interface DatasetSummary {
   title: string;
   taxon: string;
   updated_at: string;
-  n_factors: number;
-  n_fvs: number;
+  /** 🛑 UNDEFINED means "not known from the list", never zero.
+   *
+   *  Neither producer sends these on a catalogue row — not the store's
+   *  `WorkflowDatasetRow`, not Gemma's `ExpressionExperimentValueObject`
+   *  — and the mapper used to write a literal `0`. So the list told a
+   *  curator that GSE6306 has no factors when it has one with six
+   *  values, in both modes, for as long as the column has existed.
+   *  Getting the count means reading the design, which is a request per
+   *  row; until something serves it, the honest render is a dash. */
+  n_factors?: number;
+  n_fvs?: number;
   n_biomaterials: number;
-  n_tags: number;
+  n_tags?: number;
   /** Mirrors Gemma's CurationDetails.troubled flag. */
   troubled: boolean;
   /** Mirrors Gemma's CurationDetails.needsAttention flag. */
@@ -117,6 +129,91 @@ export function datasetMatchesQuery(r: DatasetSummary, query: string): boolean {
  *  curator about a corpus of 25,000. */
 export const REMOTE_CATALOGUE_CAP = 500;
 
+/** One catalogue row, from either producer.
+ *
+ *  Shared by the full walk and the server-side search so a field that
+ *  gets normalized in one is normalized in the other. Forking this was
+ *  how `taxon` came to be read correctly on the list and not on the
+ *  dataset page. */
+/** How many server-side search hits to pull. Gemma caps `limit` at 100
+ *  and a curator scanning more than that is browsing, not searching. */
+export const REMOTE_SEARCH_LIMIT = 100;
+
+/**
+ * Search the WHOLE catalogue, server-side.
+ *
+ * 🛑 The client-side filter cannot answer this in remote mode. The list
+ * holds a bounded prefix (`REMOTE_CATALOGUE_CAP`, 500) of Gemma's
+ * ~25,700, so anything past the cut reads as "not in Gemma" — a
+ * confident wrong answer. GSE107613 is real, sits at id 14164, and the
+ * box said nothing.
+ *
+ * Gemma's `query=` covers both halves of what the box promises:
+ * `query=GSE107613` returns that one dataset, `query=hypochlorous`
+ * returns the two whose titles carry it. Measured 2026-08-28.
+ *
+ * Local mode returns null and the caller filters the catalogue it
+ * already holds in full — the store is ~600 rows in one request, so a
+ * round trip per keystroke would be a regression there.
+ */
+export function useDatasetSearch(query: string) {
+  const remote = resolveGemmaMode().mode === "remote";
+  const q = query.trim();
+  return useQuery({
+    queryKey: ["dataset-search", q],
+    enabled: remote && q.length > 0,
+    // A search is a read of a moving corpus, but not one that changes
+    // between two keystrokes.
+    staleTime: 1000 * 60 * 5,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        query: q,
+        limit: String(REMOTE_SEARCH_LIMIT),
+      });
+      const resp = await api.get<WorkflowDatasetListResponse>(
+        `/rest/v2/datasets?${params.toString()}`,
+      );
+      return (resp.data ?? []).map(datasetSummaryFromRow);
+    },
+  });
+}
+
+export function datasetSummaryFromRow(r: WorkflowDatasetRow): DatasetSummary {
+  return {
+          experiment_id:      r.id,
+          short_name:         r.short_name,
+          title:              r.name,
+          taxon:              taxonLabel(r),
+          updated_at:         r.last_updated,
+          // n_factors / n_fvs / n_tags are deliberately ABSENT — see
+          // their doc on DatasetSummary. Neither producer sends them on
+          // a list row, and a zero here is a claim the row cannot make.
+
+          n_biomaterials:     r.number_of_bio_assays,
+          troubled:           r.troubled,
+          needs_attention:    r.needs_attention,
+          has_curation_note:  !!r.curation_note,
+          n_pending_proposals: r.n_pending_proposals,
+          n_unactioned_blocker: r.n_unactioned_blocker,
+          n_unactioned_major:   r.n_unactioned_major,
+          n_unactioned_minor:   0,
+          latest_audit_verdict: r.latest_audit_verdict as DatasetSummary["latest_audit_verdict"],
+          n_audits:             undefined,
+          latest_audit_id:      undefined,
+          latest_audited_at:    undefined,
+          // GEO-derived optional fields (preboarded rows only;
+          // undefined elsewhere). Pass-through from WorkflowDatasetRow.
+          assay:                r.assay,
+          // Flat from the store, `platforms[]` from Gemma — see
+          // lib/platform.ts. Gemma gained the field 2026-08-28; before
+          // that the list's platform column was blank in remote mode.
+          platform_short_name:  platformFields(r).platform_short_name,
+          external_uri:         r.external_uri,
+          accession:            r.accession,
+          external_database:    r.external_database,
+  };
+}
+
 export function useDatasets(options: { refetchInterval?: number | false } = {}) {
   return useQuery({
     queryKey: KEY,
@@ -167,40 +264,7 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
           break;
         }
       }
-      return raw.map(
-        (r): DatasetSummary => ({
-          experiment_id:      r.id,
-          short_name:         r.short_name,
-          title:              r.name,
-          taxon:              taxonLabel(r),
-          updated_at:         r.last_updated,
-          n_factors:          0,
-          n_fvs:              0,
-          n_biomaterials:     r.number_of_bio_assays,
-          n_tags:             0,
-          troubled:           r.troubled,
-          needs_attention:    r.needs_attention,
-          has_curation_note:  !!r.curation_note,
-          n_pending_proposals: r.n_pending_proposals,
-          n_unactioned_blocker: r.n_unactioned_blocker,
-          n_unactioned_major:   r.n_unactioned_major,
-          n_unactioned_minor:   0,
-          latest_audit_verdict: r.latest_audit_verdict as DatasetSummary["latest_audit_verdict"],
-          n_audits:             undefined,
-          latest_audit_id:      undefined,
-          latest_audited_at:    undefined,
-          // GEO-derived optional fields (preboarded rows only;
-          // undefined elsewhere). Pass-through from WorkflowDatasetRow.
-          assay:                r.assay,
-          // Flat from the store, `platforms[]` from Gemma — see
-          // lib/platform.ts. Gemma gained the field 2026-08-28; before
-          // that the list's platform column was blank in remote mode.
-          platform_short_name:  platformFields(r).platform_short_name,
-          external_uri:         r.external_uri,
-          accession:            r.accession,
-          external_database:    r.external_database,
-        }),
-      );
+      return raw.map(datasetSummaryFromRow);
     },
   });
 }

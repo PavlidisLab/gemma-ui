@@ -2,6 +2,7 @@ import {
   useDatasets,
   REMOTE_CATALOGUE_CAP,
   datasetMatchesQuery,
+  useDatasetSearch,
   type DatasetSummary,
 } from "@/api/datasets";
 import { experimentRoute, navigate, type ExperimentTab } from "@/routes";
@@ -79,7 +80,19 @@ export function ExperimentList({
     { key: "updated_at", dir: "desc" },
   );
 
-  const all = data ?? [];
+  // 🛑 In remote mode a non-empty filter goes to the SERVER.
+  //
+  // The catalogue here is a bounded prefix of Gemma's ~25,700
+  // (`REMOTE_CATALOGUE_CAP`), so filtering it client-side answers "not
+  // found" for anything past the cut. GSE107613 is real, sits at id
+  // 14164, and the box said nothing about it. `query=` searches the
+  // whole corpus by accession and title alike.
+  const search = useDatasetSearch(filter);
+  // A search in flight with nothing yet is "still looking", not "no
+  // matches" — those look identical to a curator and the wrong one
+  // arrives first.
+  const searching = search.isFetching && !search.data;
+  const all = (search.data ?? data) ?? [];
   const counts = {
     all: all.length,
     troubled: all.filter((r) => r.troubled).length,
@@ -98,7 +111,10 @@ export function ExperimentList({
       if (statusFilter === "notes" && !r.has_curation_note) return false;
       if (statusFilter === "audit_issues" && actionableAuditCount(r) === 0)
         return false;
-      return datasetMatchesQuery(r, filter);
+      // The server already applied the query when it answered; running
+      // the client matcher over its hits again would drop titles that
+      // matched on a field the matcher does not read.
+      return search.data ? true : datasetMatchesQuery(r, filter);
     })
     .slice()
     .sort((a, b) => compareRows(a, b, sort.key) * (sort.dir === "asc" ? 1 : -1));
@@ -119,8 +135,11 @@ export function ExperimentList({
     [rows],
   );
   // At the cap means "there is more we did not fetch", not "this is all".
+  // Only says so for the unfiltered listing: once a filter is applied the
+  // answer comes from the server and is not a prefix of anything.
   const truncated =
     useGemmaMode().mode === "remote" &&
+    !search.data &&
     (data?.length ?? 0) >= REMOTE_CATALOGUE_CAP;
   const visibleKey = visibleIds.join(",");
   const { data: lockData } = useQuery({
@@ -217,8 +236,10 @@ export function ExperimentList({
             />
           </div>
 
-          {isLoading ? (
-            <div className="px-3 py-6 text-sm text-slate-500">loading…</div>
+          {isLoading || searching ? (
+            <div className="px-3 py-6 text-sm text-slate-500">
+              {searching ? "searching Gemma…" : "loading…"}
+            </div>
           ) : error ? (
             <div className="px-3 py-6 text-sm text-rose-700">
               couldn't load: {(error as Error).message}
@@ -234,11 +255,8 @@ export function ExperimentList({
                 past the cut reads "not found" and concludes it is not in
                 Gemma — the wrong answer, given confidently. */}
             {truncated ? (
-              <div className="px-3 py-2 text-xs text-amber-800 bg-amber-50 border-b border-amber-200 dark:text-amber-200 dark:bg-amber-900/30 dark:border-amber-800">
-                Showing the first {REMOTE_CATALOGUE_CAP} experiments. Gemma
-                holds far more — an experiment missing from this list may
-                simply be past the cut, so search Gemma directly rather
-                than reading its absence here as an answer.
+              <div className="px-3 py-1.5 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
+                Up to {REMOTE_CATALOGUE_CAP} shown — search to reach the rest.
               </div>
             ) : null}
             <table className="w-full text-sm">
@@ -314,7 +332,12 @@ function Row({
   // mark they get on the detail surface. Also dims the numeric +
   // status cells so the all-zero row reads as "pending" rather than
   // "broken curation".
-  const isThin = r.n_biomaterials === 0 && r.n_factors === 0 && r.n_tags === 0;
+  // Unknown counts are not evidence of thinness — `?? 0` keeps the old
+  // reading for rows that really said zero and treats "did not say" the
+  // same way, which is what this flag meant before the counts became
+  // optional. The sample count is the load-bearing half anyway.
+  const isThin =
+    r.n_biomaterials === 0 && !(r.n_factors ?? 0) && !(r.n_tags ?? 0);
   return (
     <tr
       className={cn(
@@ -372,9 +395,25 @@ function Row({
         {r.n_biomaterials}
       </td>
       <td className="px-3 py-2 text-slate-700 tabular-nums">
-        {r.n_factors} ({r.n_fvs} FVs)
+        {r.n_factors == null ? (
+          <span className="text-slate-300 dark:text-slate-600" title="not reported on the catalogue row">
+            —
+          </span>
+        ) : (
+          <>
+            {r.n_factors} ({r.n_fvs ?? "—"} FVs)
+          </>
+        )}
       </td>
-      <td className="px-3 py-2 text-slate-700 tabular-nums">{r.n_tags}</td>
+      <td className="px-3 py-2 text-slate-700 tabular-nums">
+        {r.n_tags == null ? (
+          <span className="text-slate-300 dark:text-slate-600" title="not reported on the catalogue row">
+            —
+          </span>
+        ) : (
+          r.n_tags
+        )}
+      </td>
       <td className="px-3 py-2">
         <StatusChips r={r} />
       </td>
@@ -526,9 +565,11 @@ function compareRows(a: DatasetSummary, b: DatasetSummary, key: SortKey): number
     case "n_biomaterials":
       return a.n_biomaterials - b.n_biomaterials;
     case "n_factors":
-      return a.n_factors - b.n_factors;
+      // Unknown sorts below zero: a row that never said sits apart from
+      // one that said "none".
+      return (a.n_factors ?? -1) - (b.n_factors ?? -1);
     case "n_tags":
-      return a.n_tags - b.n_tags;
+      return (a.n_tags ?? -1) - (b.n_tags ?? -1);
     case "status":
       return statusPriority(a) - statusPriority(b);
     case "updated_at":
