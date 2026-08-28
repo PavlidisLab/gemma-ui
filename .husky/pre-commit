@@ -39,6 +39,31 @@ set -eu
 
 repo_root=$(pwd)
 
+# ─── source stays greppable ──────────────────────────────────────
+# 🛑 A literal NUL byte makes BSD grep (the macOS default) treat the
+# whole file as binary: it exits 1 and prints NOTHING — no matches, no
+# "Binary file … matches" line, nothing on stderr. It fails OPEN, so a
+# search for a helper inside reads as "that does not exist", and the
+# next person writes a second one. Three files in apps/curation used a
+# raw NUL as a join separator and were invisible this way.
+#
+# The escape `\u0000` is the same character at runtime and keeps the
+# file plain text, so the fix costs nothing.
+echo "[pre-commit] source stays greppable (no literal NUL bytes)"
+nul_hits=""
+for f in $(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.js' '*.mjs' '*.json' '*.md' '*.css' '*.html'); do
+    [ -f "$f" ] || continue
+    if ! LC_ALL=C tr -d '\000' < "$f" | cmp -s - "$f"; then
+        nul_hits="$nul_hits $f"
+    fi
+done
+if [ -n "$nul_hits" ]; then
+    echo "[pre-commit] literal NUL byte in:$nul_hits"
+    echo "[pre-commit] grep answers every search in that file with silence."
+    echo "[pre-commit] Write the separator as the escape \\u0000 instead."
+    exit 1
+fi
+
 # ─── apps/browser ────────────────────────────────────────────────
 # Cheap (~7 s): typecheck plus pure-function unit tests. No DOM, no
 # Playwright — see apps/browser/vitest.config.ts.

@@ -437,7 +437,9 @@ function countSubsetChanges(
       before.status !== r.status ||
       (before.rationale ?? "") !== (r.rationale ?? "") ||
       (before.by_factor_id ?? null) !== (r.by_factor_id ?? null) ||
-      before.level_labels.join(" ") !== r.level_labels.join(" ")
+      // `\u0000` as an escape, not a literal NUL — a raw NUL byte makes
+      // BSD grep treat this file as binary and return nothing at all.
+      before.level_labels.join("\u0000") !== r.level_labels.join("\u0000")
     ) {
       changed++;
     }

@@ -193,7 +193,10 @@ function dedupeHistory(group: BossCriticReview[]): BossCriticReview[] {
   const seen = new Set<string>();
   const out: BossCriticReview[] = [];
   for (const r of group) {
-    const sig = `${r.round} ${(r.severity || "").trim().toLowerCase()} ${(
+    // `\u0000` as the field separator, written as an escape — a literal
+    // NUL byte makes BSD grep call this file binary and answer every
+    // search with silence. Same character at runtime.
+    const sig = `${r.round}\u0000${(r.severity || "").trim().toLowerCase()}\u0000${(
       r.verdict || ""
     ).trim()}`;
     if (seen.has(sig)) continue;
@@ -220,7 +223,7 @@ function mergeIdenticalGroups(
   const byContent = new Map<string, GroupedBossReview>();
   const order: string[] = [];
   for (const g of groups) {
-    const sig = `${g.targetId} ${g.severity} ${(
+    const sig = `${g.targetId}\u0000${g.severity}\u0000${(
       g.final.verdict || ""
     ).trim()}`;
     const prior = byContent.get(sig);
