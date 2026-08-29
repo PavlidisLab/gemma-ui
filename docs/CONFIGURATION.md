@@ -95,26 +95,21 @@ The mode chip reads that list — `PROD_GEMMA_HOSTS` in
 host that is not on it takes the amber warning tier, never a mild one,
 because a hostname cannot tell a sandbox from production.
 
-🛑 **The chip does not promise a confirmation step, because there is
-none.** No write path in this app consults the mode or the tier, and the
-agent's `require_gemma_write_base` guard cannot cover any of these — they
-never reach the agent.
+**The chip does not promise a confirmation step, because none is
+wanted.** No write path consults the mode or the tier, and the agent's
+`require_gemma_write_base` guard cannot cover these — they never reach
+the agent.
 
-Two separate write paths, and only one of them has been closed. Re-walked
-2026-08-29; the previous version of this list mixed the two together, so
-a reader could not tell which items were still live.
+🛑 **This is not a risk list. Read the direction before the table.**
+Paul, 2026-08-29: a curator **should** be able to make a dataset public
+from this UI, and **we are moving away from the local store.** So
+`/rest/v2` is where this app is heading, not where it is leaking to, and
+`/curation/v1` is scaffolding for a service being retired rather than a
+safe harbour. An earlier version of this section had that backwards and
+described a curator capability as an exposure.
 
-**Closed — these do NOT reach Gemma in remote mode:**
-
-| what | where it goes now |
-|---|---|
-| whole-design save | refused before the request — `REMOTE_DESIGN_SAVE_REFUSED`, `api/design.ts`, on the mutation, with a test that stubs `fetch` and asserts nothing reaches the wire |
-| short name, publish | moved to `/curation/v1/…` (`api/datasets.ts`) — the store in both modes. 🛑 "Publish" here writes the STORE; it is not the same thing as `makePublic` below |
-| curation sets / groups, candidates | `/curation/v1/…` |
-| ticket target status, ticket create | mapped to Gemma's own routes deliberately — see `api/tickets.ts` |
-
-**Open — these are `/rest/…`, so a real Gemma in remote mode.** They are
-OPS writes, and the curation-path work was never scoped to touch them:
+**Curator actions against the real Gemma in remote mode.** Working as
+intended; listed so the surface is known, not so it gets gated:
 
 | what | call |
 |---|---|
@@ -126,15 +121,29 @@ OPS writes, and the curation-path work was never scoped to touch them:
 | curation details | `PUT /rest/v2/datasets/{id}/curationDetails?reviewer=` |
 | outlier flag | `PUT /rest/v2/datasets/{id}/samples/{sampleId}/outlier` |
 | quantitation-type preferred | `PATCH /rest/v2/datasets/{id}/quantitationTypes/{qtId}` |
-| **visibility** | `POST /rest/v2/datasets/{id}/makePublic` / `makePrivate` |
+| visibility | `POST /rest/v2/datasets/{id}/makePublic` / `makePrivate` |
 
-🛑 **The last one makes a production dataset PUBLIC.** It is the most
-consequential write in the app and it is not gated.
+**Still on the store today**, because the store still serves them, not
+because reaching Gemma would be wrong:
 
-🛑 **Say "the curation write path does not go to Gemma", never "the UI
-does not write to Gemma".** The second is read as whole-app and is false:
-nine ops writes above say so. A reader who takes the broad claim at face
-value will not go looking for a `DELETE` on a differential analysis.
+| what | where |
+|---|---|
+| short name, publish | `/curation/v1/…` (`api/datasets.ts`). 🛑 "Publish" here writes the STORE and is NOT `makePublic` — two different verbs on two different services |
+| curation sets / groups, candidates | `/curation/v1/…` |
+| ticket target status, ticket create | already mapped to Gemma's own routes — `api/tickets.ts` |
+
+**One thing IS deliberately refused**, and for a mechanical reason
+rather than a policy one: the whole-design save
+(`REMOTE_DESIGN_SAVE_REFUSED`, `api/design.ts`). It emits the store's
+`Design` shape, and Gemma's `PUT /datasets/{dataset}/design` reads an
+`ExperimentalDesignValueObject` — lifting the gate alone would send a
+store payload at a Gemma route. Separately, **curation** writes
+(annotations, design, drafts, locks) go through the agent per Paul's
+2026-08-25 ruling. Neither of those covers the ops actions above.
+
+🛑 **Say "the curation write path goes through the agent", never "the UI
+does not write to Gemma".** The second is read as whole-app and is
+false — the nine above say so, and they are supposed to be there.
 
 🛑 **Three of these live in `api/workflow.ts`, not in the file named
 after the noun** — outlier is not in `diagnostics.ts`, the QT edit is not
