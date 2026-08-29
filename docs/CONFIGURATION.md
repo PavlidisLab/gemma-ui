@@ -96,12 +96,51 @@ host that is not on it takes the amber warning tier, never a mild one,
 because a hostname cannot tell a sandbox from production.
 
 🛑 **The chip does not promise a confirmation step, because there is
-none.** No write path in this app consults the mode or the tier. In
-remote mode, pipeline step dispatch, GEEQ recalculate, DEA runs, outlier
-flags, quantitation-type edits, `curationDetails`, short-name, publish
-and the older whole-design save post straight at the host from the
-browser. The agent's `require_gemma_write_base` guard cannot cover them
-— they never reach the agent.
+none.** No write path in this app consults the mode or the tier, and the
+agent's `require_gemma_write_base` guard cannot cover any of these — they
+never reach the agent.
+
+Two separate write paths, and only one of them has been closed. Re-walked
+2026-08-29; the previous version of this list mixed the two together, so
+a reader could not tell which items were still live.
+
+**Closed — these do NOT reach Gemma in remote mode:**
+
+| what | where it goes now |
+|---|---|
+| whole-design save | refused before the request — `REMOTE_DESIGN_SAVE_REFUSED`, `api/design.ts`, on the mutation, with a test that stubs `fetch` and asserts nothing reaches the wire |
+| short name, publish | moved to `/curation/v1/…` (`api/datasets.ts`) — the store in both modes. 🛑 "Publish" here writes the STORE; it is not the same thing as `makePublic` below |
+| curation sets / groups, candidates | `/curation/v1/…` |
+| ticket target status, ticket create | mapped to Gemma's own routes deliberately — see `api/tickets.ts` |
+
+**Open — these are `/rest/…`, so a real Gemma in remote mode.** They are
+OPS writes, and the curation-path work was never scoped to touch them:
+
+| what | call |
+|---|---|
+| pipeline step dispatch | `POST /rest/v2/datasets/{id}/{step}` |
+| GEEQ recalculate | `POST /rest/v2/datasets/{id}/geeq/recalculate` |
+| DEA run | `POST /rest/v2/datasets/{id}/analyses/differential` |
+| DEA redo | `POST .../analyses/differential/{id}/redo` |
+| DEA delete | `DELETE .../analyses/differential/{id}` |
+| curation details | `PUT /rest/v2/datasets/{id}/curationDetails?reviewer=` |
+| outlier flag | `PUT /rest/v2/datasets/{id}/samples/{sampleId}/outlier` |
+| quantitation-type preferred | `PATCH /rest/v2/datasets/{id}/quantitationTypes/{qtId}` |
+| **visibility** | `POST /rest/v2/datasets/{id}/makePublic` / `makePrivate` |
+
+🛑 **The last one makes a production dataset PUBLIC.** It is the most
+consequential write in the app and it is not gated.
+
+🛑 **Say "the curation write path does not go to Gemma", never "the UI
+does not write to Gemma".** The second is read as whole-app and is false:
+nine ops writes above say so. A reader who takes the broad claim at face
+value will not go looking for a `DELETE` on a differential analysis.
+
+🛑 **Three of these live in `api/workflow.ts`, not in the file named
+after the noun** — outlier is not in `diagnostics.ts`, the QT edit is not
+in `quantitation.ts` (which is GET-only), and visibility is not in a
+`visibility.ts`. Grepping the obviously-named file and finding only reads
+is how this list lost them; grep the tree for the verb.
 
 ## Recreating the UI container
 

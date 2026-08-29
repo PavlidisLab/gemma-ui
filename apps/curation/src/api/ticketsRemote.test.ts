@@ -13,6 +13,8 @@ import { describe, expect, it } from "vitest";
 import {
   asTicketList,
   gemmaCreateBody,
+  gemmaScreeningResult,
+  toWirePatch,
   targetRowId,
   type Ticket,
 } from "./tickets";
@@ -149,16 +151,28 @@ describe("gemmaCreateBody", () => {
     expect(out).not.toHaveProperty("assigneeId");
   });
 
-  it("🛑 refuses REVIEW — Gemma's enum does not have it", () => {
-    // The store's most common type, and what `from-accession` defaults
-    // to. Named in the message so the curator is not left with a 400.
-    expect(() =>
+  it("🛑 translates REVIEW to CURATION rather than sending it", () => {
+    // Paul's call, 2026-08-29. The store's own comment is the argument:
+    // the type "classifies the ticket as curation work, not the
+    // underlying mode. The flow field drives the edit-vs-review
+    // affordance." Gemma's CURATION is already that category, so the
+    // name is dropped at the boundary and `flow` still carries the
+    // distinction the UI renders. Asking Gemma for a REVIEW value was
+    // considered and declined — two names for one category is how
+    // vocabularies drift.
+    expect(
       gemmaCreateBody({
         type: "REVIEW",
         title: "t",
         targets: [{ target_type: "EXPRESSION_EXPERIMENT", target_id: 1 }],
-      }),
-    ).toThrow(/REVIEW/);
+      }).type,
+    ).toBe("CURATION");
+  });
+
+  it("refuses SCREENING only until the host carries it", () => {
+    // Added verbatim on Gemma's side (a97999db15) but not deployed to
+    // gemma2 yet. When it lands, this refusal comes out — the test
+    // should then assert SCREENING passes through unchanged.
     expect(() =>
       gemmaCreateBody({
         type: "SCREENING",
@@ -195,5 +209,40 @@ describe("gemmaCreateBody", () => {
         }).type,
       ).toBe(type);
     }
+  });
+});
+
+/**
+ * The store's four screening states into Gemma's three values plus null.
+ *
+ * Live on gemma2 `211a518836` — the target VO carries `screeningResult`
+ * and `screeningResultReason`, verified on ticket 5, and a body with
+ * neither `status` nor `screeningResult` answers
+ * `400 "Request body with `status` and/or `screeningResult` is required."`
+ * verbatim.
+ */
+describe("gemmaScreeningResult", () => {
+  it("maps the three decided states", () => {
+    expect(gemmaScreeningResult("include")).toBe("INCLUDE");
+    // 🛑 `exclude` is `REJECT`, not `EXCLUDE` — the names differ.
+    expect(gemmaScreeningResult("exclude")).toBe("REJECT");
+    expect(gemmaScreeningResult("unsure")).toBe("UNDECIDED");
+  });
+
+  it("🛑 keeps `unsure` and `undecided` apart", () => {
+    // Mapping both onto UNDECIDED merges reviewed-but-unresolved with
+    // nobody-has-looked-yet. The rows that disappear are the ones a
+    // curator most needs to find again, and that split is the entire
+    // reason `unsure` exists as a value.
+    expect(gemmaScreeningResult("unsure")).toBe("UNDECIDED");
+    expect(gemmaScreeningResult(null)).toBe(null);
+    expect(gemmaScreeningResult("unsure")).not.toBe(gemmaScreeningResult(null));
+  });
+
+  it("clears on an explicit null", () => {
+    // Gemma spells "clear" as null where the store spells it "" — see
+    // toWirePatch. Neither accepts the other's spelling.
+    expect(gemmaScreeningResult(null)).toBe(null);
+    expect(toWirePatch({ triage_disposition: null }).triage_disposition).toBe("");
   });
 });

@@ -72,11 +72,18 @@ function ticketsBase(): string {
  *  - **`POST /tickets/from-accession`** — a store convenience that
  *    resolves an accession to an experiment and opens a ticket in one
  *    call. Gemma's `POST /tickets` takes explicit numeric targets.
- *  - **`POST /{id}/finalize-triage`** and the whole
- *    `triage_disposition` field — `grep -ri triagedisposition` over
- *    the Gemma tree is empty. Gemma's target row carries `status` and
- *    nothing else, so an include/exclude/unsure decision has no column
- *    to land in.
+ *  - **`POST /{id}/finalize-triage`** — it buckets a ticket's targets
+ *    by their decision and hands the lists to the follow-up runner.
+ *    Gemma stores the decision now (see below) but has no route that
+ *    buckets by it, and the bucketing is the store's workflow rather
+ *    than a fact about the ticket.
+ *
+ *  🛑 **The `triage_disposition` field itself is no longer in this
+ *  list.** It was, on 2026-08-29 morning, when `grep -ri
+ *  triagedisposition` over the Gemma tree came back empty. gembro
+ *  shipped `screeningResult` + `screeningResultReason` on the target
+ *  the same day (`211a518836`, verified on ticket 5), so a per-target
+ *  decision now maps — see `gemmaScreeningResult`.
  *
  *  Sending any of these while the queue is showing GEMMA's tickets
  *  would address a store ticket that merely shares an id — a silent
@@ -93,6 +100,48 @@ function assertStoreTickets(action: string, because: string): void {
         `write to a store ticket that merely shares this id. Switch to a ` +
         `store-backed session.`,
     );
+  }
+}
+
+/** Translate the store's triage decision into Gemma's `screeningResult`.
+ *
+ *  Live on gemma2 `211a518836` — the target VO now carries
+ *  `screeningResult` and `screeningResultReason`, verified on ticket 5.
+ *
+ *  🛑 **Four store states into three Gemma values plus null, and the
+ *  split that matters is `unsure` vs `undecided`.**
+ *
+ *  | store | Gemma | meaning |
+ *  |---|---|---|
+ *  | `include`   | `INCLUDE`   | admit |
+ *  | `exclude`   | `REJECT`    | reject |
+ *  | `unsure`    | `UNDECIDED` | reviewed, could not resolve |
+ *  | `null`      | `null`      | nobody has looked yet |
+ *
+ *  Mapping BOTH `unsure` and `null` onto `UNDECIDED` merges the two, and
+ *  the rows that vanish are the reviewed-but-unresolved ones — precisely
+ *  the ones a curator needs to find again. That distinction is the whole
+ *  reason `unsure` exists; see `TicketTargetTriageDisposition`.
+ *
+ *  Note the pleasing symmetry with `toWirePatch`: both services spell
+ *  "not provided" as an absent key, and they differ only on how to spell
+ *  "clear it" — the store wants `""`, Gemma wants `null`. Neither
+ *  accepts the other's spelling, so the two translations stay separate. */
+export function gemmaScreeningResult(
+  d: TicketTargetTriageDisposition | undefined,
+): "INCLUDE" | "REJECT" | "UNDECIDED" | null {
+  switch (d) {
+    case "include":
+      return "INCLUDE";
+    case "exclude":
+      return "REJECT";
+    case "unsure":
+      return "UNDECIDED";
+    default:
+      // `null` (undecided) and `undefined` both clear. The caller only
+      // reaches here having seen the key present, so this is the
+      // deliberate clear, not "leave unchanged".
+      return null;
   }
 }
 
@@ -467,20 +516,34 @@ export interface TicketCreateBody {
   }>;
 }
 
-/** Ticket types Gemma's `TicketType` enum does NOT have.
+/** Store ticket types that are not Gemma's, and what to do with each.
  *
- *  Compared enum-to-enum on 2026-08-29. Six values are shared
- *  (`BATCH_INFO_NEEDED`, `REALIGNMENT_NEEDED`, `QUALITY_REVIEW`,
- *  `PRELOAD`, `CURATION`, `GENERIC`). The store adds `SCREENING` and
- *  `REVIEW`; Gemma adds `LITERATURE_SEARCH`, which nothing here can
- *  raise.
+ *  Compared enum-to-enum on 2026-08-29 and settled with gembro the same
+ *  day. Six values are shared (`BATCH_INFO_NEEDED`,
+ *  `REALIGNMENT_NEEDED`, `QUALITY_REVIEW`, `PRELOAD`, `CURATION`,
+ *  `GENERIC`). Gemma also has `LITERATURE_SEARCH`, which nothing here
+ *  raises. The store's two extras split:
  *
- *  🛑 `REVIEW` is the store's most common type — it is what
- *  `from-accession` defaults to and what every review ticket carries —
- *  so this is the gap a curator actually hits, not a corner. Filed
- *  against the Gemma tree; until it closes, refuse with the type
- *  named rather than let Jackson turn it into an opaque 400. */
-const TYPES_GEMMA_LACKS = new Set<TicketType>(["SCREENING", "REVIEW"]);
+ *  **`REVIEW` translates to `CURATION`** — Paul's call, and the store's
+ *  own comment is the argument for it: the type "classifies the ticket
+ *  as curation work, not the underlying mode. The flow field drives the
+ *  edit-vs-review affordance." Gemma's `CURATION` is already the default
+ *  type for curator-assigned tickets. Same category, two names, so the
+ *  name is dropped at the boundary and `flow` still carries the
+ *  distinction the UI actually renders.
+ *
+ *  🛑 Do NOT "fix" this by asking for a `REVIEW` on Gemma's enum. It was
+ *  considered and declined — a second name for one category is how two
+ *  vocabularies start drifting.
+ *
+ *  **`SCREENING` is being added verbatim** (`a97999db15`), so it stays
+ *  refused only until that reaches the host this app is pointed at.
+ *  `TicketType` is `@Enumerated(STRING)`, so no migration gates it. */
+const TYPE_TRANSLATION: Partial<Record<TicketType, TicketType>> = {
+  REVIEW: "CURATION",
+};
+
+const TYPES_GEMMA_LACKS = new Set<TicketType>(["SCREENING"]);
 
 /** Target types Gemma's `TicketTargetType` enum does not have.
  *  `GEO_ACCESSION` is the store's synthetic triage target — a row for
@@ -508,12 +571,12 @@ export function gemmaCreateBody(
 ): Record<string, unknown> {
   if (TYPES_GEMMA_LACKS.has(body.type)) {
     throw new Error(
-      `Cannot create a ${body.type} ticket in Gemma: its ticket types are ` +
-        `BATCH_INFO_NEEDED, REALIGNMENT_NEEDED, QUALITY_REVIEW, PRELOAD, ` +
-        `CURATION, LITERATURE_SEARCH and GENERIC. ${body.type} exists only ` +
-        `on the curation store.`,
+      `Cannot create a ${body.type} ticket in Gemma yet: the type is being ` +
+        `added (a97999db15) but is not on this host. Until it deploys, ` +
+        `raise it on the curation store.`,
     );
   }
+  const type = TYPE_TRANSLATION[body.type] ?? body.type;
   const bad = body.targets.find((t) =>
     TARGET_TYPES_GEMMA_LACKS.has(t.target_type),
   );
@@ -524,7 +587,7 @@ export function gemmaCreateBody(
     );
   }
   const out: Record<string, unknown> = {
-    type: body.type,
+    type,
     title: body.title,
     targets: body.targets.map((t) => ({
       targetType: t.target_type,
@@ -811,8 +874,7 @@ export function toWirePatch(
   return out;
 }
 
-/** The remote arm of `usePatchTicketTarget` — the one store write that
- *  DOES map onto Gemma.
+/** The remote arm of `usePatchTicketTarget`.
  *
  *  Two things have to be bridged, and only one of them can be:
  *
@@ -826,13 +888,13 @@ export function toWirePatch(
  *  and re-fetched when cold, because a curator who deep-links to a
  *  ticket can reach Finalize before the list query has ever run.
  *
- *  **The triage decision.** It cannot be bridged: Gemma's target row
- *  has `status` and nothing else. So a patch carrying a disposition
- *  still refuses, and one carrying only `status` goes through. The
- *  split is per-FIELD rather than per-caller on purpose — the same
- *  hook serves Finalize (status only, works) and the triage table
- *  (disposition, refuses), and keying on the caller would have let a
- *  future third caller pick the wrong arm silently. */
+ *  **The triage decision**, as of `211a518836`, bridges too:
+ *  `screeningResult` + `screeningResultReason`. Both this hook's
+ *  callers now work in remote mode — Finalize (status only) and the
+ *  triage table (decision, optionally with status). The per-FIELD
+ *  translation is still the right shape: each key is mapped on its own,
+ *  so a future third caller sending some other combination cannot pick
+ *  a wrong whole-body arm silently. */
 async function patchGemmaTargetStatus(
   qc: ReturnType<typeof useQueryClient>,
   ticketId: number,
@@ -842,20 +904,20 @@ async function patchGemmaTargetStatus(
     patch: TicketTargetPatchBody;
   },
 ): Promise<Ticket> {
-  if (
-    "triage_disposition" in args.patch ||
-    "triage_disposition_reason" in args.patch
-  ) {
-    assertStoreTickets(
-      "record a triage decision",
-      "Gemma's ticket targets carry a status and nothing else, so an " +
-        "include / exclude / unsure decision has no field to land in.",
-    );
+  const body: Record<string, unknown> = {};
+  if (args.patch.status !== undefined) body.status = args.patch.status;
+  if ("triage_disposition" in args.patch) {
+    body.screeningResult = gemmaScreeningResult(args.patch.triage_disposition);
   }
-  if (args.patch.status === undefined) {
+  if ("triage_disposition_reason" in args.patch) {
+    body.screeningResultReason = args.patch.triage_disposition_reason ?? null;
+  }
+  // Gemma's own guard: `Request body with `status` and/or `screeningResult`
+  // is required.` Checked here so an empty patch is not a round trip.
+  if (body.status === undefined && !("screeningResult" in body)) {
     throw new Error(
-      "Cannot update a Gemma ticket target: the patch sets no status, and " +
-        "status is the only field Gemma's target row has.",
+      "Cannot update a Gemma ticket target: the patch sets neither a status " +
+        "nor a screening result.",
     );
   }
   const cached = qc.getQueryData<Ticket>(["ticket", ticketId]);
@@ -873,7 +935,7 @@ async function patchGemmaTargetStatus(
   }
   return await api.patch<Ticket>(
     `${ticketsBase()}/tickets/${ticketId}/targets/${rowId}`,
-    { status: args.patch.status },
+    body,
   );
 }
 
@@ -932,8 +994,9 @@ export function useFinalizeTriage(ticketId: number) {
       return await api.post<TriageFinalizeResponse>(
         (assertStoreTickets(
           "finalize triage",
-          "finalizing buckets the targets by their triage disposition, " +
-            "and Gemma's ticket targets have no disposition field.",
+          "Gemma stores a per-target screening result but has no route " +
+            "that buckets a ticket's targets by it — the bucketing is the " +
+            "store's workflow, not a fact about the ticket.",
         ),
         `/curation/v1/tickets/${ticketId}/finalize-triage`),
         {},
