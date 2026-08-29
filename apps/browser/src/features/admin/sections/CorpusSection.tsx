@@ -39,13 +39,14 @@ export function CorpusSection() {
           : undefined
       }
     >
-      <div className="grid grid-cols-1 gap-3 mb-3">
+      <div className="flex items-start gap-4">
         <BigNumber
+          className="flex-none w-28"
           label="datasets"
           value={data ? data.total.toLocaleString() : "—"}
           samples={totalSeries}
         />
-      </div>
+        <div className="flex-1 min-w-0">
       {isError ? (
         <div className="text-[11px] text-rose-700 dark:text-rose-300">
           {(error as Error).message}
@@ -53,7 +54,7 @@ export function CorpusSection() {
       ) : !data ? (
         <div className="text-xs text-slate-500 italic">loading…</div>
       ) : (
-        <div className="border-t border-slate-100 dark:border-slate-700">
+        <div>
           <table className="w-full text-[11px]">
             <tbody>
               <CountRow
@@ -98,6 +99,8 @@ export function CorpusSection() {
           ) : null}
         </div>
       )}
+        </div>
+      </div>
     </SectionCard>
   );
 }

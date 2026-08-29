@@ -25,13 +25,14 @@ export function PlatformsSection() {
       title="Platforms"
       summary={data ? `${flagged.toLocaleString()} flagged` : undefined}
     >
-      <div className="grid grid-cols-1 gap-3 mb-3">
+      <div className="flex items-start gap-4">
         <BigNumber
+          className="flex-none w-28"
           label="array designs"
           value={data ? data.total.toLocaleString() : "—"}
           samples={series}
         />
-      </div>
+        <div className="flex-1 min-w-0">
       {isError ? (
         <div className="text-[11px] text-rose-700 dark:text-rose-300">
           {(error as Error).message}
@@ -39,7 +40,7 @@ export function PlatformsSection() {
       ) : !data ? (
         <div className="text-xs text-slate-500 italic">loading…</div>
       ) : (
-        <div className="border-t border-slate-100 dark:border-slate-700">
+        <div>
           <table className="w-full text-[11px]">
             <tbody>
               <CountRow
@@ -60,6 +61,8 @@ export function PlatformsSection() {
           </table>
         </div>
       )}
+        </div>
+      </div>
     </SectionCard>
   );
 }

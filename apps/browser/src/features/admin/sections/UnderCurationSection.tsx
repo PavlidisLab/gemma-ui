@@ -23,22 +23,32 @@ export function UnderCurationSection() {
   return (
     <SectionCard
       title="Under curation"
-      summary="not public, or targeted by an open ticket"
+      summary={
+        data
+          ? `not public, or in one of ${data.openTickets.toLocaleString()} open ticket${
+              data.openTickets === 1 ? "" : "s"
+            }`
+          : "not public, or targeted by an open ticket"
+      }
     >
-      <div className="grid grid-cols-1 gap-3 mb-3">
+      <div className="flex items-start gap-4">
         <BigNumber
+          className="flex-none w-28"
           label="datasets"
-          value={data?.either != null ? data.either.toLocaleString() : "—"}
-          detail={
-            data
-              ? `${data.openTickets.toLocaleString()} open ticket${
-                  data.openTickets === 1 ? "" : "s"
-                } with an experiment target`
-              : undefined
+          // A bare dash reads as "broken" when half the answer is in
+          // hand. With no `isPublic` filter the ticket half is still a
+          // true lower bound, so say so with a `≥` rather than throw it
+          // away — and the footnote below names what is missing.
+          value={
+            !data
+              ? "—"
+              : data.either != null
+                ? data.either.toLocaleString()
+                : `≥${data.inOpenTicket.toLocaleString()}`
           }
           samples={series}
         />
-      </div>
+        <div className="flex-1 min-w-0">
       {isError ? (
         <div className="text-[11px] text-rose-700 dark:text-rose-300">
           {(error as Error).message}
@@ -46,7 +56,7 @@ export function UnderCurationSection() {
       ) : !data ? (
         <div className="text-xs text-slate-500 italic">loading…</div>
       ) : (
-        <div className="border-t border-slate-100 dark:border-slate-700">
+        <div>
           <table className="w-full text-[11px]">
             <tbody>
               <CountRow
@@ -69,6 +79,12 @@ export function UnderCurationSection() {
               />
             </tbody>
           </table>
+          {data.notPublic === null ? (
+            <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+              This Gemma cannot filter on <code>isPublic</code>, so the total
+              counts the ticket half only.
+            </div>
+          ) : null}
           {data.truncated ? (
             <div className="mt-2 text-[11px] text-amber-700 dark:text-amber-300">
               Ticket sweep stopped at the page cap — these are lower bounds.
@@ -76,6 +92,8 @@ export function UnderCurationSection() {
           ) : null}
         </div>
       )}
+        </div>
+      </div>
     </SectionCard>
   );
 }

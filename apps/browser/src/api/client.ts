@@ -114,6 +114,58 @@ function authHeaders(): Record<string, string> {
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
+/**
+ * 🛑 **Gemma answers an XHR with HTTP 200 even when it failed.**
+ *
+ * `AbstractExceptionMapper.getResponseBuilder` is explicit about it:
+ *
+ *     Response.status( isXmlHttpRequest( request ) ? Response.Status.OK
+ *                                                  : getStatus( exception ) )
+ *
+ * and `RestAuthEntryPoint` does the same for 401 (deliberately, together
+ * with `WWW-Authenticate: xBasic`, to keep the browser's native
+ * basic-auth popup from firing). The trigger is the
+ * `X-Requested-With: XMLHttpRequest` header, which every call below
+ * sends — a legacy ExtJS convention where the real code travels in the
+ * body as `error.code`.
+ *
+ * So `r.ok` is TRUE for a 400, a 404 and a 401 alike, and a status-only
+ * check hands the error envelope back to the caller as if it were data.
+ * Measured 2026-08-29 against build `e4e12f906e`: a bad `filter=`
+ * returns 200, and the admin page rendered `[object Object]` where a
+ * count belonged and `NaN` where it summed them. With the header
+ * removed the same request is a clean 400.
+ *
+ * Keep the header — the 401 popup suppression depends on it — and read
+ * the body instead. This is the one chokepoint; do not re-check status
+ * per call site.
+ */
+function errorCodeInBody(body: unknown): number | null {
+  if (!body || typeof body !== "object") return null;
+  const err = (body as { error?: unknown }).error;
+  if (!err || typeof err !== "object") return null;
+  const code = (err as { code?: unknown }).code;
+  return typeof code === "number" ? code : null;
+}
+
+/** Read the JSON body and throw when it is Gemma's error envelope
+ *  wearing a 200. Returns the parsed body otherwise. */
+async function jsonOrThrow<T>(r: Response, what: string): Promise<T> {
+  const body = (await r.json()) as unknown;
+  const code = errorCodeInBody(body);
+  if (code !== null) {
+    const err = (body as { error?: { message?: string } }).error;
+    const message = typeof err?.message === "string" ? err.message : "";
+    throw new ApiError(
+      `${what} → ${code}${message ? ` — ${message}` : ""}`,
+      code,
+      "",
+      message,
+    );
+  }
+  return body as T;
+}
+
 export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const q = opts.params
     ? "?" + qs.stringify(stripUndef(opts.params), { arrayFormat: "repeat" })
@@ -132,7 +184,7 @@ export async function apiGet<T>(path: string, opts: RequestOptions = {}): Promis
   if (!r.ok) {
     throw new ApiError(`GET ${path} → ${r.status}`, r.status, r.statusText, await readErr(r));
   }
-  return r.json() as Promise<T>;
+  return jsonOrThrow<T>(r, `GET ${path}`);
 }
 
 /** POST a JSON body. Same auth headers + cookie discipline as apiGet. */
@@ -158,7 +210,7 @@ export async function apiPost<T>(
     throw new ApiError(`POST ${path} → ${r.status}`, r.status, r.statusText, await readErr(r));
   }
   if (r.status === 204) return undefined as T;
-  return r.json() as Promise<T>;
+  return jsonOrThrow<T>(r, `POST ${path}`);
 }
 
 function stripUndef(p: Params): Params {

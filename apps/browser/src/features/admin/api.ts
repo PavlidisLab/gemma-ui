@@ -460,7 +460,23 @@ async function countWhere(
   filter?: string,
 ): Promise<number> {
   const q = filter ? `?filter=${encodeURIComponent(filter)}` : "";
-  return await unwrap<number>(`${BASE}/${collection}/count${q}`);
+  const n = await unwrap<unknown>(`${BASE}/${collection}/count${q}`);
+  // A count that is not a number must never reach a card. It used to:
+  // Gemma answers an XHR error with HTTP 200 (see `jsonOrThrow` in
+  // api/client.ts), `unwrap` found no `data` key on the error envelope
+  // and returned the envelope itself, and the card rendered
+  // `[object Object]` and then summed it into `NaN`. The client now
+  // throws on that body; this stays as the second line of defence,
+  // because a wrong number is worse than a missing one.
+  if (typeof n !== "number" || !Number.isFinite(n)) {
+    throw new ApiError(
+      `${collection}/count${q} did not return a number`,
+      500,
+      "",
+      typeof n,
+    );
+  }
+  return n;
 }
 
 /**
