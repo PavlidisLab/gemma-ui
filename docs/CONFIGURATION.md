@@ -152,6 +152,26 @@ the form "there is no write for X", the search must be uncapped or
 counted, and the count reported next to the claim. A `head` on a search
 for absence silently turns "I did not look" into "it is not there".
 
+**So here is the count, and how to redo it.** 54 mutating `api.*` calls
+in the curation app, of which **12** name a `/rest/v2` path. The path is
+often on the line AFTER the call, so a single-line grep finds only two of
+them — look ahead three lines:
+
+```sh
+cd apps/curation/src
+git grep -nE -A3 'api\.(post|put|patch|delete)<' -- . \
+  | awk '/api\.(post|put|patch|delete)</ {want=1; next}
+         want && /\/rest\/v2\// {print; want=0}'
+```
+
+Twelve minus three that are not ops writes leaves the nine tabled above:
+
+| excluded | why |
+|---|---|
+| `api/design.ts` whole-design PUT | gated — `REMOTE_DESIGN_SAVE_REFUSED` |
+| `api/session.ts` login | authentication, not a data write |
+| `api/workflow.ts` `POST /datasets/pipeline-status` | **a READ.** POST only because the id list is too long for a query string; it sits inside a `useQuery`. A verb-based grep will keep flagging it — it is not a write |
+
 ## Recreating the UI container
 
 ```sh
