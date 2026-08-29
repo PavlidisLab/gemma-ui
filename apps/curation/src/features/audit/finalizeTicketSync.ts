@@ -15,6 +15,25 @@
  *   - ``experimentId`` non-numeric / NaN → null (defensive — we'd
  *     hit this only if the caller mis-routed)
  *
+ * 🛑 **This is NOT made redundant by Gemma's commit-advances-the-ticket
+ * behaviour** (gemma2 `c25d7cc125`, 2026-08-29), which flips a
+ * CURATION/SCREENING ticket's target to DONE when
+ * `PUT /datasets/{id}/curation` succeeds. Two reasons, both checked:
+ *
+ * 1. **The UI never calls that route.** The commit chain client
+ *    (`api/curationCommit.ts`) posts to the AGENT's own prefixes —
+ *    `/curation-commit/{id}`, `/curation-preflight/{id}`,
+ *    `/curation-sign/{id}` — per the agent-writes architecture. And it
+ *    has **zero callers**; grep it. So no UI action triggers the
+ *    advance today.
+ * 2. **Finalizing a review is not committing curation.** A curator can
+ *    finish reviewing an experiment on a ticket without a design commit
+ *    ever happening, and that is the case this patch exists for.
+ *
+ * If the two ever do both fire, the double-advance is harmless —
+ * Gemma's `updateTargetStatus` is a documented no-op when the target is
+ * already at the requested status.
+ *
  * History: a 2026-06-11 regression had the ticket-patch block sitting
  * in a sub-component (``SidebarHeader``) that didn't have
  * ``experimentId`` in scope, throwing
