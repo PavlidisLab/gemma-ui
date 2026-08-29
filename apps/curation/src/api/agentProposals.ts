@@ -193,7 +193,7 @@ export function useProposalsAutoShape(experimentId: number | string) {
       let raw: unknown;
       try {
         raw = await api.get<unknown>(
-          `/rest/v2/datasets/${experimentId}/curation-proposals?kind=proposal`,
+          `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal`,
         );
       } catch (e: unknown) {
         // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``.

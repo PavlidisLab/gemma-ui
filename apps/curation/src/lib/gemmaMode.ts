@@ -191,7 +191,7 @@ export function resolveGemmaMode(runtime?: RuntimeConfig | null): GemmaModeInfo 
  */
 export async function fetchRuntimeConfig(): Promise<RuntimeConfig | null> {
   try {
-    const resp = await fetch("/rest/v2/__config__", {
+    const resp = await fetch("/curation/v1/__config__", {
       headers: { Accept: "application/json" },
     });
     if (!resp.ok) return null;

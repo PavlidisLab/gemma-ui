@@ -214,7 +214,7 @@ export class ProvenanceUnavailable extends Error {
  * recorded". The two must never render as the same sentence.
  */
 export function provenanceLookupPath(experimentId: number | string): string {
-  return `/rest/v2/datasets/${experimentId}/provenance/lookup`;
+  return `/curation/v1/datasets/${experimentId}/provenance/lookup`;
 }
 
 export async function lookupProvenance(

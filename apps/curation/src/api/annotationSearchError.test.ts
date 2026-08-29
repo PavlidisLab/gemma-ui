@@ -61,7 +61,7 @@ describe("error-body reading", () => {
 
   it("still prefers FastAPI's detail — local_api is the other backend", async () => {
     respondWith(404, { detail: "no Gemma dataset matches reference='GSE0'" });
-    const err = await failing(() => api.get("/rest/v2/tickets/from-accession"));
+    const err = await failing(() => api.get("/curation/v1/tickets/from-accession"));
     expect(err.detail).toBe("no Gemma dataset matches reference='GSE0'");
   });
 

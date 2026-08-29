@@ -152,7 +152,7 @@ async function fetchAgentProposalPayload(
 ): Promise<PackagedProposal | null> {
   try {
     const raw = await api.get<CurationReviewListResponse | CurationReviewRow[]>(
-      `/rest/v2/datasets/${experimentId}/proposals?limit=1`,
+      `/curation/v1/datasets/${experimentId}/proposals?limit=1`,
     );
     const rows = Array.isArray(raw) ? raw : (raw?.items ?? []);
     if (rows.length === 0) return null;
@@ -179,7 +179,7 @@ export function useCalibrationAuditReport(experimentId: number | string) {
     queryFn: async () => {
       try {
         const raw = await api.get<{ items?: unknown[] } | unknown[]>(
-          `/rest/v2/datasets/${experimentId}/proposals?limit=1`,
+          `/curation/v1/datasets/${experimentId}/proposals?limit=1`,
         );
         const rows = Array.isArray(raw)
           ? raw
@@ -222,7 +222,7 @@ async function fetchSourceDesign(
     const curator = polishedCuratorOf(source);
     try {
       return await api.get<Design>(
-        `/rest/v2/datasets/${experimentId}/polished/${curator}`,
+        `/curation/v1/datasets/${experimentId}/polished/${curator}`,
       );
     } catch {
       return null;

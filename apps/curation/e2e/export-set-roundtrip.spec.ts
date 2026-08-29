@@ -140,7 +140,11 @@ async function installApiMocks(page: import("@playwright/test").Page) {
 
   // Catch-all — anything not matched below returns an empty list. Stops
   // unmocked widgets from crashing the page.
+  // Two prefixes now: `/rest/v2` is Gemma's, `/curation/v1` is the
+  // store's (moved 2026-08-29). Both need catching or an unmocked
+  // widget reaches the network.
   await page.route(`**/rest/v2/**`, (route) => fulfillJson(route, []));
+  await page.route(`**/curation/v1/**`, (route) => fulfillJson(route, []));
 
   // The paginated datasets endpoint expects ``{data: [...], total_elements,
   // offset, limit}`` — return the empty version explicitly so the
@@ -151,7 +155,7 @@ async function installApiMocks(page: import("@playwright/test").Page) {
   await page.route(`**/rest/v2/datasets/pipeline-status`, (route) =>
     fulfillJson(route, {}),
   );
-  await page.route(`**/rest/v2/tickets*`, (route) => fulfillJson(route, []));
+  await page.route(`**/curation/v1/tickets*`, (route) => fulfillJson(route, []));
 
   // Dataset meta — fetchDesignSnapshot composes it in if the snapshot
   // path runs; harmless to mock unconditionally.
@@ -162,10 +166,10 @@ async function installApiMocks(page: import("@playwright/test").Page) {
 
   // Audits + proposals — buildSetExport pulls these for the review
   // status. Empty is fine; the export still produces a valid bundle.
-  await page.route(`**/rest/v2/datasets/${EXPERIMENT_ID}/audits*`, (route) =>
+  await page.route(`**/curation/v1/datasets/${EXPERIMENT_ID}/audits*`, (route) =>
     fulfillJson(route, { items: [], total: 0 }),
   );
-  await page.route(`**/rest/v2/datasets/${EXPERIMENT_ID}/proposals*`, (route) =>
+  await page.route(`**/curation/v1/datasets/${EXPERIMENT_ID}/proposals*`, (route) =>
     fulfillJson(route, { items: [], total: 0 }),
   );
 
@@ -178,20 +182,20 @@ async function installApiMocks(page: import("@playwright/test").Page) {
 
   // Polished design — the canonical source for Export Set.
   await page.route(
-    `**/rest/v2/datasets/${EXPERIMENT_ID}/polished/${CURATOR}`,
+    `**/curation/v1/datasets/${EXPERIMENT_ID}/polished/${CURATOR}`,
     (route) => fulfillJson(route, POLISHED_DESIGN),
   );
 
   // Group list (sidebar) — register before the specific group lookup so
   // it doesn't accidentally swallow ``/groups/<id>`` requests.
-  await page.route(`**/rest/v2/groups`, (route) => fulfillJson(route, [GROUP]));
-  await page.route(`**/rest/v2/groups\\?**`, (route) =>
+  await page.route(`**/curation/v1/groups`, (route) => fulfillJson(route, [GROUP]));
+  await page.route(`**/curation/v1/groups\\?**`, (route) =>
     fulfillJson(route, [GROUP]),
   );
 
   // Group lookup (the load-bearing one) — registered LAST so it wins
   // for ``/groups/<id>`` and ``/groups/<id>?include_summaries=true``.
-  await page.route(`**/rest/v2/groups/${GROUP_ID}**`, (route) =>
+  await page.route(`**/curation/v1/groups/${GROUP_ID}**`, (route) =>
     fulfillJson(route, GROUP),
   );
 }
@@ -212,7 +216,7 @@ test.describe("Export Set bundle round-trip (UI)", () => {
     // e2e proves is that the UI doesn't crash and the bundle is still
     // produced + downloadable when polished 404s.
     await page.route(
-      `**/rest/v2/datasets/${EXPERIMENT_ID}/polished/${CURATOR}`,
+      `**/curation/v1/datasets/${EXPERIMENT_ID}/polished/${CURATOR}`,
       (route) =>
         route.fulfill({
           status: 404,

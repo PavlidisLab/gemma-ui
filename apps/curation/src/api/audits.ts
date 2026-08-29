@@ -49,7 +49,7 @@ async function fetchAuditsForExperiment(
 ): Promise<AuditListResponse> {
   try {
     return await api.get<AuditListResponse>(
-      `/rest/v2/datasets/${experimentId}/audits`,
+      `/curation/v1/datasets/${experimentId}/audits`,
     );
   } catch (e: unknown) {
     // Gemma 2.0 doesn't yet expose the local_api ``/audits``
@@ -114,13 +114,13 @@ export function useAuditsForExperiments(
   });
 }
 
-/** Cross-experiment inbox list. Backed by `/rest/v2/audits`
+/** Cross-experiment inbox list. Backed by `/curation/v1/audits`
  *  (paginated response with offset/limit/totalElements). Consumed by
  *  `features/inbox/AuditsInbox.tsx`. */
 export function useAuditsInbox() {
   return useQuery({
     queryKey: KEY.inbox(),
-    queryFn: () => api.get<AuditListResponse>(`/rest/v2/audits`),
+    queryFn: () => api.get<AuditListResponse>(`/curation/v1/audits`),
     refetchOnWindowFocus: true,
   });
 }
@@ -131,7 +131,7 @@ export function useAuditsInbox() {
 export function useAuditDetail(auditId: string | null | undefined) {
   return useQuery({
     queryKey: KEY.detail(auditId ?? ""),
-    queryFn: () => api.get<AuditReport>(`/rest/v2/audits/${auditId}`),
+    queryFn: () => api.get<AuditReport>(`/curation/v1/audits/${auditId}`),
     enabled: !!auditId,
     refetchOnWindowFocus: true,
   });
@@ -153,7 +153,7 @@ export function usePatchDisposition(experimentId: number | string) {
     }: {
       auditId: string;
       patch: AuditFindingDispositionPatch;
-    }) => api.patch<AuditReport>(`/rest/v2/audits/${auditId}`, patch),
+    }) => api.patch<AuditReport>(`/curation/v1/audits/${auditId}`, patch),
     onSuccess: (refreshed, vars) => {
       // Smoking-gun trace per the 2026-06-14 "3 pending stays 3
       // pending" investigation. If the PATCH returns a report whose
@@ -245,7 +245,7 @@ export function useFinalizeAudit(experimentId: number | string) {
       reviewer: string;
       notes?: string;
     }) =>
-      api.post<AuditReport>(`/rest/v2/audits/${auditId}/finalize`, {
+      api.post<AuditReport>(`/curation/v1/audits/${auditId}/finalize`, {
         reviewer,
         ...(notes ? { notes } : {}),
       }),
@@ -288,7 +288,7 @@ export function useResetAuditDispositions(
         audit_id: string;
         n_deleted: number;
         audit: AuditReport;
-      }>(`/rest/v2/audits/${auditId}/reset-dispositions`, {}),
+      }>(`/curation/v1/audits/${auditId}/reset-dispositions`, {}),
     onSuccess: (refreshed) => {
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed.audit);
@@ -322,7 +322,7 @@ export function useReopenAudit(experimentId: number | string) {
       auditId: string;
       reviewer: string;
     }) =>
-      api.post<AuditReport>(`/rest/v2/audits/${auditId}/reopen`, {
+      api.post<AuditReport>(`/curation/v1/audits/${auditId}/reopen`, {
         reviewer,
       }),
     onSuccess: (refreshed) => {

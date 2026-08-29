@@ -113,7 +113,7 @@ export async function fetchPolishedSnapshot(
 ): Promise<Design | null> {
   try {
     return await api.get<Design>(
-      `/rest/v2/datasets/${experimentId}/polished/${curator}`,
+      `/curation/v1/datasets/${experimentId}/polished/${curator}`,
     );
   } catch (err) {
     const e = err as { status?: number };
@@ -143,7 +143,7 @@ export function useDesign(experimentId: number | string) {
 export async function fetchPreboardSnapshot(
   experimentId: number | string,
 ): Promise<Design> {
-  return api.get<Design>(`/rest/v2/datasets/${experimentId}/design/snapshot`);
+  return api.get<Design>(`/curation/v1/datasets/${experimentId}/design/snapshot`);
 }
 
 export function usePreboardSnapshot(experimentId: number | string) {
@@ -235,7 +235,7 @@ async function fetchLatestProposalOverlay(
   // assignments still come from /design).
   try {
     const raw = await api.get<unknown>(
-      `/rest/v2/datasets/${experimentId}/curation-proposals?kind=proposal&limit=1`,
+      `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal&limit=1`,
     );
     return extractOverlayFromProposalsResponse(raw);
   } catch {
@@ -557,7 +557,7 @@ export function useUpdatePolished(
         ? { ...body, experiment_id: routeEid }
         : body;
       return api.put<Design>(
-        `/rest/v2/datasets/${experimentId}/polished/${encodeURIComponent(
+        `/curation/v1/datasets/${experimentId}/polished/${encodeURIComponent(
           curator,
         )}`,
         stamped,

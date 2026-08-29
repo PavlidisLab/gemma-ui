@@ -42,7 +42,7 @@ async function fetchProposalReviewsForExperiment(
 ): Promise<ReviewProposalListResponse> {
   try {
     return await api.get<ReviewProposalListResponse>(
-      `/rest/v2/datasets/${experimentId}/proposals`,
+      `/curation/v1/datasets/${experimentId}/proposals`,
     );
   } catch (e: unknown) {
     if (

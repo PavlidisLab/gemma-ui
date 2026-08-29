@@ -65,7 +65,7 @@ export function useCurations(experimentId: number | string) {
     queryFn: async (): Promise<CurationRow[]> => {
       try {
         const raw = await api.get<CurationListResp>(
-          `/rest/v2/datasets/${experimentId}/curations`,
+          `/curation/v1/datasets/${experimentId}/curations`,
         );
         return raw?.items ?? [];
       } catch (e: unknown) {
@@ -95,7 +95,7 @@ function useCurationVersions(experimentId: number | string) {
     queryFn: async (): Promise<CurationVersionListResponse | null> => {
       try {
         const raw = await api.get<CurationVersionListResponse>(
-          `/rest/v2/datasets/${experimentId}/curation-versions`,
+          `/curation/v1/datasets/${experimentId}/curation-versions`,
         );
         return raw;
       } catch (e: unknown) {
@@ -156,7 +156,7 @@ function usePreboardAvailable(experimentId: number | string) {
     queryFn: async (): Promise<boolean> => {
       try {
         await api.get<unknown>(
-          `/rest/v2/datasets/${experimentId}/design/snapshot`,
+          `/curation/v1/datasets/${experimentId}/design/snapshot`,
         );
         return true;
       } catch (e: unknown) {
@@ -186,7 +186,7 @@ function usePolishedCurators(experimentId: number | string) {
     queryFn: async (): Promise<string[]> => {
       try {
         const raw = await api.get<string[] | { items?: string[] }>(
-          `/rest/v2/datasets/${experimentId}/polished`,
+          `/curation/v1/datasets/${experimentId}/polished`,
         );
         if (Array.isArray(raw)) return raw;
         return raw?.items ?? [];
@@ -216,7 +216,7 @@ function useAgentProposalAvailable(experimentId: number | string) {
     queryFn: async (): Promise<boolean> => {
       try {
         const raw = await api.get<unknown>(
-          `/rest/v2/datasets/${experimentId}/curation-proposals?kind=proposal&limit=1`,
+          `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal&limit=1`,
         );
         if (Array.isArray(raw)) return raw.length > 0;
         if (

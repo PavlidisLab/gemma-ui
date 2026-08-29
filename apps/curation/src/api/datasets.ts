@@ -291,7 +291,7 @@ export function useImportFromGemma() {
     mutationFn: (args: string | ImportArgs) => {
       const body: ImportArgs =
         typeof args === "string" ? { reference: args } : args;
-      return api.post<Design>("/rest/v2/datasets/import", body);
+      return api.post<Design>("/curation/v1/datasets/import", body);
     },
     onSuccess: (design) => {
       qc.invalidateQueries({ queryKey: KEY });
@@ -375,7 +375,7 @@ export function useRenameExperiment(experimentId: number | string) {
   return useMutation({
     mutationFn: (shortName: string) =>
       api.put<RenameDatasetResponse>(
-        `/rest/v2/datasets/${experimentId}/short-name`,
+        `/curation/v1/datasets/${experimentId}/short-name`,
         { short_name: shortName },
       ),
     onSuccess: () => {
@@ -441,7 +441,7 @@ export function usePublishExperiment(experimentId: number | string, reviewer: st
   return useMutation({
     mutationFn: () =>
       api.post<DatasetVisibility>(
-        `/rest/v2/datasets/${experimentId}/publish?reviewer=${encodeURIComponent(reviewer)}`,
+        `/curation/v1/datasets/${experimentId}/publish?reviewer=${encodeURIComponent(reviewer)}`,
         {},
       ),
     onSuccess: (server) => {

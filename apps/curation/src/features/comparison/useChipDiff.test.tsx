@@ -114,7 +114,7 @@ describe("useChipDesignPair — source routing", () => {
       expect(result.current.baseline?.experiment_short_name).toBe("POLISHED"),
     );
     expect(apiGet).toHaveBeenCalledWith(
-      `/rest/v2/datasets/${EID}/polished/curator-b`,
+      `/curation/v1/datasets/${EID}/polished/curator-b`,
     );
   });
 
@@ -128,7 +128,7 @@ describe("useChipDesignPair — source routing", () => {
 
     await waitFor(() => expect(apiGet).toHaveBeenCalled());
     expect(apiGet).toHaveBeenCalledWith(
-      `/rest/v2/datasets/${EID}/polished/consensus_a:b`,
+      `/curation/v1/datasets/${EID}/polished/consensus_a:b`,
     );
   });
 

@@ -314,6 +314,35 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // 🛑 **The curation store's own namespace — ALWAYS the store,
+        // in both modes.** This is the point of the prefix: `/rest/v2`
+        // is Gemma's in remote mode, and several nouns exist on both
+        // sides with different meanings (`/groups` is curation sets
+        // here and USER GROUPS on Gemma), so a curation call routed by
+        // mode reaches whichever backend the mode picked. Under
+        // `/curation/v1` there is nothing to pick — the store is the
+        // only thing that serves it.
+        //
+        // Paul, 2026-08-29: Gemma's routes do not move; the store takes
+        // the prefix. The store mounted all 106 routes here while
+        // `/rest/v2` keeps answering, so this switch and the old
+        // mount's removal are independent deploys.
+        //
+        // Same Authorization override as `/local-api`: these reach
+        // local_api, which does not know the curator's gemma-rest
+        // token.
+        "/curation/v1": {
+          target: LOCAL_API_URL,
+          changeOrigin: true,
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.setHeader(
+                "Authorization",
+                `Bearer ${LOCAL_API_BEARER}`,
+              );
+            });
+          },
+        },
         // Read-only Gemma REST (study preview) → host sidecar; strips
         // the /gemma-ro prefix so the sidecar sees /datasets/{acc}.
         "/gemma-ro": {

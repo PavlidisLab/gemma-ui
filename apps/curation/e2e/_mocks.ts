@@ -12,7 +12,7 @@ import type { Page } from "@playwright/test";
  * the ``/audit/{accession}/stream`` SSE or ``/propose`` action endpoints
  * (used to RUN an audit/proposal, never hit by a read-only render spec).
  */
-const BACKEND_RE = /\/(rest|local-api)\/|\/find-(publication|term)/;
+const BACKEND_RE = /\/(rest|local-api|curation)\/|\/find-(publication|term)/;
 
 /**
  * Freeze a fixture experiment's backend traffic so a spec tests the UI,
@@ -26,6 +26,15 @@ const BACKEND_RE = /\/(rest|local-api)\/|\/find-(publication|term)/;
  * present in the store:
  *
  *   PWHAR_UPDATE=1 npm run e2e -- e2e/<spec>.spec.ts --workers=1
+ *
+ * 🛑 **The store's paths in these HARs were repointed by script on
+ * 2026-08-29, not re-recorded.** The store moved from `/rest/v2` to
+ * `/curation/v1` and no backend was up to record against; the responses
+ * are unchanged and only the recorded request URLs moved, which is what
+ * a real re-record would have produced. Gemma's entries were left alone.
+ * A shim that rewrote the URL at replay time does NOT work — the HAR
+ * router handles the request before any later route, and aborts on a
+ * path it has no entry for.
  *
  * That hits the live backend and rewrites the HAR; commit the result.
  *
@@ -96,7 +105,7 @@ export async function mockExperiment(page: Page, harName: string) {
         body: JSON.stringify(SESSION_USER),
       }),
     );
-    await page.route("**/rest/v2/__config__", (route) =>
+    await page.route("**/curation/v1/__config__", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",

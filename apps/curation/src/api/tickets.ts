@@ -8,7 +8,7 @@
  * Java side exactly so a future flip to the real REST surface only
  * needs to swap ``useMyTickets`` to a network fetch.
  *
- * ``useMyTickets`` hits the local-api ``/rest/v2/tickets`` endpoint
+ * ``useMyTickets`` hits the curation store's ``/curation/v1/tickets`` endpoint
  * directly. No in-tree fixture; the dashboard renders whatever the
  * backend serves (empty list on a fresh DB).
  */
@@ -281,7 +281,7 @@ export function useTicket(
     queryKey: ["ticket", id],
     queryFn: async () => {
       if (id == null) return null;
-      return await api.get<Ticket>(`/rest/v2/tickets/${id}`);
+      return await api.get<Ticket>(`/curation/v1/tickets/${id}`);
     },
     enabled: id != null,
     refetchInterval: options.refetchInterval ?? defaultInterval,
@@ -296,7 +296,7 @@ export function usePatchTicket(ticketId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (patch: Partial<Pick<Ticket, "mode" | "state" | "title" | "flow">>) => {
-      return await api.patch<Ticket>(`/rest/v2/tickets/${ticketId}`, patch);
+      return await api.patch<Ticket>(`/curation/v1/tickets/${ticketId}`, patch);
     },
     onSuccess: (next) => {
       qc.setQueryData(["ticket", ticketId], next);
@@ -320,7 +320,7 @@ export function useRunTicketAction(ticketId: number) {
   return useMutation({
     mutationFn: async (action: string) => {
       return await api.post<unknown>(
-        `/rest/v2/tickets/${ticketId}/actions`,
+        `/curation/v1/tickets/${ticketId}/actions`,
         { action },
       );
     },
@@ -332,7 +332,7 @@ export function useRunTicketAction(ticketId: number) {
   });
 }
 
-/** Body for ``POST /rest/v2/tickets`` — modern shape with explicit
+/** Body for ``POST /curation/v1/tickets`` — modern shape with explicit
  *  targets. The server backfills the legacy ``investigation_kind`` /
  *  ``investigation_id`` columns from the first EE target when those
  *  aren't supplied. Java side will own this endpoint in production;
@@ -358,7 +358,7 @@ export function useCreateTicket() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: TicketCreateBody) => {
-      return await api.post<Ticket>("/rest/v2/tickets", body);
+      return await api.post<Ticket>("/curation/v1/tickets", body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tickets", "mine"] });
@@ -366,7 +366,7 @@ export function useCreateTicket() {
   });
 }
 
-/** Body for ``POST /rest/v2/tickets/from-accession`` — pull an
+/** Body for ``POST /curation/v1/tickets/from-accession`` — pull an
  *  experiment out of Gemma and open a ticket over it in one call.
  *
  *  ``type`` / ``flow`` / ``strip_curation`` are deliberately NOT sent.
@@ -402,7 +402,7 @@ export function useCreateTicketFromAccession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: TicketFromAccessionBody) => {
-      return await api.post<Ticket>("/rest/v2/tickets/from-accession", body);
+      return await api.post<Ticket>("/curation/v1/tickets/from-accession", body);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tickets", "mine"] });
@@ -452,10 +452,10 @@ export function useMyTickets(
     ],
     queryFn: async () => {
       const raw = await api.get<Ticket[]>(
-        light ? "/rest/v2/tickets?include_targets=false" : "/rest/v2/tickets",
+        light ? "/curation/v1/tickets?include_targets=false" : "/curation/v1/tickets",
       );
       // 🛑 Coerce at the source, not at each caller. Tickets live in the
-      // curation store; in remote mode `/rest/v2/tickets` reaches Gemma,
+      // curation store; in remote mode `/curation/v1/tickets` reaches Gemma,
       // which has no such collection and answers with something that is
       // not a list. `all ?? []` passes an OBJECT straight through, and
       // the dashboard's `(tickets ?? []).filter(...)` then threw and
@@ -494,7 +494,7 @@ export function experimentTicketsQueryOptions(experimentId: number | string) {
     queryKey: ["tickets", "by-experiment", experimentId] as const,
     queryFn: async () => {
       const all = await api.get<Ticket[]>(
-        `/rest/v2/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
+        `/curation/v1/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
           `&target_type=EXPRESSION_EXPERIMENT&include_targets=false`,
       );
       return all ?? [];
@@ -561,7 +561,7 @@ export function ticketPriorityRank(p: TicketPriority): number {
   }
 }
 
-/** Body for ``PATCH /rest/v2/tickets/{id}/targets/{type}/{tid}`` —
+/** Body for ``PATCH /curation/v1/tickets/{id}/targets/{type}/{tid}`` —
  *  flip one ticket-target's status and/or triage_disposition. Both
  *  fields optional. Used by the triage view to record include /
  *  exclude per row. */
@@ -614,7 +614,7 @@ export function usePatchTicketTarget(ticketId: number) {
       patch: TicketTargetPatchBody;
     }) => {
       const path =
-        `/rest/v2/tickets/${ticketId}/targets/` +
+        `/curation/v1/tickets/${ticketId}/targets/` +
         `${encodeURIComponent(args.target_type)}/${args.target_id}`;
       return await api.patch<Ticket>(path, toWirePatch(args.patch));
     },
@@ -643,7 +643,7 @@ export interface TriageFinalizeResponse {
   undecided_count: number;
 }
 
-/** Mutation hook for ``POST /rest/v2/tickets/{id}/finalize-triage``.
+/** Mutation hook for ``POST /curation/v1/tickets/{id}/finalize-triage``.
  *  Buckets the ticket's targets by ``triage_disposition`` and
  *  returns the lists the follow-up runner needs. Does not mutate
  *  the ticket — the runner closes it after the follow-on is
@@ -652,7 +652,7 @@ export function useFinalizeTriage(ticketId: number) {
   return useMutation({
     mutationFn: async () => {
       return await api.post<TriageFinalizeResponse>(
-        `/rest/v2/tickets/${ticketId}/finalize-triage`,
+        `/curation/v1/tickets/${ticketId}/finalize-triage`,
         {},
       );
     },

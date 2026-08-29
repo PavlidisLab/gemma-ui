@@ -28,7 +28,7 @@ export function useProposalsForExperiment(
       const q = status ? `?status_filter=${status}` : "";
       try {
         return await api.get<ProposalListResponse>(
-          `/rest/v2/datasets/${experimentId}/curation-proposals${q}`,
+          `/curation/v1/datasets/${experimentId}/curation-proposals${q}`,
         );
       } catch (e: unknown) {
         // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``
@@ -63,7 +63,7 @@ export function useAllProposals(
     queryKey: ["proposals", "all", status, limit] as const,
     queryFn: () =>
       api.get<ProposalListResponse>(
-        `/rest/v2/curation-proposals?status_filter=${status}&limit=${limit}`,
+        `/curation/v1/curation-proposals?status_filter=${status}&limit=${limit}`,
       ),
   });
 }
@@ -71,7 +71,7 @@ export function useAllProposals(
 export function useProposal(proposalId: string | undefined) {
   return useQuery({
     queryKey: KEY.one(proposalId ?? ""),
-    queryFn: () => api.get<Proposal>(`/rest/v2/curation-proposals/${proposalId}`),
+    queryFn: () => api.get<Proposal>(`/curation/v1/curation-proposals/${proposalId}`),
     enabled: !!proposalId,
   });
 }
@@ -206,7 +206,7 @@ export function useReviewProposal(experimentId: number | string) {
       feedback: CuratorFeedback;
     }) =>
       api.patch<Proposal>(
-        `/rest/v2/curation-proposals/${proposalId}`,
+        `/curation/v1/curation-proposals/${proposalId}`,
         feedback,
       ),
     // Await the invalidations so callers using ``mutateAsync().then(...)``

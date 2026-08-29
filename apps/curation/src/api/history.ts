@@ -100,7 +100,7 @@ export function useAuditEvents(
       if (mode === "local") {
         try {
           const raw = await api.get<unknown>(
-            `/local-api/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
+            `/local-api/curation/v1/datasets/${experimentId}/auditEvents?${params}`,
           );
           return adaptAuditEvents(raw);
         } catch (e) {
@@ -128,7 +128,7 @@ export function useAuditEvents(
         if (e instanceof ApiError) {
           try {
             const raw = await api.get<unknown>(
-              `/local-api/rest/v2/datasets/${experimentId}/auditEvents?${params}`,
+              `/local-api/curation/v1/datasets/${experimentId}/auditEvents?${params}`,
             );
             return adaptAuditEvents(raw);
           } catch (e2) {

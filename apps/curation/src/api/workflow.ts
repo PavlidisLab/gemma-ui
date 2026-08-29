@@ -509,7 +509,7 @@ export function useSetVisibility(experimentId: number | string) {
 // Groups
 // ---------------------------------------------------------------------------
 
-/** 🛑 **`/rest/v2/groups` is a real GEMMA route as well as ours.**
+/** 🛑 **`/curation/v1/groups` is a real GEMMA route as well as ours.**
  *  Gemma serves its own USER groups there — measured on gemma2:
  *  `/rest/v2/groups` returns `{id, name, description, memberCount}`
  *  objects ("Administrators", 14 members), and
@@ -537,7 +537,8 @@ export function useSetVisibility(experimentId: number | string) {
 
 /** 🛑 **A set mutation in remote mode edits Gemma's ACCESS CONTROL.**
  *
- *  These calls sit on `/rest/v2/groups*`, which is Gemma's own
+ *  These calls sat on `/rest/v2/groups*` until 2026-08-29, which is
+ *  Gemma's own
  *  `GroupsWebService` — `POST /groups` creates a USER group, `PUT`
  *  renames one, `DELETE` removes one, and the member routes add and
  *  remove people from it. Every one is gated on `isAuthenticated()`
@@ -586,7 +587,7 @@ export function useGroups(filters?: { type?: GroupType; createdBy?: string }) {
     queryKey: KEY.groups(filters),
     queryFn: async () =>
       curationSetsOnly(
-        await api.get<unknown>(`/rest/v2/groups${qs ? `?${qs}` : ""}`),
+        await api.get<unknown>(`/curation/v1/groups${qs ? `?${qs}` : ""}`),
       ),
     refetchOnWindowFocus: true,
   });
@@ -601,7 +602,7 @@ export function useGroup(
     queryKey: [...KEY.group(groupId ?? ""), includeSummaries] as const,
     queryFn: () => {
       const qs = includeSummaries ? "?include_summaries=true" : "";
-      return api.get<Group>(`/rest/v2/groups/${groupId}${qs}`);
+      return api.get<Group>(`/curation/v1/groups/${groupId}${qs}`);
     },
     enabled: !!groupId,
   });
@@ -630,7 +631,7 @@ export function useExperimentGroups(
       const qs = includeSummaries ? "?include_summaries=true" : "";
       return curationSetsOnly(
         await api.get<unknown>(
-          `/rest/v2/datasets/${experimentId}/groups${qs}`,
+          `/curation/v1/datasets/${experimentId}/groups${qs}`,
         ),
       );
     },
@@ -643,7 +644,7 @@ export function useCreateGroup() {
   return useMutation({
     mutationFn: (body: GroupCreate) =>
       (assertCurationStore("create a set"),
-      api.post<Group>("/rest/v2/groups", body)),
+      api.post<Group>("/curation/v1/groups", body)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
     },
@@ -655,7 +656,7 @@ export function useUpdateGroup(groupId: string) {
   return useMutation({
     mutationFn: (body: GroupPatch) =>
       (assertCurationStore("rename a set"),
-      api.patch<Group>(`/rest/v2/groups/${groupId}`, body)),
+      api.patch<Group>(`/curation/v1/groups/${groupId}`, body)),
     onSuccess: (updated) => {
       qc.setQueryData(KEY.group(groupId), updated);
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
@@ -668,7 +669,7 @@ export function useDeleteGroup() {
   return useMutation({
     mutationFn: (groupId: string) =>
       (assertCurationStore("delete a set"),
-      api.delete<void>(`/rest/v2/groups/${groupId}`)),
+      api.delete<void>(`/curation/v1/groups/${groupId}`)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
     },
@@ -682,7 +683,7 @@ export function useFinalizeGroup(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ reviewer, notes }: { reviewer: string; notes?: string }) =>
-      api.post<Group>(`/rest/v2/groups/${groupId}/finalize`, {
+      api.post<Group>(`/curation/v1/groups/${groupId}/finalize`, {
         reviewer,
         ...(notes ? { notes } : {}),
       }),
@@ -700,7 +701,7 @@ export function useReopenGroup(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ reviewer }: { reviewer: string }) =>
-      api.post<Group>(`/rest/v2/groups/${groupId}/reopen`, { reviewer }),
+      api.post<Group>(`/curation/v1/groups/${groupId}/reopen`, { reviewer }),
     onSuccess: (updated) => {
       qc.setQueryData(KEY.group(groupId), updated);
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
@@ -713,7 +714,7 @@ export function useAddGroupMembers(groupId: string) {
   return useMutation({
     mutationFn: (memberIds: (string | number)[]) => {
       assertCurationStore("add set members");
-      return api.post<Group>(`/rest/v2/groups/${groupId}/members`, {
+      return api.post<Group>(`/curation/v1/groups/${groupId}/members`, {
         member_ids: memberIds,
       } satisfies GroupMembersAdd);
     },
@@ -729,7 +730,7 @@ export function useRemoveGroupMember(groupId: string) {
   return useMutation({
     mutationFn: (memberId: string) =>
       (assertCurationStore("remove a set member"),
-      api.delete<void>(`/rest/v2/groups/${groupId}/members/${memberId}`)),
+      api.delete<void>(`/curation/v1/groups/${groupId}/members/${memberId}`)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY.group(groupId) });
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
@@ -756,7 +757,7 @@ export function useCandidates(filters?: {
   return useQuery({
     queryKey: KEY.candidates(filters),
     queryFn: () =>
-      api.get<Candidate[]>(`/rest/v2/candidates${qs ? `?${qs}` : ""}`),
+      api.get<Candidate[]>(`/curation/v1/candidates${qs ? `?${qs}` : ""}`),
     refetchOnWindowFocus: true,
   });
 }
@@ -764,7 +765,7 @@ export function useCandidates(filters?: {
 export function useCandidate(candidateId: string | null | undefined) {
   return useQuery({
     queryKey: KEY.candidate(candidateId ?? ""),
-    queryFn: () => api.get<Candidate>(`/rest/v2/candidates/${candidateId}`),
+    queryFn: () => api.get<Candidate>(`/curation/v1/candidates/${candidateId}`),
     enabled: !!candidateId,
   });
 }
@@ -773,7 +774,7 @@ export function useCreateCandidate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: CandidateCreate) =>
-      api.post<Candidate>("/rest/v2/candidates", body),
+      api.post<Candidate>("/curation/v1/candidates", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "candidates"] });
     },
@@ -784,7 +785,7 @@ export function useCreateCandidatesBulk() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: CandidateBulkCreate) =>
-      api.post<Candidate[]>("/rest/v2/candidates/bulk", body),
+      api.post<Candidate[]>("/curation/v1/candidates/bulk", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "candidates"] });
     },
@@ -795,7 +796,7 @@ export function usePatchCandidate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ id, patch }: { id: string; patch: CandidatePatch }) =>
-      api.patch<Candidate>(`/rest/v2/candidates/${id}`, patch),
+      api.patch<Candidate>(`/curation/v1/candidates/${id}`, patch),
     onSuccess: (updated) => {
       qc.setQueryData(KEY.candidate(updated.id), updated);
       qc.invalidateQueries({ queryKey: ["workflow", "candidates"] });
@@ -807,7 +808,7 @@ export function useDeleteCandidate() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (candidateId: string) =>
-      api.delete<void>(`/rest/v2/candidates/${candidateId}`),
+      api.delete<void>(`/curation/v1/candidates/${candidateId}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "candidates"] });
     },

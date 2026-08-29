@@ -2,7 +2,7 @@
  * Curator dashboard — the curation app's landing surface.
  *
  * Sections (top → bottom):
- *  1. Tickets — ``useMyTickets()`` hits local-api ``/rest/v2/tickets``.
+ *  1. Tickets — ``useMyTickets()`` hits the store's ``/curation/v1/tickets``.
  *     Empty until the curator's queue has open / in-progress tickets.
  *  2. All data — link out to all-experiments table + cross-
  *     experiment inboxes.

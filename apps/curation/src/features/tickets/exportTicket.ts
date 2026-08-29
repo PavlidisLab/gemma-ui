@@ -87,8 +87,8 @@ async function fetchLatestReviewStatus(
     }
   }
   const [audits, proposals] = await Promise.all([
-    fetchList(`/rest/v2/datasets/${experimentId}/audits`),
-    fetchList(`/rest/v2/datasets/${experimentId}/proposals`),
+    fetchList(`/curation/v1/datasets/${experimentId}/audits`),
+    fetchList(`/curation/v1/datasets/${experimentId}/proposals`),
   ]);
   const all = [...audits, ...proposals];
   if (all.length === 0) return null;

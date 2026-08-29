@@ -20,7 +20,7 @@
  *
  * Approach: the mock DB has no live audit records, so the tests inject a
  * minimal synthetic audit via ``page.route()`` on the
- * ``/rest/v2/datasets/${SEED_EXPERIMENT_ID}/audits`` endpoint. The seed
+ * ``/curation/v1/datasets/${SEED_EXPERIMENT_ID}/audits`` endpoint. The seed
  * experiment's live curations (already in the DB) provide the gold-side
  * factor data; the injected ``comparison_proposal`` supplies the agent
  * side with matching sample counts. This keeps the tests self-contained
@@ -171,7 +171,7 @@ const SYNTHETIC_AUDIT = {
  *  synthetic report. */
 async function installAuditMock(page: Page): Promise<void> {
   await page.route(
-    `**/rest/v2/datasets/${EE_ID}/audits**`,
+    `**/curation/v1/datasets/${EE_ID}/audits**`,
     async (route: Route) => {
       await route.fulfill({
         status: 200,

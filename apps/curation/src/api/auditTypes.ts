@@ -1439,7 +1439,7 @@ export type NotSureReason =
   | "other"
   | (string & {});
 
-/** PATCH body for `PATCH /rest/v2/audits/{audit_id}`. One disposition
+/** PATCH body for `PATCH /curation/v1/audits/{audit_id}`. One disposition
  *  update per request — bulk dispositioning isn't supported on this
  *  endpoint by design.
  *

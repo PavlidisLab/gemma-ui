@@ -46,7 +46,7 @@ export class EditLogSinkUnavailable extends Error {
 }
 
 export function curationEditLogPath(experimentId: number | string): string {
-  return `/rest/v2/datasets/${experimentId}/design/edits`;
+  return `/curation/v1/datasets/${experimentId}/design/edits`;
 }
 
 /**
