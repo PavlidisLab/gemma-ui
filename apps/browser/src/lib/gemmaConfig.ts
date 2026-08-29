@@ -29,6 +29,32 @@ function resolveBaseUrl(): string {
 
 export const baseUrl: string = resolveBaseUrl();
 
+/** Which server the app's API calls actually reach — the question the
+ *  footer chip answers.
+ *
+ *  🛑 It has two different answers and conflating them shipped a wrong
+ *  one. `proxyTarget` (`__GEMMA_TARGET__`) is the upstream the DEV
+ *  PROXY fronts, baked at build time from the un-prefixed
+ *  `GEMMA_BASE_URL`. A deployed build has no proxy, so the value
+ *  describes nothing — yet it still carries whatever sat in the build
+ *  machine's environment. The gemma2 deployment reported
+ *  "API → localhost:8080", with the amber local-server dot, while every
+ *  request was going same-origin to gemma2.
+ *
+ *  In prod the answer is always the serving origin, because `apiBase`
+ *  is the relative `/rest/v2` and resolves against wherever the page
+ *  came from. In dev the proxy really does forward elsewhere, so the
+ *  upstream is the honest answer there. */
+export function resolveApiTarget(opts: {
+  dev: boolean;
+  proxyTarget?: string;
+  baseUrl?: string;
+  origin: string;
+}): string {
+  if (!opts.dev) return opts.origin;
+  return opts.proxyTarget || opts.baseUrl || opts.origin;
+}
+
 let warnedMissingBaseUrl = false;
 
 /** Build an absolute Gemma URL for opening in a new tab. Returns

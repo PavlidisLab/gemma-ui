@@ -16,7 +16,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { apiGet, ApiError } from "@/api/client";
 import { restUrl } from "@/api/base";
-import { baseUrl } from "@/lib/gemmaConfig";
+import { baseUrl, resolveApiTarget } from "@/lib/gemmaConfig";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 
@@ -77,13 +77,25 @@ function useServerInfo() {
 
 export function Footer() {
   const me = useMe();
-  // Dev: the upstream the /rest proxy fronts. Prod: there is no such
-  // proxy, so fall back to the configured Gemma origin — which is
-  // where the Apache reverse proxy behind `apiBase` lands anyway.
-  // Without the fallback the chip reads "unset" on every deployed
-  // build.
-  const target =
-    (typeof __GEMMA_TARGET__ === "string" ? __GEMMA_TARGET__ : "") || baseUrl;
+  // Where the API calls actually go — which is not the same question in
+  // dev and in prod, and answering it with one value got it wrong in
+  // prod.
+  //
+  // 🛑 `__GEMMA_TARGET__` is the upstream the DEV PROXY fronts, baked at
+  // build time from the un-prefixed `GEMMA_BASE_URL`. A deployed build
+  // has no such proxy, so that value describes nothing — but it is
+  // still whatever sat in the build machine's environment, and the chip
+  // printed it. The gemma2 deployment says "API → localhost:8080" and
+  // shows the amber local-server dot, while every request is in fact
+  // going same-origin to gemma2: `apiBase` is the relative `/rest/v2`,
+  // so it resolves against wherever the page is served from. A chip
+  // that reports a misconfiguration nobody has is worse than no chip.
+  const target = resolveApiTarget({
+    dev: import.meta.env.DEV,
+    proxyTarget: typeof __GEMMA_TARGET__ === "string" ? __GEMMA_TARGET__ : "",
+    baseUrl,
+    origin: window.location.origin,
+  });
   const host = (() => {
     try {
       return new URL(target).host;
