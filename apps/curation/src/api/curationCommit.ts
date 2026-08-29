@@ -10,15 +10,10 @@
  * the relay itself declares an untyped passthrough body, so the schema
  * on the far side is the only contract there is.
  *
- * 🛑 **No document BUILDER lives here yet, and that is deliberate.**
- * Every commit item names its target with either `gemmaId` (update
- * this existing thing) or `clientRef` (create a new one). The store's
- * design carries neither: `gemma_factor_id` is null on every
- * experiment checked, and its ids are small locals (1, 2, 3) against
- * Gemma's 8715 / 64275. Mapping the draft today would send every
- * factor, value and tag as a `clientRef` and Gemma would CREATE them
- * all — duplicating a dataset's design instead of updating it. The
- * transport is safe to build; the identity is an open question.
+ * 🛑 **The document builder is REMOTE-MODE ONLY.** Every commit item
+ * names its target with `gemmaId` (update this) or `clientRef` (create
+ * this), and sending a local id as a `gemmaId` rewrites whatever
+ * happens to hold that id in Gemma. See `buildCurationDocument`.
  */
 import { api } from "./client";
 import { commitConflictOf, type CommitConflict } from "./commitConflict";
@@ -182,4 +177,163 @@ export function signCuration(
  *  carrying one. Re-exported so callers need one import. */
 export function conflictOf(err: unknown): CommitConflict | null {
   return commitConflictOf(err);
+}
+
+// ---------------------------------------------------------------------------
+// Design -> CurationDocument
+// ---------------------------------------------------------------------------
+
+/** Thrown instead of building a document from a design Gemma did not
+ *  seed. Its message is what a developer reads, not a curator. */
+export const LOCAL_DESIGN_NOT_COMMITTABLE =
+  "Refusing to build a curation document from a local-mode design: its " +
+  "ids are the store's own and would be sent to Gemma as `gemmaId`, " +
+  "rewriting whatever holds those ids there.";
+
+/**
+ * Does this row already exist in Gemma, and under what id?
+ *
+ * 🛑 **In remote mode the discriminator is the SIGN of the id**, and
+ * that is not a convention anyone declared — it falls out of
+ * `composeCurationDesign`. Rows seeded from Gemma keep Gemma's id
+ * verbatim (`id: ef.id`, `id: v.id`); rows that exist only in an agent
+ * PROPOSAL are materialised negative — `-(fi + 1)` for a factor,
+ * `-((fi + 1) * 1000 + (vi + 1))` for a value.
+ *
+ * Measured on gemma2 design 1658: factors 8715 / 11727 / 11728 / 23079,
+ * values 64275 … 77279 — all positive, five-digit, so they cannot
+ * collide with the negatives.
+ *
+ * 🛑 **The sign test is meaningless in LOCAL mode**, where the store's
+ * ids are small locals AND positive: `1, 2, 3` would go out as
+ * `gemmaId` and corrupt a real design. That is why the builder refuses
+ * outright rather than trying to be clever per row. See
+ * `reference_factor_value_identity_two_conventions`.
+ */
+function commitTarget(id: number | null | undefined, kind: string): CommitTarget {
+  if (typeof id === "number" && id > 0) return { gemmaId: id };
+  // Stable within one document, which is all `clientRef` has to be —
+  // the response's `idMap` keys off it to report what was created.
+  return { clientRef: `${kind}-${id ?? "new"}` };
+}
+
+function term(t: { label?: string; uri?: string | null } | null | undefined):
+  | OntologyTermRef
+  | undefined {
+  if (!t) return undefined;
+  const label = t.label?.trim();
+  const uri = t.uri ?? undefined;
+  if (!label && !uri) return undefined;
+  return { ...(label ? { label } : {}), ...(uri ? { uri } : {}) };
+}
+
+/** Minimal shape this builder reads. Declared structurally rather than
+ *  importing `Design` so the commit contract does not acquire a
+ *  dependency on the whole editor's type surface. */
+export interface CommittableDesign {
+  factors?: Array<{
+    id: number;
+    gemma_factor_id?: number | null;
+    name?: string;
+    description?: string;
+    type?: string;
+    category?: { label?: string; uri?: string | null } | null;
+    factor_values?: Array<{
+      id: number;
+      free_text_label?: string;
+      is_baseline?: boolean;
+      biomaterial_short_names?: string[];
+      statements?: Array<{
+        gemma_id?: number | null;
+        category?: { label?: string; uri?: string | null } | null;
+        subject?: { label?: string; uri?: string | null } | null;
+        predicate?: { label?: string; uri?: string | null } | null;
+        object?: { label?: string; uri?: string | null } | null;
+      }>;
+    }>;
+  }>;
+  tags?: Array<{
+    id: number;
+    inferred?: boolean;
+    category?: { label?: string; uri?: string | null } | null;
+    value?: { label?: string; uri?: string | null } | null;
+  }>;
+  should_split_on_factor_id?: number | null;
+  should_split_rationale?: string;
+}
+
+/**
+ * Build the commit document for a design that was seeded from Gemma.
+ *
+ * 🛑 **Nothing is ever DELETED.** `deletedIds` is deliberately not
+ * populated: an absent `deletedIds` removes nothing, so this document
+ * can add and update but cannot drop a factor, value or tag. A
+ * curator's deletion therefore does NOT reach Gemma yet, which is the
+ * safe half of the asymmetry to ship first — a missed deletion is
+ * visible and fixable, an unintended one is neither. Wiring deletion
+ * needs a tombstone list the editor does not currently hand us.
+ *
+ * 🛑 **Inferred tags are skipped.** They are projections of a sample
+ * characteristic or an FV statement, not rows of their own, and Gemma
+ * derives them. Sending one would ask Gemma to create a duplicate of
+ * something it computes. See `feedback_inferred_rows_are_not_tags`.
+ */
+export function buildCurationDocument(
+  design: CommittableDesign,
+  opts: { mode: "local" | "remote"; baselineLastModified?: string },
+): CurationDocument {
+  if (opts.mode !== "remote") {
+    throw new Error(LOCAL_DESIGN_NOT_COMMITTABLE);
+  }
+  const factors: FactorCommit[] = (design.factors ?? []).map((f) => ({
+    // A factor has a second, better witness than the sign: Gemma's own
+    // `gemmaFactorId`, populated on every imported experiment. Prefer
+    // it, fall back to the sign of `id`.
+    ...commitTarget(f.gemma_factor_id ?? f.id, "factor"),
+    ...(f.name ? { name: f.name } : {}),
+    ...(f.description ? { description: f.description } : {}),
+    ...(f.type ? { type: f.type } : {}),
+    ...(term(f.category) ? { category: term(f.category) } : {}),
+    factorValues: {
+      items: (f.factor_values ?? []).map((v) => ({
+        ...commitTarget(v.id, "fv"),
+        ...(v.free_text_label ? { freeTextLabel: v.free_text_label } : {}),
+        isBaseline: !!v.is_baseline,
+        ...(v.biomaterial_short_names?.length
+          ? { biomaterialShortNames: v.biomaterial_short_names }
+          : {}),
+        statements: {
+          items: (v.statements ?? []).map((st) => ({
+            ...commitTarget(st.gemma_id, "stmt"),
+            ...(term(st.category) ? { category: term(st.category) } : {}),
+            ...(term(st.subject) ? { subject: term(st.subject) } : {}),
+            ...(term(st.predicate) ? { predicate: term(st.predicate) } : {}),
+            ...(term(st.object) ? { object: term(st.object) } : {}),
+          })),
+        },
+      })),
+    },
+  }));
+  const tags: TagCommit[] = (design.tags ?? [])
+    .filter((t) => !t.inferred)
+    .map((t) => ({
+      ...commitTarget(t.id, "tag"),
+      ...(term(t.category) ? { category: term(t.category) } : {}),
+      ...(term(t.value) ? { value: term(t.value) } : {}),
+    }));
+  return {
+    ...(opts.baselineLastModified
+      ? { baseline: { lastModified: opts.baselineLastModified } }
+      : {}),
+    design: {
+      factors: { items: factors },
+      ...(typeof design.should_split_on_factor_id === "number"
+        ? { shouldSplitOnFactorId: design.should_split_on_factor_id }
+        : {}),
+      ...(design.should_split_rationale
+        ? { shouldSplitRationale: design.should_split_rationale }
+        : {}),
+    },
+    tags: { items: tags },
+  };
 }
