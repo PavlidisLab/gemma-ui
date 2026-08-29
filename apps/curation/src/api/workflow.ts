@@ -508,6 +508,37 @@ export function useSetVisibility(experimentId: number | string) {
 // Groups
 // ---------------------------------------------------------------------------
 
+/** 🛑 **`/rest/v2/groups` IS A REAL GEMMA ROUTE, and it is not ours.**
+ *  Gemma serves its own USER groups there — measured on gemma2:
+ *  `/rest/v2/groups` returns `{id, name, description, memberCount}`
+ *  objects ("Administrators", 14 members), and
+ *  `/rest/v2/datasets/{id}/groups` returns the dataset's ACL groups as
+ *  bare STRINGS (`["Agents","Administrators"]`).
+ *
+ *  Curation sets answer the same paths on the store, so in remote mode
+ *  the two collide and Gemma's answer arrives in a `Group[]` shape. The
+ *  strings render as chips with no label and a
+ *  "undefined · undefined · undefined members" tooltip; the user-group
+ *  objects are worse, because `memberCount` snakeifies into
+ *  `member_count` and "Administrators · 14 members" reads as a
+ *  perfectly ordinary set.
+ *
+ *  This guard keeps the wrong data off the screen. It is not the fix:
+ *  the sets API has to move off `/rest`, which is Gemma's namespace —
+ *  filed as `UIB_TO_CAB_2026_08_29_THE_SETS_API_COLLIDES_WITH_GEMMAS_OWN_GROUPS`.
+ *  Delete this once the routes move; until then a set with no `type`
+ *  is not a set we can render. */
+export function curationSetsOnly(rows: unknown): Group[] {
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
+    (r): r is Group =>
+      !!r &&
+      typeof r === "object" &&
+      typeof (r as Group).id === "string" &&
+      typeof (r as Group).type === "string",
+  );
+}
+
 export function useGroups(filters?: { type?: GroupType; createdBy?: string }) {
   const params = new URLSearchParams();
   if (filters?.type) params.set("type", filters.type);
@@ -515,8 +546,10 @@ export function useGroups(filters?: { type?: GroupType; createdBy?: string }) {
   const qs = params.toString();
   return useQuery({
     queryKey: KEY.groups(filters),
-    queryFn: () =>
-      api.get<Group[]>(`/rest/v2/groups${qs ? `?${qs}` : ""}`),
+    queryFn: async () =>
+      curationSetsOnly(
+        await api.get<unknown>(`/rest/v2/groups${qs ? `?${qs}` : ""}`),
+      ),
     refetchOnWindowFocus: true,
   });
 }
@@ -555,9 +588,13 @@ export function useExperimentGroups(
       experimentId,
       includeSummaries,
     ] as const,
-    queryFn: () => {
+    queryFn: async () => {
       const qs = includeSummaries ? "?include_summaries=true" : "";
-      return api.get<Group[]>(`/rest/v2/datasets/${experimentId}/groups${qs}`);
+      return curationSetsOnly(
+        await api.get<unknown>(
+          `/rest/v2/datasets/${experimentId}/groups${qs}`,
+        ),
+      );
     },
     refetchOnWindowFocus: true,
   });
