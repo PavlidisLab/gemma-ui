@@ -23,6 +23,7 @@ import { getAllPlatforms, getPlatformElementCount } from "@/api/endpoints";
 import type { Platform } from "@/lib/types";
 import { isSupportedTaxon } from "@/lib/gemmaConfig";
 import { manufacturerOf, manufacturerCounts } from "./manufacturer";
+import { platformRouteParam } from "@/lib/platformConstants";
 
 type SortKey =
   | "name"
@@ -266,7 +267,7 @@ function PlatformRow({ platform: p }: { platform: Platform }) {
           {p.shortName ? (
             <Link
               to="/platforms/$shortName"
-              params={{ shortName: p.shortName }}
+              params={{ shortName: platformRouteParam(p) }}
               onClick={(e) => e.stopPropagation()}
               className="text-gemma-accent hover:underline"
             >

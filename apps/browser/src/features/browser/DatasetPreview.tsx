@@ -9,6 +9,7 @@ import { Plus, Minus, ExternalLink, AlertOctagon, ArrowRight } from "lucide-reac
 import { marked } from "marked";
 import { getDatasetAnnotations } from "@/api/endpoints";
 import { SHOW_GEEQ } from "@/lib/geeq";
+import { datasetSource } from "@/lib/externalSource";
 import { HelpHint } from "@/features/shared/HelpHint";
 import type {
   AnnotationTerm,
@@ -166,11 +167,11 @@ export function DatasetPreview({
   }, [terms]);
 
   const quality = SHOW_GEEQ ? dataset.geeq?.publicQualityScore : undefined;
-  const accession = dataset.accession?.accession;
-  const isGeo = !!accession && /^GSE/i.test(accession);
-  const geoUrl = isGeo
-    ? `https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${encodeURIComponent(accession!)}`
-    : null;
+  // Source-aware, and it used to render nothing at all: this read
+  // `dataset.accession?.accession` where the field is a STRING, so the
+  // link was always suppressed. The `/^GSE/` test then assumed GEO on
+  // top of that — wrong for ArrayExpress, CELLxGENE and SRA imports.
+  const source = datasetSource(dataset);
 
   return (
     <div className="py-3 px-2 space-y-3">
@@ -224,17 +225,23 @@ export function DatasetPreview({
           View experiment
           <ArrowRight className="h-3 w-3" />
         </Link>
-        {geoUrl ? (
+        {source?.href ? (
           <a
-            href={geoUrl}
+            href={source.href}
             target="_blank"
             rel="noreferrer"
             className="inline-flex items-center gap-0.5 text-gemma-accent hover:underline"
-            title="open on NCBI GEO"
+            title={`open on ${source.database}`}
           >
-            GEO: {accession}
+            {source.database}: {source.label}
             <ExternalLink className="h-3 w-3" />
           </a>
+        ) : source ? (
+          // Known source, no URL we trust for it. The accession is
+          // still worth showing — a reader can paste it.
+          <span title={`from ${source.database}`}>
+            {source.database}: {source.label}
+          </span>
         ) : null}
       </div>
 

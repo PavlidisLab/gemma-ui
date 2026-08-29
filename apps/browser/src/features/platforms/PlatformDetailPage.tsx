@@ -47,6 +47,7 @@ import {
   ProbeSequence,
 } from "./probeDetail";
 import { PageMask } from "@gemma/ui";
+import { platformRouteParam } from "@/lib/platformConstants";
 
 const ELEMENTS_PAGE = 50;
 const DATASETS_PAGE = 25;
@@ -263,7 +264,7 @@ function PlatformRef({
   return (
     <Link
       to="/platforms/$shortName"
-      params={{ shortName: target.shortName ?? String(target.id) }}
+      params={{ shortName: platformRouteParam(target) }}
       className="text-gemma-accent hover:underline"
     >
       {target.shortName ?? `#${target.id}`}
@@ -533,7 +534,7 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
                 key={el.id}
                 element={el}
                 platformId={p.id}
-                platformShortName={p.shortName ?? String(p.id)}
+                platformShortName={platformRouteParam(p)}
                 geneNames={geneNames}
               />
             ))}
