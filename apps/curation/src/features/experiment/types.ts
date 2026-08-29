@@ -28,6 +28,12 @@ export interface OntologyTerm {
 }
 
 export interface Statement {
+  /** Gemma's statement id, when this row came from Gemma. Rows sharing
+   *  one id are the pairs of ONE statement — that is the unit Gemma's
+   *  two-pair ceiling applies to. Null on a row the curator just made:
+   *  it has no statement of its own yet, and each uncommitted pair
+   *  becomes its own statement, so it cannot be over the ceiling. */
+  gemma_id?: number | null;
   /**
    * Per-statement category. Mirrors Gemma's Characteristic.category.
    * Statements in the same FactorValue usually share a category and
@@ -897,22 +903,38 @@ export function validateDesign(design: Design): DesignValidationState {
       for (const sn of fv.biomaterial_short_names) {
         seen.set(sn, (seen.get(sn) ?? 0) + 1);
       }
-      // Pairs per subject, counted the way the editor groups them.
-      // Placeholder rows (subject named, pair not filled in) don't
-      // count — an in-progress "+ pred/obj" row would otherwise flag
-      // the moment it appeared.
-      const pairsBySubject = new Map<string, { subject: string; n: number }>();
+      // Pairs per STATEMENT — the unit Gemma's ceiling applies to.
+      //
+      // 🛑 This counted per `(category, subject)` group until
+      // 2026-08-29, which flagged a shape that is correct and fully
+      // stored. Gemma caps ONE statement at two pairs, but a
+      // `FactorValue` holds a `Set<Statement>` and nothing makes two
+      // statements differ in subject — `Statement.equals` folds in all
+      // four pair fields, so two statements on one subject both
+      // persist. A subject already carrying two pairs takes a third in
+      // a SECOND statement, which is the only way to put a background
+      // on a compound genotype, and 1,953 subjects corpus-wide are
+      // already at two `has_genotype` pairs. Warning there would have
+      // fired on the right answer across that whole population.
+      //
+      // Rows sharing a `gemma_id` are one statement's pairs; a row
+      // without one is a curator's new pair, which becomes its own
+      // statement. Placeholder rows (subject named, pair not filled in)
+      // don't count — an in-progress "+ pred/obj" row would otherwise
+      // flag the moment it appeared.
+      const pairsByStatement = new Map<string, { subject: string; n: number }>();
       for (const s of fv.statements) {
         if (!statementHasPair(s)) continue;
-        const k = statementGroupKey(s);
-        const entry = pairsBySubject.get(k) ?? {
+        if (s.gemma_id == null) continue;
+        const k = String(s.gemma_id);
+        const entry = pairsByStatement.get(k) ?? {
           subject: s.subject?.label ?? "",
           n: 0,
         };
         entry.n++;
-        pairsBySubject.set(k, entry);
+        pairsByStatement.set(k, entry);
       }
-      for (const { subject, n } of pairsBySubject.values()) {
+      for (const { subject, n } of pairsByStatement.values()) {
         if (n > MAX_STATEMENT_PAIRS) {
           overfullStatementGroups.push({ fv_id: fv.id, subject, pairs: n });
         }

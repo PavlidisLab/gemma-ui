@@ -511,16 +511,21 @@ describe("validateDesign — overfull_statement_groups", () => {
   /** One FV whose single subject carries N (predicate, object) pairs,
    *  spelled the way the UI stores them: flat rows sharing
    *  (category, subject). */
+  /** Pairs of ONE Gemma statement unless a per-pair id says otherwise.
+   *  A two-pair statement arrives as two rows sharing one `gemma_id`,
+   *  so the id — not the subject — is what groups them. */
   const fvWithPairs = (
     id: number,
     subject: string,
-    pairs: [string, string][],
+    pairs: Array<[string, string] | [string, string, number]>,
+    stmtId = 900 + id,
   ): FactorValue => ({
     id,
     free_text_label: subject,
     is_baseline: false,
     biomaterial_short_names: ["s1"],
-    statements: pairs.map(([p, o]) => ({
+    statements: pairs.map(([p, o, own]) => ({
+      gemma_id: typeof own === "number" ? own : stmtId,
       category: { label: "treatment", uri: "http://x/EFO_1" },
       subject: { label: subject, uri: "http://x/CHEBI_1" },
       predicate: { label: p, uri: null },
@@ -545,9 +550,10 @@ describe("validateDesign — overfull_statement_groups", () => {
     }
   });
 
-  it("flags a third pair on the same subject", () => {
+  it("flags a third pair on ONE statement — the write Gemma truncates", () => {
     // Real shape, experiment 24995: valproic acid carrying delivered
-    // to / delivered at dose / delivered for duration.
+    // to / delivered at dose / delivered for duration, all on one
+    // statement. Gemma holds two pairs and drops the third silently.
     const state = validateDesign(
       designWith([
         fvWithPairs(7, "valproic acid", [
@@ -562,9 +568,45 @@ describe("validateDesign — overfull_statement_groups", () => {
     ]);
   });
 
-  it("counts per subject, not per factor value", () => {
-    // Two subjects with two pairs each is fine — the ceiling is on one
-    // subject's pairs, not on how many statements an FV carries.
+  it("🛑 says nothing when one subject's pairs are spread over TWO statements", () => {
+    // The shape a background on a compound genotype needs, and the one
+    // the old per-subject count flagged: nothing is dropped, because a
+    // FactorValue holds a Set<Statement> and two statements on one
+    // subject both persist (gembro, 2026-08-29). Confirmed on the wire:
+    // a two-pair statement arrives as two rows sharing one id, so
+    // different ids are genuinely different statements.
+    const state = validateDesign(
+      designWith([
+        fvWithPairs(7, "Bmal1 knockout", [
+          ["has_genotype", "homozygous negative", 100],
+          ["targeted to", "astrocyte", 100],
+          ["has background", "C57BL/6", 101],
+        ]),
+      ]),
+    );
+    expect(state.factors[0].overfull_statement_groups).toEqual([]);
+  });
+
+  it("a curator's uncommitted pairs are each their own statement", () => {
+    // No `gemma_id` yet — the commit sends one item per pair and each
+    // becomes its own statement, so an uncommitted row cannot be over
+    // a ceiling that applies to a statement it does not share.
+    const fv = fvWithPairs(7, "vpa", [
+      ["delivered to", "mother"],
+      ["delivered at dose", "20 g/kg"],
+      ["delivered for duration", "2 week"],
+    ]);
+    const fresh = {
+      ...fv,
+      statements: fv.statements.map((s) => ({ ...s, gemma_id: null })),
+    };
+    const state = validateDesign(designWith([fresh]));
+    expect(state.factors[0].overfull_statement_groups).toEqual([]);
+  });
+
+  it("counts per statement, not per factor value", () => {
+    // Two statements with two pairs each is fine — the ceiling is on
+    // one statement, not on how many an FV carries.
     const state = validateDesign(
       designWith([
         {
@@ -573,14 +615,24 @@ describe("validateDesign — overfull_statement_groups", () => {
           is_baseline: false,
           biomaterial_short_names: ["s1"],
           statements: [
-            ...fvWithPairs(3, "drug a", [
-              ["delivered at dose", "1"],
-              ["delivered for duration", "2 d"],
-            ]).statements,
-            ...fvWithPairs(3, "drug b", [
-              ["delivered at dose", "3"],
-              ["delivered for duration", "4 d"],
-            ]).statements,
+            ...fvWithPairs(
+              3,
+              "drug a",
+              [
+                ["delivered at dose", "1"],
+                ["delivered for duration", "2 d"],
+              ],
+              810,
+            ).statements,
+            ...fvWithPairs(
+              3,
+              "drug b",
+              [
+                ["delivered at dose", "3"],
+                ["delivered for duration", "4 d"],
+              ],
+              811,
+            ).statements,
           ],
         },
       ]),
@@ -611,10 +663,10 @@ describe("validateDesign — overfull_statement_groups", () => {
     expect(state.factors[0].overfull_statement_groups).toEqual([]);
   });
 
-  it("is advisory — it does not fail ok on its own", () => {
-    // Nothing is lost while the design lives in the local store, which
-    // keeps statements flat. Blocking commit would strand a curator on
-    // data an agent authored.
+  it("is reported, and the design does not read as valid while it stands", () => {
+    // It is part of `ok` (2026-08-20) but NOT a commit blocker — only a
+    // free-text category and an unknown predicate stop the commit bar.
+    // A curator sees a design that is not valid and can still commit.
     const clean = designWith([
       {
         ...fvWithPairs(1, "vpa", [

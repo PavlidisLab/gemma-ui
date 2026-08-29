@@ -688,6 +688,14 @@ function composeFvStatements(v: G2FactorValue): Statement[] {
 
 function composeStatement(s: G2Statement): Statement {
   return {
+    // 🛑 Gemma's statement id, and the reason it is worth carrying: a
+    // statement holding TWO predicate/object pairs arrives as TWO wire
+    // rows SHARING one id (measured — eid 50592 fv 306153, id 53997157,
+    // `MDA-MB-231 cell` with `has modifier → metastasis` and
+    // `located in → brain`). Without it, two pairs of one statement and
+    // two separate statements on one subject are indistinguishable, and
+    // only the first is over Gemma's ceiling.
+    gemma_id: typeof s.id === "number" ? s.id : null,
     category: {
       label: s.category ?? "",
       uri: s.category_uri ?? null,
