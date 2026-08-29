@@ -1,4 +1,7 @@
-import { useDatasetInferredConcepts } from "@/api/termRelations";
+import {
+  sourceDisplayName,
+  useDatasetInferredConcepts,
+} from "@/api/termRelations";
 import { shortenUri } from "@/lib/curie";
 
 /**
@@ -84,18 +87,36 @@ export function InferredConceptsRowBody({
   // One chip per distinct implied concept. The same concept can be
   // implied by several annotations (four cell lines all implying one
   // organism part), and four identical chips would read as four facts.
-  const byConcept = new Map<string, { row: (typeof data)[number]; from: string[] }>();
+  //
+  // 🛑 A seed is a LABEL PLUS THE SOURCE THAT USES IT. On GSE286105 all
+  // four rows carry one subject URI (CLO_0003704) under two names —
+  // `Hep G2 cell` is CLO's, `Hep-G2` is Cellosaurus' — and the
+  // experiment is annotated with the first. Naming the seed alone sends
+  // a reader looking for a `Hep-G2` annotation that is not there and
+  // cannot be. The source is what makes the unfamiliar name explicable,
+  // so the two travel together and dedupe together.
+  type Seed = { label: string; source: string };
+  const byConcept = new Map<
+    string,
+    { row: (typeof data)[number]; from: Seed[]; seen: Set<string> }
+  >();
   for (const r of data) {
     const label = (r.implied_object ?? "").trim();
     if (!label) continue;
     const key = (r.implied_object_uri ?? label).toLowerCase();
-    const existing = byConcept.get(key);
-    const from = (r.implied_subject ?? "").trim();
-    if (existing) {
-      if (from && !existing.from.includes(from)) existing.from.push(from);
-    } else {
-      byConcept.set(key, { row: r, from: from ? [from] : [] });
-    }
+    const entry = byConcept.get(key) ?? { row: r, from: [], seen: new Set() };
+    if (!byConcept.has(key)) byConcept.set(key, entry);
+    const seedLabel = (r.implied_subject ?? "").trim();
+    if (!seedLabel) continue;
+    // Deduped on the seed's URI where it has one: the same seed under
+    // two predicates is one implication, while one URI under two source
+    // spellings is two things to a reader and both are worth showing.
+    const seedKey = `${(r.implied_subject_uri ?? seedLabel).toLowerCase()}|${(
+      r.source ?? ""
+    ).toUpperCase()}`;
+    if (entry.seen.has(seedKey)) continue;
+    entry.seen.add(seedKey);
+    entry.from.push({ label: seedLabel, source: sourceDisplayName(r.source) });
   }
   const concepts = [...byConcept.values()];
   if (concepts.length === 0) return null;
@@ -123,8 +144,19 @@ export function InferredConceptsRowBody({
         // separates an assertion from an inference. Inside a chip that
         // is by definition inferred it contradicts the row it sits in,
         // and it shipped that way until it was seen on screen.
+        //
+        // 🛑 The seed is named WITH its source — *"just say 'Inferred
+        // from Hep-G2 cell via Cellosaurus'"* (2026-08-28). A
+        // seed label the curator cannot find in the annotation block is
+        // not a defect to hide: it is a second resource's name for the
+        // term the experiment IS annotated with, and saying which
+        // resource is the whole explanation. Origin, never judgement.
         const sources =
-          from.length > 0 ? from.join(", ") : "this experiment's annotations";
+          from.length > 0
+            ? from
+                .map((s) => (s.source ? `${s.label} via ${s.source}` : s.label))
+                .join(", ")
+            : "this experiment's annotations";
         const title = `Inferred from: ${sources}`;
         return (
           <span

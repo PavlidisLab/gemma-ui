@@ -109,6 +109,25 @@ export const BASIS_COPY: Record<RelationBasis, { label: string; title: string }>
   },
 };
 
+/** How a `source` token reads inside a sentence.
+ *
+ *  The wire spells sources as identifiers — `CELLOSAURUS`, `CLO`, `MGI`.
+ *  A badge can show that verbatim; a tooltip that reads "inferred from X
+ *  via CELLOSAURUS" shouts. Only resources whose name is a WORD are
+ *  cased here — an acronym is already written the way it is read, and
+ *  title-casing `CLO` would invent a name nobody uses.
+ *
+ *  Unknown tokens pass through untouched: a source we have never seen is
+ *  shown as the producer spelled it, never guessed at. */
+const SOURCE_DISPLAY_NAMES: Record<string, string> = {
+  CELLOSAURUS: "Cellosaurus",
+};
+
+export function sourceDisplayName(source: string | null | undefined): string {
+  const raw = (source ?? "").trim();
+  return SOURCE_DISPLAY_NAMES[raw.toUpperCase()] ?? raw;
+}
+
 export interface RelationRow {
   subject: string;
   subject_uri?: string | null;

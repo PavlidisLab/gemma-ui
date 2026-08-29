@@ -98,6 +98,68 @@ describe("InferredConceptsRow", () => {
     expect(screen.getByTitle(/PC-3, 22Rv1/)).toBeTruthy();
   });
 
+  it("names the resource that uses the seed's label", async () => {
+    // GSE286105, verbatim off gemma2: one subject URI, two names. The
+    // experiment is annotated `Hep G2 cell`; Cellosaurus calls the same
+    // term `Hep-G2`, so a chip seeded by it must say where that name
+    // comes from or it names an annotation the curator cannot find.
+    rows.current = [
+      row({
+        implied_subject: "Hep-G2",
+        implied_subject_uri: "http://purl.obolibrary.org/obo/CLO_0003704",
+        implied_object: "hepatoblastoma",
+        implied_object_uri: "http://purl.obolibrary.org/obo/MONDO_0004553",
+        basis: "EXTERNAL",
+        source: "CELLOSAURUS",
+      }),
+    ];
+    open();
+    // Cased for a sentence, not shouted as the wire spells it.
+    const chip = await waitFor(() =>
+      screen.getByTitle("Inferred from: Hep-G2 via Cellosaurus"),
+    );
+    expect(chip).toBeTruthy();
+  });
+
+  it("keeps both names when one URI arrives under two sources", async () => {
+    // Two spellings of one term are two things to a reader; the source
+    // is what tells them apart, so neither collapses into the other.
+    const cloUri = "http://purl.obolibrary.org/obo/CLO_0003704";
+    rows.current = [
+      row({
+        implied_subject: "Hep G2 cell",
+        implied_subject_uri: cloUri,
+        implied_object: "liver",
+        implied_object_uri: "u",
+        basis: "ONTOLOGY",
+        source: "CLO",
+      }),
+      row({
+        implied_subject: "Hep-G2",
+        implied_subject_uri: cloUri,
+        implied_object: "liver",
+        implied_object_uri: "u",
+        basis: "EXTERNAL",
+        source: "CELLOSAURUS",
+      }),
+      // Same seed, same source, a second predicate — one implication.
+      row({
+        implied_subject: "Hep-G2",
+        implied_subject_uri: cloUri,
+        implied_predicate: "derives from anatomic part",
+        implied_object: "liver",
+        implied_object_uri: "u",
+        basis: "EXTERNAL",
+        source: "CELLOSAURUS",
+      }),
+    ];
+    open();
+    const chip = await waitFor(() => screen.getByTitle(/^Inferred from: /));
+    expect(chip.getAttribute("title")).toBe(
+      "Inferred from: Hep G2 cell via CLO, Hep-G2 via Cellosaurus",
+    );
+  });
+
   it("respects the gate — wired to the const, not hardcoded", async () => {
     // Pins the WIRING, not the value — flipping the const must not
     // break this test, but a hardcoded gate must. When off it hides
