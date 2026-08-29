@@ -58,7 +58,24 @@ export function useUpdateCurationDetails(
     mutationFn: (
       patch: Partial<
         Pick<CurationDetails, "curation_note" | "troubled" | "needs_attention">
-      >,
+      > & {
+        /** 🛑 **`note` is NOT `curation_note`.** Gemma's request DTO
+         *  carries both, and they go to different places:
+         *  `curationNote` updates the dataset's note via the legacy
+         *  `CurationNoteUpdateEvent`, while `note` is what
+         *  `applyFlagViaTickets` uses as the TITLE of the ticket a
+         *  flag-on opens, and as the resolution COMMENT on every
+         *  ticket a flag-off resolves
+         *  (`DatasetsWebService.applyFlagViaTickets`).
+         *
+         *  Until 2026-08-29 the UI sent only `curation_note`, so the
+         *  resolution one-liner a curator types into the Notes drawer
+         *  landed in the note and never reached the ticket being
+         *  resolved — and a flag-on always fell back to the default
+         *  title. Gemma ticket 4 is called "Dataset flagged as
+         *  troubled" for exactly that reason. */
+        note?: string;
+      },
     ) =>
       api.put<CurationDetails>(
         `/rest/v2/datasets/${experimentId}/curationDetails?reviewer=${encodeURIComponent(reviewer)}`,

@@ -52,7 +52,7 @@ interface ResolveCtx {
  *  of falling through ``{[field]: ...}`` inference into ``any``. */
 type CurationDetailsPatch = Partial<
   Pick<CurationDetails, "curation_note" | "troubled" | "needs_attention">
->;
+> & { note?: string };
 
 /**
  * Curation-status drawer — backed by Gemma's CurationDetails (the
@@ -157,6 +157,11 @@ export function NotesDrawer({
     const patch: CurationDetailsPatch = {
       [resolving.field]: false,
       curation_note: next,
+      // The same sentence, sent twice on purpose: `curation_note` is
+      // the dataset's running note, `note` is the resolution comment
+      // Gemma writes onto every ticket this clear resolves. Different
+      // fields, different destinations — see `useUpdateCurationDetails`.
+      note: text,
     };
     updater.mutate(patch);
     setResolving(null);
@@ -238,7 +243,7 @@ export function NotesDrawer({
               <div className="flex items-center gap-3 flex-wrap">
                 <FlagToggle
                   label="needs attention"
-                  description="A curator needs to look at this"
+                  description="A curator needs to look at this. Setting it opens a ticket."
                   set={saved.needs_attention}
                   meta={lastEventMeta(
                     saved.last_needs_attention_event_at,
@@ -250,7 +255,7 @@ export function NotesDrawer({
                 />
                 <FlagToggle
                   label="troubled"
-                  description="Known data issue with this experiment"
+                  description="Known data issue with this experiment. Setting it opens a quality-review ticket."
                   set={saved.troubled}
                   meta={lastEventMeta(
                     saved.last_troubled_event_at,
@@ -341,6 +346,22 @@ export function NotesDrawer({
                 How was this {resolving.label === "needs attention" ? "addressed" : "resolved"}?
                 The note will be appended to the curation note and recorded
                 in the audit trail.
+              </p>
+              {/* Clearing a flag is not only a flag change: Gemma's
+                  `applyFlagViaTickets` resolves every open ticket of the
+                  matching type on this dataset, with this text as the
+                  resolution comment. Said plainly because the curator is
+                  already being asked to stop and type — not to talk them
+                  out of it. */}
+              <p className="text-[11px] text-slate-500">
+                This also resolves any open{" "}
+                <span className="font-medium">
+                  {resolving.field === "needs_attention"
+                    ? "generic and batch-info"
+                    : "quality-review"}
+                </span>{" "}
+                tickets on this experiment, and your note becomes their
+                resolution comment.
               </p>
               <textarea
                 value={resolveText}
