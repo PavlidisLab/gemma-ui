@@ -156,6 +156,30 @@ export function preflightCuration(
  *
  * A 200 means EVERYTHING applied; there is no partial write to
  * reconcile.
+ *
+ * 🛑 **A 403 here does NOT mean the curator lacks permission**, and the
+ * surface that wires this must not say so. Settled 2026-08-29 across
+ * three of us:
+ *
+ * `applyDesignChange` → `updateFactorMetadata` →
+ * `experimentalFactorService.update`, which is
+ * `@Secured({"GROUP_USER","ACL_SECURABLE_EDIT"})` and reads the
+ * **ExperimentalFactor's own** `acl_object_identity` row. Factors are
+ * `SecuredChild` entities that get their OI at CREATE time via
+ * `AclAdvice`. Where that row is missing there is no OI to read, the
+ * voter denies, and **an admin is denied too** — mask 16 on the parent
+ * EE does not help, because it is the child being read.
+ *
+ * This is not hypothetical on production: gembro's ACL linter counted
+ * **1,920 FactorValues and others without OIs** (partial scan). So a
+ * design commit fails on an ACL-incomplete dataset, and the honest
+ * message is "this dataset's annotation records are incomplete —
+ * report it", never "you do not have permission". Sending a curator to
+ * ask for access they already hold is the failure mode to avoid.
+ *
+ * Tells it apart from a real authorization problem: `curationDetails`
+ * commits fine on the same dataset (it never touches a factor) and
+ * preflight 200s (a dry run reads nothing secured).
  */
 export function commitCuration(
   experimentId: number | string,
