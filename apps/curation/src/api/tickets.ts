@@ -172,28 +172,36 @@ export function targetRowId(
 
 /** What `screeningResultReason` to send alongside a `screeningResult`.
  *
- *  🛑 **Gemma clears the reason on ANY patch carrying `screeningResult`
- *  unless the reason key rides along — including a patch that re-sends
- *  the SAME value.** Measured on sandbox `25e175f83d`, 2026-08-29:
- *  seed `UNDECIDED` + "needs the paper", then `{"screeningResult":
- *  "REJECT"}` → reason `null`; re-seed, then `{"screeningResult":
- *  "REJECT"}` again → reason `null`. A status-only patch leaves both
- *  alone. (The handoff that shipped the field says "Omit = unchanged";
- *  that is not the behaviour, and gembro has been told.)
+ *  Two jobs, and only one of them is optional.
  *
- *  The store is gentler: it clears the reason only when the decision
- *  actually CHANGES, so "a stale reason cannot outlive the `unsure` it
- *  belonged to and reattach to a later `include`" — see
- *  `TicketTargetPatchBody`. Our callers are written to that contract
- *  and send the reason key only when they have a new reason
- *  (`TriageView` lines 793/1099, and the bulk action never does), so
- *  passing their body through unchanged would silently drop a
- *  curator's note the second time they touched the row.
+ *  **Essential — clear on a decision CHANGE.** Gemma deliberately does
+ *  NOT auto-clear: switching `UNDECIDED` → `REJECT` with no reason key
+ *  leaves the old note in place, "for correction rather than silently
+ *  dropping it" (gembro). Verified live on the sandbox. The store's
+ *  contract is the opposite — a stale reason must not outlive the
+ *  `unsure` it belonged to and reattach to a later `include`, see
+ *  `TicketTargetPatchBody` — so keeping that behaviour is now entirely
+ *  this client's responsibility. Returning `null` here is what does it.
  *
- *  So the divergence is absorbed here rather than pushed onto three
- *  call sites: an unchanged decision carries its existing reason
- *  forward, a changed one clears, which is exactly what the store
- *  would have done. */
+ *  **Belt-and-braces — carry forward on an UNCHANGED decision.** As of
+ *  gemma2 `8926e8d170` the server honours "omit the key = leave the
+ *  reason alone", so re-sending the same decision is a true no-op:
+ *  note kept, no event. Before that fix it wiped the note, which is how
+ *  this function came to exist — a curator clicking `unsure` twice lost
+ *  what they wrote the first time, silently, with a 200.
+ *
+ *  🛑 Kept anyway, because this app is served by whatever Gemma is on
+ *  the host and cannot assume the fix is present. On a current build the
+ *  branch is redundant and costs one field on the wire; on an older one
+ *  it is the only thing standing between a second click and lost work.
+ *  Same reasoning as the browser admin cards degrading per-count rather
+ *  than per-card.
+ *
+ *  🛑 And do not settle that question by reading `buildInfo.gitHash`.
+ *  Measured 2026-08-29: the sandbox reported `25e175f83d`, the PRE-fix
+ *  commit, while exhibiting the fixed behaviour — a WAR built from a
+ *  working tree before the commit carries the parent's stamp. The hash
+ *  can under-report what is actually running, so probe the behaviour. */
 export function reasonToSend(
   current: TicketTarget | undefined,
   next: "INCLUDE" | "REJECT" | "UNDECIDED" | null,

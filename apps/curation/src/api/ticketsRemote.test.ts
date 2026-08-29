@@ -296,3 +296,29 @@ describe("reasonToSend", () => {
     ).toBe(null);
   });
 });
+
+/**
+ * After gemma2 `8926e8d170` the server honours "omit the reason key =
+ * leave it alone", so the carry-forward is belt-and-braces rather than
+ * the mechanism. What is NOT optional is clearing on a decision change:
+ * Gemma deliberately leaves the old note in place there, so the store's
+ * clear-on-change contract is this client's job. Verified live on the
+ * sandbox — `UNDECIDED` → `REJECT` with no reason key kept the note.
+ */
+describe("reasonToSend after the server-side fix", () => {
+  const target = {
+    screening_result: "UNDECIDED",
+    screening_result_reason: "needs the paper",
+  } as unknown as Parameters<typeof reasonToSend>[0];
+
+  it("🛑 still clears on a change — the server will not do it for us", () => {
+    expect(reasonToSend(target, "REJECT")).toBe(null);
+  });
+
+  it("sending the reason back unchanged is a no-op on a fixed server", () => {
+    // Equal to what is already stored, so the PATCH changes nothing
+    // whether the server preserves it or overwrites it with the same
+    // value. That is what makes the branch safe to keep on both builds.
+    expect(reasonToSend(target, "UNDECIDED")).toBe("needs the paper");
+  });
+});
