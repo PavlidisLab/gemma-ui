@@ -14,6 +14,7 @@ import {
   asTicketList,
   gemmaCreateBody,
   gemmaScreeningResult,
+  reasonToSend,
   toWirePatch,
   targetRowId,
   type Ticket,
@@ -244,5 +245,54 @@ describe("gemmaScreeningResult", () => {
     // toWirePatch. Neither accepts the other's spelling.
     expect(gemmaScreeningResult(null)).toBe(null);
     expect(toWirePatch({ triage_disposition: null }).triage_disposition).toBe("");
+  });
+});
+
+/**
+ * Gemma clears `screeningResultReason` on ANY patch carrying
+ * `screeningResult` without it — re-sending the SAME value included.
+ * Measured on sandbox `25e175f83d`, 2026-08-29.
+ *
+ * The store clears the reason only when the decision CHANGES, and our
+ * callers are written to that contract: `TriageView` sends the reason
+ * key only when it has a new reason, and the bulk action never does. So
+ * an unchanged decision has to carry its reason forward here or a
+ * curator's note disappears the second time they touch the row.
+ */
+describe("reasonToSend", () => {
+  // Post-snakeify shape, as the target arrives in `Ticket.targets`.
+  const target = {
+    id: 1,
+    target_type: "EXPRESSION_EXPERIMENT",
+    target_id: 9001,
+    screening_result: "UNDECIDED",
+    screening_result_reason: "needs the paper",
+  } as unknown as Parameters<typeof reasonToSend>[0];
+
+  it("🛑 carries the reason forward when the decision is unchanged", () => {
+    // Without this the second click on an already-`unsure` row wipes
+    // the note the curator wrote on the first.
+    expect(reasonToSend(target, "UNDECIDED")).toBe("needs the paper");
+  });
+
+  it("clears when the decision changes — what the store does too", () => {
+    // A stale reason must not outlive the `unsure` it belonged to and
+    // reattach to a later `include`.
+    expect(reasonToSend(target, "INCLUDE")).toBe(null);
+    expect(reasonToSend(target, "REJECT")).toBe(null);
+  });
+
+  it("clears when the decision is being cleared", () => {
+    expect(reasonToSend(target, null)).toBe(null);
+  });
+
+  it("has nothing to carry when the target is unknown or bare", () => {
+    expect(reasonToSend(undefined, "UNDECIDED")).toBe(null);
+    expect(
+      reasonToSend(
+        { id: 1 } as unknown as Parameters<typeof reasonToSend>[0],
+        "UNDECIDED",
+      ),
+    ).toBe(null);
   });
 });

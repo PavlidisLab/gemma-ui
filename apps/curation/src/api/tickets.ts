@@ -151,15 +151,61 @@ export function gemmaScreeningResult(
  *  row id (every store ticket — see `TicketTarget.id`).
  *
  *  Pure, so the mapping is testable without a network or a cache. */
+export function findTicketTarget(
+  ticket: Ticket | undefined | null,
+  target_type: TicketTargetType,
+  target_id: number,
+): TicketTarget | undefined {
+  return ticket?.targets?.find(
+    (t) => t.target_type === target_type && t.target_id === target_id,
+  );
+}
+
 export function targetRowId(
   ticket: Ticket | undefined | null,
   target_type: TicketTargetType,
   target_id: number,
 ): number | null {
-  const hit = ticket?.targets?.find(
-    (t) => t.target_type === target_type && t.target_id === target_id,
-  );
+  const hit = findTicketTarget(ticket, target_type, target_id);
   return typeof hit?.id === "number" ? hit.id : null;
+}
+
+/** What `screeningResultReason` to send alongside a `screeningResult`.
+ *
+ *  🛑 **Gemma clears the reason on ANY patch carrying `screeningResult`
+ *  unless the reason key rides along — including a patch that re-sends
+ *  the SAME value.** Measured on sandbox `25e175f83d`, 2026-08-29:
+ *  seed `UNDECIDED` + "needs the paper", then `{"screeningResult":
+ *  "REJECT"}` → reason `null`; re-seed, then `{"screeningResult":
+ *  "REJECT"}` again → reason `null`. A status-only patch leaves both
+ *  alone. (The handoff that shipped the field says "Omit = unchanged";
+ *  that is not the behaviour, and gembro has been told.)
+ *
+ *  The store is gentler: it clears the reason only when the decision
+ *  actually CHANGES, so "a stale reason cannot outlive the `unsure` it
+ *  belonged to and reattach to a later `include`" — see
+ *  `TicketTargetPatchBody`. Our callers are written to that contract
+ *  and send the reason key only when they have a new reason
+ *  (`TriageView` lines 793/1099, and the bulk action never does), so
+ *  passing their body through unchanged would silently drop a
+ *  curator's note the second time they touched the row.
+ *
+ *  So the divergence is absorbed here rather than pushed onto three
+ *  call sites: an unchanged decision carries its existing reason
+ *  forward, a changed one clears, which is exactly what the store
+ *  would have done. */
+export function reasonToSend(
+  current: TicketTarget | undefined,
+  next: "INCLUDE" | "REJECT" | "UNDECIDED" | null,
+): string | null {
+  const currentResult = (current as { screening_result?: unknown } | undefined)
+    ?.screening_result;
+  if (next !== null && next === currentResult) {
+    const r = (current as { screening_result_reason?: unknown } | undefined)
+      ?.screening_result_reason;
+    return typeof r === "string" ? r : null;
+  }
+  return null;
 }
 
 import { api } from "@/api/client";
@@ -906,25 +952,32 @@ async function patchGemmaTargetStatus(
 ): Promise<Ticket> {
   const body: Record<string, unknown> = {};
   if (args.patch.status !== undefined) body.status = args.patch.status;
-  if ("triage_disposition" in args.patch) {
-    body.screeningResult = gemmaScreeningResult(args.patch.triage_disposition);
+  // The ticket is needed for the row id, and — when a decision is in
+  // play — for the reason-carry-forward above, so resolve it once.
+  let ticket = qc.getQueryData<Ticket>(["ticket", ticketId]);
+  let rowId = targetRowId(ticket, args.target_type, args.target_id);
+  if (rowId == null) {
+    ticket = await api.get<Ticket>(`${ticketsBase()}/tickets/${ticketId}`);
+    rowId = targetRowId(ticket, args.target_type, args.target_id);
   }
-  if ("triage_disposition_reason" in args.patch) {
+  if ("triage_disposition" in args.patch) {
+    const next = gemmaScreeningResult(args.patch.triage_disposition);
+    body.screeningResult = next;
+    body.screeningResultReason =
+      "triage_disposition_reason" in args.patch
+        ? (args.patch.triage_disposition_reason ?? null)
+        : reasonToSend(
+            findTicketTarget(ticket, args.target_type, args.target_id),
+            next,
+          );
+  } else if ("triage_disposition_reason" in args.patch) {
     body.screeningResultReason = args.patch.triage_disposition_reason ?? null;
   }
-  // Gemma's own guard: `Request body with `status` and/or `screeningResult`
-  // is required.` Checked here so an empty patch is not a round trip.
   if (body.status === undefined && !("screeningResult" in body)) {
     throw new Error(
       "Cannot update a Gemma ticket target: the patch sets neither a status " +
         "nor a screening result.",
     );
-  }
-  const cached = qc.getQueryData<Ticket>(["ticket", ticketId]);
-  let rowId = targetRowId(cached, args.target_type, args.target_id);
-  if (rowId == null) {
-    const fresh = await api.get<Ticket>(`${ticketsBase()}/tickets/${ticketId}`);
-    rowId = targetRowId(fresh, args.target_type, args.target_id);
   }
   if (rowId == null) {
     throw new Error(
