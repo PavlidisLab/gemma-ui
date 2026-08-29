@@ -118,6 +118,22 @@ function qs(params: Record<string, string | boolean | undefined>): string {
  * which analyses a commit would invalidate — the invalidation rule is
  * an exclusion, so nearly every structural edit triggers it and this
  * report is what the curator decides on.
+ *
+ * 🛑 **A green preflight is NOT a green commit, and the gap is not
+ * small.** Preflight does not take the curation lock and is exempt
+ * from the agent's `require_gemma_write_base` guard; commit is neither.
+ * Measured 2026-08-29, two different ways:
+ *
+ *   - through the agent relay: `POST /curation-preflight/{id}` -> 401
+ *     (route live, wants auth) while commit and sign -> 502, the write
+ *     guard refusing for want of a target;
+ *   - direct at Gemma, by cab on the sandbox: preflight -> 200 with
+ *     `changes.design.updated = 1`, and the very same commit -> 500 on
+ *     a lock-table column the schema lacked.
+ *
+ * So whatever surface wires this must NOT present a clean preflight as
+ * "this will work" — it means "the document is well formed and here is
+ * what it would change", nothing about whether the commit can run.
  */
 export function preflightCuration(
   experimentId: number | string,
