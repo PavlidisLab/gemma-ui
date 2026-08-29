@@ -10,6 +10,7 @@ import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { extractPaperMeta, pmidFromPaperSource } from "@/features/proposal/paperEvidence";
 import { isPaperDismissed, markPaperDismissed } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import { constantGeoFields, geoFieldLabel, useSourceMetadata } from "@/api/sourceMetadata";
 import { descriptionWithoutGeoRecordBlock, overallDesignFromDescription } from "./geoRecordBlock";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { KV, SummaryCard } from "./SummaryCard";
@@ -32,35 +33,53 @@ import { focusByAuditTarget, onAuditFocusTarget } from "@/lib/scrollToAuditTarge
  * digging into the design.
  */
 
-/** GEO per-sample protocol fields that are experiment-wide facts when
- *  they're identical across every sample (e.g. GSE99114's growth_protocol
- *  "immunized with MOG35-55/CFA to induce EAE" — the useful disease
- *  induction). Mirrors preboarding's ``_GEO_COLLAPSIBLE_FIELDS``. Order =
- *  render order. */
-const GEO_CONSTANT_PROTOCOLS: ReadonlyArray<{ key: string; label: string }> = [
-  { key: "growth_protocol", label: "growth (GEO)" },
-  { key: "treatment_protocol", label: "treatment (GEO)" },
-  { key: "extract_protocol", label: "extract (GEO)" },
+/** GEO per-sample fields that are experiment-wide facts when they are
+ *  identical across every sample of THIS dataset (e.g. GSE99114's
+ *  growth protocol "immunized with MOG35-55/CFA to induce EAE" — the
+ *  useful disease induction).
+ *
+ *  Widened 2026-08-29 from three hardcoded protocol keys to every scalar
+ *  field the GEO record carries: *"we should also widen the overview so
+ *  that fields which are the constant across the samples are shown
+ *  there"*. The computation and its exclusions live in
+ *  `api/sourceMetadata.ts::constantGeoFields`; this file only orders and
+ *  labels them.
+ *
+ *  🛑 The source is GEMMA's record, not the store's `geo_fields`. The
+ *  store's copy is camelCase-keyed (`growthProtocol` on 4128 biomaterial
+ *  rows, `growth_protocol` on none) while this panel looked up snake, so
+ *  these rows have never rendered for anyone. Reading from Gemma fixes
+ *  that as a side effect: the record's per-sample fields are top-level
+ *  keys, so the client's snakeify pass produces exactly the names used
+ *  here. */
+const GEO_FIELD_ORDER: readonly string[] = [
+  "growth_protocol",
+  "treatment_protocol",
+  "extract_protocol",
+  "label_protocol",
+  "hyb_protocol",
+  "scan_protocol",
+  "data_processing",
+  "source_name",
+  "sample_type",
+  "molecule",
+  "library_strategy",
+  "library_source",
+  "library_selection",
+  "instrument_model",
 ];
 
-/** Collect the protocol fields that carry the SAME non-empty value on
- *  every biomaterial — those are really whole-experiment context that GEO
- *  buried in per-sample free-text. A field that varies across samples is
- *  genuinely per-sample and stays in the sample popover only. */
-export function constantGeoProtocols(
-  biomaterials: ReadonlyArray<{ geo_fields?: Record<string, string> }> | undefined,
-): Array<{ label: string; text: string }> {
-  const bms = biomaterials ?? [];
-  if (bms.length === 0) return [];
-  const out: Array<{ label: string; text: string }> = [];
-  for (const { key, label } of GEO_CONSTANT_PROTOCOLS) {
-    const values = bms.map((b) => (b.geo_fields ?? {})[key]?.trim() ?? "");
-    const first = values[0];
-    if (first && values.every((v) => v === first)) {
-      out.push({ label, text: first });
-    }
-  }
-  return out;
+/** Named fields first, in the order above; anything else the record
+ *  carries follows alphabetically, so a field GEO adds later still
+ *  appears without a code change. */
+export function orderGeoFields<T extends { key: string }>(rows: T[]): T[] {
+  const rank = (k: string) => {
+    const i = GEO_FIELD_ORDER.indexOf(k);
+    return i === -1 ? GEO_FIELD_ORDER.length : i;
+  };
+  return [...rows].sort(
+    (a, b) => rank(a.key) - rank(b.key) || a.key.localeCompare(b.key),
+  );
 }
 
 export function OverviewPanel() {
@@ -93,6 +112,10 @@ export function OverviewPanel() {
   // fields below stay sourced from draft so counts reflect any
   // pending edits the curator made on other tabs.
   const meta = draft;
+  // The GEO record, read from Gemma — the whole-experiment context GEO
+  // buried in per-sample free text. Absent is the common case and
+  // renders as no rows at all, exactly as before.
+  const geoRecord = useSourceMetadata(draft?.experiment_id);
   // The GEO series overall design, from its own field or (legacy packs)
   // dug back out of the description fold. Rendered as the "design (GEO)"
   // row below, and used to de-duplicate the description read view.
@@ -295,7 +318,16 @@ export function OverviewPanel() {
           {(() => {
             const rows: Array<{ label: string; text: string }> = [];
             if (overallDesign) rows.push({ label: "design (GEO)", text: overallDesign });
-            rows.push(...constantGeoProtocols(meta?.biomaterials));
+            rows.push(
+              ...orderGeoFields(
+                constantGeoFields(
+                  geoRecord.data?.state === "document"
+                    ? geoRecord.data.doc
+                    : undefined,
+                  (meta?.biomaterials ?? []).map((b) => b.short_name),
+                ),
+              ).map(({ key, text }) => ({ label: geoFieldLabel(key), text })),
+            );
             return rows.map(({ label, text }) => {
               const oneLine = text.replace(/\s+/g, " ").trim();
               return (

@@ -164,6 +164,44 @@ describe("snakeify — keys of data-keyed maps are literals, not names", () => {
     ]);
   });
 
+  it("🛑 normalizes a GEO sample's own fields but not the submitter's columns", () => {
+    // Gemma's `sourceMetadata` document puts the per-sample GEO fields at
+    // the TOP LEVEL of the sample object, where the store nested them
+    // under `geo_fields` (whose children were therefore never touched).
+    // So these DO convert — and the panels look them up by the snake
+    // name because of it. `characteristics` is the only submitter-written
+    // namespace in the document and stays verbatim: `shRNA` must not
+    // become `sh_r_n_a` on a curator's screen.
+    const out = snakeify({
+      samples: [
+        {
+          accession: "GSM1",
+          sourceName: "spleen",
+          growthProtocol: "grown in RPMI",
+          characteristicsUnparsed: ["age: 8w", "sex: F"],
+          characteristics: { shRNA: "control", "Units of Amount": "ug" },
+        },
+      ],
+    }) as { samples: Array<Record<string, unknown>> };
+    const sample = out.samples[0];
+    expect(Object.keys(sample).sort()).toEqual([
+      "accession",
+      "characteristics",
+      "characteristics_unparsed",
+      "growth_protocol",
+      "source_name",
+    ]);
+    // The carve-out fires on the normalized key name at ANY depth, not
+    // on a root-level path — which is why moving these from under
+    // `geo_fields` to the sample object did not lose the protection.
+    expect(
+      Object.keys(sample.characteristics as Record<string, string>).sort(),
+    ).toEqual(["Units of Amount", "shRNA"]);
+    // Arrays survive as arrays; the popover renders them as a list
+    // rather than a run-together string.
+    expect(sample.characteristics_unparsed).toEqual(["age: 8w", "sex: F"]);
+  });
+
   it("still converts real wire fields, which capitalise one letter per word", () => {
     const out = snakeify({
       experimentId: 1,

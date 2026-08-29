@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { Biomaterial } from "@/features/experiment/types";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { Term } from "@/components/ui/Term";
+import { geoSampleFor, useSourceMetadata } from "@/api/sourceMetadata";
 
 /**
  * Tiny "i" chip beside a sample's short_name in the samples table.
@@ -45,6 +46,7 @@ export function BiomaterialMetaPopover({
   bm,
   source,
   groupSize,
+  experimentId,
 }: {
   /** The representative biomaterial — for grouped single-cell rows
    *  this is the source BM; for plain rows it's the row's BM. */
@@ -53,6 +55,9 @@ export function BiomaterialMetaPopover({
    *  CELLxGENE etc.). Null when the dataset wasn't imported from
    *  an external database. */
   source: { database?: string } | null | undefined;
+  /** Needed to fetch the GEO record from Gemma — the record is
+   *  per-experiment, and this sample is found in it by its GSM. */
+  experimentId: number | string;
   /** Constituent BM count for grouped rows; 1 for plain rows.
    *  Surfaced in the header so curators inspecting a collapsed
    *  single-cell row know they're seeing one of N buckets. */
@@ -120,8 +125,24 @@ export function BiomaterialMetaPopover({
   // can read whole-experiment context (disease induction, treatment) that
   // Gemma doesn't promote to a characteristic. `description` is already shown
   // up top, so drop it here to avoid duplication.
-  const geoEntries = Object.entries(bm.geo_fields ?? {}).filter(
-    ([k, v]) => k !== "description" && v != null && String(v).trim() !== "",
+  //
+  // 🛑 Read from GEMMA, not from the store's `bm.geo_fields`: one source,
+  // no second copy to go stale (Paul, 2026-08-29). Every field the record
+  // carries is shown — *"I always [side] by showing every field and we can
+  // curate later"* — so this list is wider than the store's allowlist was
+  // (`hyb_protocol`, `scan_protocol`, `label_protocol`, the `ch2_*`
+  // two-channel family, `characteristics_unparsed`, `supplementary_files`).
+  const sourceMeta = useSourceMetadata(experimentId);
+  const geoSample = geoSampleFor(
+    sourceMeta.data?.state === "document" ? sourceMeta.data.doc : undefined,
+    bm.short_name,
+  );
+  const geoEntries = Object.entries(geoSample ?? {}).filter(
+    ([k, v]) =>
+      k !== "description" &&
+      k !== "characteristics" &&
+      v != null &&
+      (Array.isArray(v) ? v.length > 0 : String(v).trim() !== ""),
   );
   const assays = bm.bio_assays ?? [];
 
@@ -273,8 +294,36 @@ export function BiomaterialMetaPopover({
                   )}
                 </Section>
 
-                {geoEntries.length > 0 ? (
-                  <Section label={`From GEO — raw (${geoEntries.length})`}>
+                <Section
+                  label={
+                    geoEntries.length > 0
+                      ? `From GEO — raw (${geoEntries.length})`
+                      : "From GEO — raw"
+                  }
+                >
+                  {/* 🛑 Absence is never an error here, and the two kinds
+                      are different facts: a dataset Gemma has not read
+                      from GEO yet (most of the corpus, and a re-read
+                      later may find one) versus an id this Gemma does
+                      not carry at all. Both say what is true and offer
+                      nothing to click. */}
+                  {sourceMeta.isLoading ? (
+                    <div className="italic text-slate-400">reading…</div>
+                  ) : sourceMeta.data?.state === "not_harvested" ? (
+                    <div className="italic text-slate-400">
+                      GEO record not read for this experiment yet.
+                    </div>
+                  ) : sourceMeta.data?.state === "not_in_gemma" ? (
+                    <div className="italic text-slate-400">
+                      This experiment is not in Gemma, so there is no GEO
+                      record to read.
+                    </div>
+                  ) : geoEntries.length === 0 ? (
+                    <div className="italic text-slate-400">
+                      no GEO fields for this sample
+                    </div>
+                  ) : (
+                  <>
                     <div className="mb-1 text-[10px] italic text-slate-400">
                       Verbatim GEO submitter metadata — not curated. On a split
                       experiment, series-level text may describe the original
@@ -291,14 +340,31 @@ export function BiomaterialMetaPopover({
                               {k}
                             </td>
                             <td className="py-0.5 text-slate-800 break-words whitespace-pre-wrap">
-                              {v}
+                              {/* 🛑 Two of these are ARRAYS
+                                  (`supplementary_files`,
+                                  `characteristics_unparsed`) and the type
+                                  says string, so a bare {v} would render
+                                  the elements run together with no
+                                  separator and no type error to catch it. */}
+                              {Array.isArray(v) ? (
+                                <ul className="space-y-0.5">
+                                  {v.map((item, i) => (
+                                    <li key={i} className="break-all">
+                                      {String(item)}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                String(v)
+                              )}
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
-                  </Section>
-                ) : null}
+                  </>
+                  )}
+                </Section>
               </div>
             </div>,
             document.body,

@@ -278,6 +278,23 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // The GEO record Gemma harvested — Gemma-only, like the
+        // diagnostics endpoints above: the store serves no such route,
+        // so in local mode the catch-all would 404 every call. Routed
+        // here in BOTH modes because the local working set is where the
+        // data is (176 of the store's 189 experiment ids return a
+        // document from gemma2, 10 are not in Gemma, 3 unharvested).
+        "^/rest/v2/datasets/\\d+/sourceMetadata$": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          cookieDomainRewrite: "",
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
         // Explicit local_api passthrough — strips the `/local-api`
         // prefix so the upstream sees the bare `/rest/v2/...` path.
         // Used by hooks that need to bypass a gemma-rest routing

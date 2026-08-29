@@ -1704,6 +1704,7 @@ function SampleTable({
                       bm={repr}
                       source={design.external_source}
                       groupSize={groupSize}
+                      experimentId={design.experiment_id}
                     />
                   </td>
                   {/* Movable cells — iterate the same key list the
