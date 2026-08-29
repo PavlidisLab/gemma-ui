@@ -285,7 +285,7 @@ export function CommitBar({
               disabled={saving || blocked}
               title={
                 remoteMode
-                  ? "Design commit is disabled in remote mode — this write would go straight to Gemma."
+                  ? "Design commit is disabled in remote mode — this write sends the store's design shape, not Gemma's."
                   : lockedOut
                   ? `${lockedBy} holds the editing lease. Take over to commit — their draft is separate and survives.`
                   : hasHardProblem
@@ -302,12 +302,11 @@ export function CommitBar({
         {remoteMode ? (
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200">
             <span className="font-semibold">Remote mode</span> — commit is
-            blocked here. This save is the older whole-design write, which
-            in remote mode goes straight to Gemma rather than to the
-            curation store. The preflight → commit → sign chain that
-            replaces it cannot map this draft&rsquo;s ids yet, so nothing
-            writes. Your edits are kept; switch to local mode to commit
-            them.
+            blocked here. This save is the older whole-design write, and it
+            sends the curation store&rsquo;s design shape, which is not the
+            shape Gemma&rsquo;s design route reads. Committing against a real
+            Gemma goes through the agent. Your edits are kept; switch to local
+            mode to commit them.
           </div>
         ) : null}
         {lockedOut ? (

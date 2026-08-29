@@ -432,9 +432,10 @@ export function normaliseDesignForSave(design: Design): Design {
  *  message is what the curator reads, so it says what to do. */
 export const REMOTE_DESIGN_SAVE_REFUSED =
   "Design commit is disabled in remote mode. This save is the older " +
-  "whole-design PUT, which would write straight to Gemma; the " +
-  "preflight -> commit -> sign chain that replaces it cannot map this " +
-  "draft's ids yet. Switch to local mode to commit.";
+  "whole-design PUT, and it sends the curation store's design shape, " +
+  "which is not the shape Gemma's design route reads. Committing " +
+  "against a real Gemma goes through the agent. Switch to local mode " +
+  "to commit.";
 
 export function useUpdateDesign(experimentId: number | string, reviewer = "") {
   const qc = useQueryClient();
@@ -454,15 +455,36 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       // AGENT's writes and cannot guard this one, because it never
       // reaches the agent.
       //
-      // The chain built to replace this endpoint — preflight, commit,
-      // sign — cannot take over yet: every commit item names its target
-      // by `gemmaId` or `clientRef`, and the store's design carries
-      // neither (`gemma_factor_id` is null on every experiment checked,
-      // and its ids are small locals against Gemma's five-digit ones).
-      // Mapping the draft today would send everything as a `clientRef`
-      // and Gemma would CREATE it all, duplicating a dataset's design
-      // instead of updating it. So until that identity mapping exists,
-      // the correct remote behaviour is to do nothing at all.
+      // Three reasons, in the order they bite. Corrected 2026-08-29 —
+      // this block used to give only the third, and gave it for the
+      // wrong mode.
+      //
+      // 1. **The body is the wrong shape.** `normaliseDesignForSave`
+      //    emits the store's `Design` — snake_case, `tags`,
+      //    `experiment_id`. Gemma's `PUT /datasets/{dataset}/design`
+      //    reads an `ExperimentalDesignValueObject` — camelCase,
+      //    `experimentalFactors`, no tags. Lifting this gate alone
+      //    would send a store payload at a Gemma route, not commit a
+      //    design.
+      //
+      // 2. **The UI does not write to Gemma; the agent does.** That is
+      //    the architecture, not an accident of what is built.
+      //    `require_gemma_write_base` guards the agent's writes and
+      //    cannot guard this one, because it never reaches the agent —
+      //    which is exactly why the refusal has to live here.
+      //
+      // 3. The composite commit chain names each item by `gemmaId` or
+      //    `clientRef`, and the STORE's design carries neither
+      //    (`gemma_factor_id` null on every experiment checked, small
+      //    local ids against Gemma's five-digit ones), so mapping a
+      //    LOCAL draft would send everything as a `clientRef` and
+      //    Gemma would create duplicates.
+      //
+      //    🛑 That third reason does not describe THIS gate. In remote
+      //    mode the draft is seeded from Gemma's own
+      //    `/datasets/{id}/design` and carries Gemma's ids — factor
+      //    11727, value 77276 on 1658, measured. The id problem is a
+      //    local-mode problem. Reasons 1 and 2 are what hold here.
       //
       // Gated here rather than only at the callsite so a second caller
       // cannot be added without meeting it. CommitBar reads the same
