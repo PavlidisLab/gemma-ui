@@ -13,7 +13,69 @@
  * backend serves (empty list on a fresh DB).
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import type { Query } from "@tanstack/react-query";
+
+/** Which service owns the ticket queue in this mode.
+ *
+ *  🛑 **Two ticket stores, and their ids collide.** Gemma has its own
+ *  ticket table (`TicketsWebService`) and so does the curation store —
+ *  Gemma's ticket 5 and the store's ticket 5 are different rows. Until
+ *  2026-08-29 the UI read whichever service `/rest/v2` happened to
+ *  reach, so a ticket raised in Gemma was invisible in local mode and
+ *  vice versa, and the prefix move made that worse: the store answered
+ *  in BOTH modes, so remote mode showed store tickets beside Gemma
+ *  experiments.
+ *
+ *  Paul, 2026-08-29: *"let's just make it remote."* In remote mode the
+ *  queue is Gemma's, which is the one that matches the experiments on
+ *  the same page. In local mode it is the store's, as before.
+ *
+ *  The ticket TARGETS are the same experiments either way — 25 of 25
+ *  sampled store ticket targets resolve to the same accession in Gemma
+ *  (26508 → GSE24513, 9692 → GSE29188). It is the tickets that differ,
+ *  not what they point at. */
+/** Gemma's ticket LIST is paginated, so it stays wrapped.
+ *
+ *  🛑 `unwrapGemmaEnvelope` unwraps `{data}` only when nothing but
+ *  envelope metadata sits beside it. Gemma's `/tickets` carries
+ *  `totalElements`, `offset`, `limit`, `sort` and `groupBy`, so the
+ *  caller gets the ENVELOPE and a `Ticket[]` annotation is a lie the
+ *  type checker cannot catch. The store returns a bare array. Both
+ *  shapes arrive here, and a single ticket (`/tickets/{id}`) unwraps on
+ *  its own because `data` is its only key — measured, not assumed.
+ *
+ *  This is the same defect that blanked the experiment banner on
+ *  2026-08-28: an `Array.isArray` test against a paginated envelope. */
+export function asTicketList(raw: unknown): Ticket[] {
+  if (Array.isArray(raw)) return raw as Ticket[];
+  if (raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)) {
+    return (raw as { data: Ticket[] }).data;
+  }
+  return [];
+}
+
+function ticketsBase(): string {
+  return resolveGemmaMode().mode === "remote" ? "/rest/v2" : "/curation/v1";
+}
+
+/** 🛑 Refuse a write Gemma's ticket API has no equivalent for.
+ *
+ *  `POST /{id}/actions`, `from-accession` and `finalize-triage` exist
+ *  only on the store, and `PATCH /{id}/targets/{type}/{tid}` addresses
+ *  a target by type and experiment id where Gemma addresses it by the
+ *  target's own row id. Sending any of them while the queue is showing
+ *  GEMMA's tickets would address a store ticket that merely shares an
+ *  id — a silent write to the wrong row. Better to say so. */
+function assertStoreTickets(action: string): void {
+  if (resolveGemmaMode().mode === "remote") {
+    throw new Error(
+      `Cannot ${action} on a Gemma ticket: this action exists only on the ` +
+        `curation store, and the two services number their tickets ` +
+        `independently. Switch to a store-backed session.`,
+    );
+  }
+}
 
 import { api } from "@/api/client";
 
@@ -281,7 +343,7 @@ export function useTicket(
     queryKey: ["ticket", id],
     queryFn: async () => {
       if (id == null) return null;
-      return await api.get<Ticket>(`/curation/v1/tickets/${id}`);
+      return await api.get<Ticket>(`${ticketsBase()}/tickets/${id}`);
     },
     enabled: id != null,
     refetchInterval: options.refetchInterval ?? defaultInterval,
@@ -296,7 +358,7 @@ export function usePatchTicket(ticketId: number) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (patch: Partial<Pick<Ticket, "mode" | "state" | "title" | "flow">>) => {
-      return await api.patch<Ticket>(`/curation/v1/tickets/${ticketId}`, patch);
+      return await api.patch<Ticket>(`${ticketsBase()}/tickets/${ticketId}`, patch);
     },
     onSuccess: (next) => {
       qc.setQueryData(["ticket", ticketId], next);
@@ -320,7 +382,8 @@ export function useRunTicketAction(ticketId: number) {
   return useMutation({
     mutationFn: async (action: string) => {
       return await api.post<unknown>(
-        `/curation/v1/tickets/${ticketId}/actions`,
+        (assertStoreTickets("run a ticket action"),
+        `/curation/v1/tickets/${ticketId}/actions`),
         { action },
       );
     },
@@ -358,6 +421,7 @@ export function useCreateTicket() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: TicketCreateBody) => {
+      assertStoreTickets("create a ticket");
       return await api.post<Ticket>("/curation/v1/tickets", body);
     },
     onSuccess: () => {
@@ -402,6 +466,7 @@ export function useCreateTicketFromAccession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: TicketFromAccessionBody) => {
+      assertStoreTickets("create a ticket from an accession");
       return await api.post<Ticket>("/curation/v1/tickets/from-accession", body);
     },
     onSuccess: () => {
@@ -451,8 +516,12 @@ export function useMyTickets(
       light ? "light" : "full",
     ],
     queryFn: async () => {
-      const raw = await api.get<Ticket[]>(
-        light ? "/curation/v1/tickets?include_targets=false" : "/curation/v1/tickets",
+      const raw = asTicketList(
+        await api.get<unknown>(
+          light
+            ? `${ticketsBase()}/tickets?include_targets=false`
+            : `${ticketsBase()}/tickets`,
+        ),
       );
       // 🛑 Coerce at the source, not at each caller. Tickets live in the
       // curation store; in remote mode `/curation/v1/tickets` reaches Gemma,
@@ -493,11 +562,13 @@ export function experimentTicketsQueryOptions(experimentId: number | string) {
   return {
     queryKey: ["tickets", "by-experiment", experimentId] as const,
     queryFn: async () => {
-      const all = await api.get<Ticket[]>(
-        `/curation/v1/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
-          `&target_type=EXPRESSION_EXPERIMENT&include_targets=false`,
+      const all = asTicketList(
+        await api.get<unknown>(
+          `${ticketsBase()}/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
+            `&target_type=EXPRESSION_EXPERIMENT&include_targets=false`,
+        ),
       );
-      return all ?? [];
+      return all;
     },
     staleTime: 1000 * 30,
   };
@@ -614,7 +685,8 @@ export function usePatchTicketTarget(ticketId: number) {
       patch: TicketTargetPatchBody;
     }) => {
       const path =
-        `/curation/v1/tickets/${ticketId}/targets/` +
+        (assertStoreTickets("update a ticket target"),
+        `/curation/v1/tickets/${ticketId}/targets/`) +
         `${encodeURIComponent(args.target_type)}/${args.target_id}`;
       return await api.patch<Ticket>(path, toWirePatch(args.patch));
     },
@@ -652,7 +724,8 @@ export function useFinalizeTriage(ticketId: number) {
   return useMutation({
     mutationFn: async () => {
       return await api.post<TriageFinalizeResponse>(
-        `/curation/v1/tickets/${ticketId}/finalize-triage`,
+        (assertStoreTickets("finalize triage"),
+        `/curation/v1/tickets/${ticketId}/finalize-triage`),
         {},
       );
     },

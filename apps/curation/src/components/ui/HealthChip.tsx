@@ -149,10 +149,10 @@ export function HealthChip() {
 
           <dl className="space-y-1.5">
             <ServiceRow
-              label="local_api"
+              label="curation store"
               status={localApi}
-              path="/rest/v2 (default)"
-              hint="curation DB / FastAPI mock — default upstream for /rest/v2/* (datasets, design, workflow, audits, proposals, curation events)"
+              path="/curation/v1 (both modes)"
+              hint="The curation DB. Since 2026-08-29 it answers on its own prefix, which is proxied here in BOTH modes — tickets, sets, audits, proposals, curator snapshots and provenance come from here even when the experiments beside them come from Gemma. In local mode it also serves /rest/v2 (datasets, design)."
             />
             <ServiceRow
               label="gemma-rest"
@@ -160,7 +160,7 @@ export function HealthChip() {
               path={
                 mode === "local"
                   ? "/rest/v2 (diagnostics fallback)"
-                  : "/rest/v2 (fallback)"
+                  : "/rest/v2 (experiments, design)"
               }
               hint={
                 mode === "local"

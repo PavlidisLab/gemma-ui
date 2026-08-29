@@ -159,13 +159,59 @@ export function ModeChip() {
             </p>
           )}
 
+          {/* 🛑 **Two sources on one page, since 2026-08-29.** The store
+              moved to `/curation/v1`, which is proxied to it in BOTH
+              modes, so "remote" no longer means "everything comes from
+              Gemma" — the ticket queue, sets and audits are the
+              store's while the experiment rows beside them are
+              Gemma's. This block exists because the popover said the
+              opposite ("the curation store is not connected in this
+              mode, so tickets, audits, groups and candidates will not
+              load") and a curator read a mixed page as a single
+              backend. */}
+          <div className="rounded border border-slate-200 dark:border-slate-700 p-2 space-y-1">
+            <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+              Where this page's data comes from
+            </div>
+            <div className="grid grid-cols-[4.5rem_1fr] gap-x-2 gap-y-1 items-baseline leading-snug">
+              <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                {info.mode === "remote" ? "Gemma" : "store"}
+              </span>
+              <span>
+                experiments and their design, annotations and ontology
+                search, genes, diagnostics, the GEO record, sign-in
+                {info.mode === "remote" ? (
+                  <>
+                    {" "}
+                    — <span className="font-mono">{info.baseUrl}</span>
+                  </>
+                ) : null}
+              </span>
+              <span className="font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                store
+              </span>
+              <span>
+                tickets, sets, audits, proposals, curator snapshots and
+                provenance — always the curation store, in both modes,
+                on its own <span className="font-mono">/curation/v1</span>{" "}
+                prefix
+              </span>
+            </div>
+            {info.mode === "remote" ? (
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 pt-1">
+                So a ticket raised in Gemma does not appear in this
+                queue, and one raised here is not in Gemma&rsquo;s. Two
+                ticket stores; this queue reads the store&rsquo;s.
+              </p>
+            ) : null}
+          </div>
+
           {info.mode === "remote" ? (
             <p className="text-slate-600 dark:text-slate-300 leading-snug">
               Curation writes — the draft, the editing lease, preflight,
               commit and sign — go through the{" "}
               <strong>agent relay</strong> on its own prefix, not from
-              here. The curation store is not connected in this mode, so
-              tickets, audits, groups and candidates will not load.
+              here.
               <br />
               🛑 Pipeline step dispatch, GEEQ recalculate, DEA runs,
               outlier flags, quantitation-type edits, curationDetails,
