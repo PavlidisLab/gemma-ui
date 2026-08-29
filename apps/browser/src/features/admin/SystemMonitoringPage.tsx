@@ -1,7 +1,7 @@
 /**
  * Systems Monitoring page — replaces the legacy
  * `pages/admin/systemStats.jsp` + `pages/admin/activeUsers.jsp`.
- * Eight sections in a responsive grid; admin-gated.
+ * Twelve sections in a responsive grid; admin-gated.
  *
  * Auth model: every admin endpoint requires GROUP_ADMIN. A
  * non-admin (anonymous or signed in without admin) lands on the
@@ -38,6 +38,9 @@ import { SessionsSection } from "./sections/SessionsSection";
 import { IndicesSection } from "./sections/IndicesSection";
 import { OntologiesSection } from "./sections/OntologiesSection";
 import { TicketsSection } from "./sections/TicketsSection";
+import { CorpusSection } from "./sections/CorpusSection";
+import { UnderCurationSection } from "./sections/UnderCurationSection";
+import { PlatformsSection } from "./sections/PlatformsSection";
 
 export function SystemMonitoringPage() {
   // Gate decision derives from the same /me signal the AppBar uses
@@ -58,6 +61,15 @@ export function SystemMonitoringPage() {
   return (
     <div className="mx-auto w-full max-w-[1800px] px-4 py-4 space-y-3">
       <HeaderSection />
+      {/* Corpus tier. Above the machine stats on purpose: "how many
+          datasets are there and how many need work" is the question an
+          admin opens this page with, and heap / cache hit rate is the
+          question they arrive at once something looks wrong. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        <CorpusSection />
+        <UnderCurationSection />
+        <PlatformsSection />
+      </div>
       {/* Top tier: JVM / Hibernate / Caches. Fixed 22rem so every
           card has the same height and the row reads as a coherent
           strip. Caches scrolls inside (its table wrapper uses
