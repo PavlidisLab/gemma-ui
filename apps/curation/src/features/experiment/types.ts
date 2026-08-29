@@ -704,12 +704,22 @@ export interface FactorValidationState {
    *  no longer lets a curator build one, so these arrived from
    *  elsewhere: an agent proposal, or a snapshot predating the cap.
    *
-   *  ADVISORY, not part of ``ok``. Nothing is lost while the design
-   *  lives in the local store, which keeps statements flat and has no
-   *  two-slot ceiling; the squeeze happens at the eventual real-Gemma
-   *  write, which isn't wired yet. Blocking commit today would strand
-   *  curators on data they didn't author, for a write that hasn't
-   *  happened. Surfaced so they get cleaned up before it does. */
+   *  Part of ``ok`` since 2026-08-20 — it WARNS, and the design does not
+   *  read as valid while one stands. It does not hard-block the commit
+   *  bar (only a free-text category and an unknown predicate do), so a
+   *  curator is never stranded on data they did not author.
+   *
+   *  🛑 **The unit is under question.** This counts pairs per
+   *  ``(category, subject)`` GROUP, collapsing statement rows — while
+   *  Gemma's ceiling may be per statement ROW, in which case a subject
+   *  can legitimately carry two rows of two pairs and this warns on a
+   *  correct annotation. That is exactly the shape a background on a
+   *  compound genotype needs (1,953 subjects corpus-wide are already at
+   *  two ``has_genotype`` pairs). Asked in
+   *  ``CAB_TO_GEMBRO_2026_08_29_IS_THE_TWO_PAIR_CEILING_PER_STATEMENT_OR_PER_SUBJECT``;
+   *  if the answer is per-row, the grouping here and in
+   *  ``groupStatementsBySubject`` both have to change, together — see
+   *  {@link statementGroupKey}. */
   overfull_statement_groups: {
     fv_id: number;
     subject: string;
