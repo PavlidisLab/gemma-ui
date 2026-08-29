@@ -13,9 +13,8 @@
 
 import { useCorpusCounts } from "../api";
 import { SectionCard } from "../components/SectionCard";
-import { BigNumber } from "../components/BigNumber";
 import { useTimeseries } from "../timeseries";
-import { CountRow, pct } from "../components/CountRow";
+import { CardTotal, CountRow, pct } from "../components/CountRow";
 
 export function CorpusSection() {
   const { data, isError, error } = useCorpusCounts();
@@ -24,29 +23,14 @@ export function CorpusSection() {
   return (
     <SectionCard
       title="Datasets"
-      summary={
-        data
-          ? [
-              data.private === null
-                ? null
-                : `${data.private.toLocaleString()} not public`,
-              data.needsAttention === null
-                ? null
-                : `${data.needsAttention.toLocaleString()} need attention`,
-            ]
-              .filter(Boolean)
-              .join(" · ") || undefined
-          : undefined
-      }
-    >
-      <div className="flex items-start gap-4">
-        <BigNumber
-          className="flex-none w-28"
-          label="datasets"
+      accessory={
+        <CardTotal
           value={data ? data.total.toLocaleString() : "—"}
           samples={totalSeries}
+          title="Every dataset this account can see."
         />
-        <div className="flex-1 min-w-0">
+      }
+    >
       {isError ? (
         <div className="text-[11px] text-rose-700 dark:text-rose-300">
           {(error as Error).message}
@@ -99,8 +83,6 @@ export function CorpusSection() {
           ) : null}
         </div>
       )}
-        </div>
-      </div>
     </SectionCard>
   );
 }

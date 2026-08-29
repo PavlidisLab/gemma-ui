@@ -1,3 +1,6 @@
+import { Sparkline } from "./Sparkline";
+import type { Sample } from "../timeseries";
+
 /**
  * One `label … n (pct)` row inside a section card's table.
  *
@@ -68,5 +71,35 @@ export function CountRow({ label, n, of, tone, title }: CountRowProps) {
         {share ?? ""}
       </td>
     </tr>
+  );
+}
+
+/**
+ * The card's headline total, for `SectionCard`'s `accessory` slot.
+ *
+ * Lives in the header rather than as a `BigNumber` in the body because
+ * the body version duplicated the card: the title already said
+ * "Datasets" and `BigNumber`'s label said "DATASETS" under it, and the
+ * summary line restated a number the table below was about to show
+ * again. One title, one total, then the breakdown.
+ */
+export function CardTotal({
+  value,
+  samples,
+  title,
+}: {
+  value: string;
+  samples?: Sample[];
+  title?: string;
+}) {
+  return (
+    <div className="flex items-center gap-2" title={title}>
+      {samples && samples.length > 0 ? (
+        <Sparkline samples={samples} width={72} height={16} />
+      ) : null}
+      <span className="text-lg font-semibold tabular-nums text-slate-900 dark:text-slate-100 leading-none">
+        {value}
+      </span>
+    </div>
   );
 }

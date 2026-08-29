@@ -59,7 +59,14 @@ export function SystemMonitoringPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1800px] px-4 py-4 space-y-3">
+    // ``h-full overflow-y-auto`` — AppShell is ``h-screen
+    // overflow-hidden``, so a page that does not carry its own scroll
+    // container is simply CLIPPED at the fold with no way to reach the
+    // rest. AppShell's own comment names this pattern (Home, Dataset,
+    // Platform detail); this page never adopted it and lost its bottom
+    // row.
+    <div className="h-full overflow-y-auto">
+      <div className="mx-auto w-full max-w-[1800px] px-4 py-4 space-y-3">
       <HeaderSection />
       {/* Corpus tier. Above the machine stats on purpose: "how many
           datasets are there and how many need work" is the question an
@@ -87,6 +94,7 @@ export function SystemMonitoringPage() {
         <SessionsSection />
         <IndicesSection />
         <OntologiesSection />
+      </div>
       </div>
     </div>
   );

@@ -12,9 +12,8 @@
 
 import { useUnderCurationCounts } from "../api";
 import { SectionCard } from "../components/SectionCard";
-import { BigNumber } from "../components/BigNumber";
 import { useTimeseries } from "../timeseries";
-import { CountRow } from "../components/CountRow";
+import { CardTotal, CountRow } from "../components/CountRow";
 
 export function UnderCurationSection() {
   const { data, isError, error } = useUnderCurationCounts();
@@ -23,22 +22,12 @@ export function UnderCurationSection() {
   return (
     <SectionCard
       title="Under curation"
-      summary={
-        data
-          ? `not public, or in one of ${data.openTickets.toLocaleString()} open ticket${
-              data.openTickets === 1 ? "" : "s"
-            }`
-          : "not public, or targeted by an open ticket"
-      }
-    >
-      <div className="flex items-start gap-4">
-        <BigNumber
-          className="flex-none w-28"
-          label="datasets"
+      accessory={
+        <CardTotal
           // A bare dash reads as "broken" when half the answer is in
           // hand. With no `isPublic` filter the ticket half is still a
           // true lower bound, so say so with a `≥` rather than throw it
-          // away — and the footnote below names what is missing.
+          // away — the footnote below names what is missing.
           value={
             !data
               ? "—"
@@ -47,8 +36,10 @@ export function UnderCurationSection() {
                 : `≥${data.inOpenTicket.toLocaleString()}`
           }
           samples={series}
+          title="Not public, or targeted by an open ticket. Counted once."
         />
-        <div className="flex-1 min-w-0">
+      }
+    >
       {isError ? (
         <div className="text-[11px] text-rose-700 dark:text-rose-300">
           {(error as Error).message}
@@ -92,8 +83,6 @@ export function UnderCurationSection() {
           ) : null}
         </div>
       )}
-        </div>
-      </div>
     </SectionCard>
   );
 }

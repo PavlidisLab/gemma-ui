@@ -11,28 +11,24 @@
 
 import { usePlatformCounts } from "../api";
 import { SectionCard } from "../components/SectionCard";
-import { BigNumber } from "../components/BigNumber";
 import { useTimeseries } from "../timeseries";
-import { CountRow } from "../components/CountRow";
+import { CardTotal, CountRow } from "../components/CountRow";
 
 export function PlatformsSection() {
   const { data, isError, error } = usePlatformCounts();
   const series = useTimeseries("corpus.platforms", data?.total ?? null);
-  const flagged = data ? (data.troubled ?? 0) + (data.needsAttention ?? 0) : 0;
 
   return (
     <SectionCard
       title="Platforms"
-      summary={data ? `${flagged.toLocaleString()} flagged` : undefined}
-    >
-      <div className="flex items-start gap-4">
-        <BigNumber
-          className="flex-none w-28"
-          label="array designs"
+      accessory={
+        <CardTotal
           value={data ? data.total.toLocaleString() : "—"}
           samples={series}
+          title="Array designs in Gemma."
         />
-        <div className="flex-1 min-w-0">
+      }
+    >
       {isError ? (
         <div className="text-[11px] text-rose-700 dark:text-rose-300">
           {(error as Error).message}
@@ -61,8 +57,6 @@ export function PlatformsSection() {
           </table>
         </div>
       )}
-        </div>
-      </div>
     </SectionCard>
   );
 }
