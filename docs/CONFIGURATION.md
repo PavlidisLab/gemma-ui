@@ -139,8 +139,18 @@ value will not go looking for a `DELETE` on a differential analysis.
 🛑 **Three of these live in `api/workflow.ts`, not in the file named
 after the noun** — outlier is not in `diagnostics.ts`, the QT edit is not
 in `quantitation.ts` (which is GET-only), and visibility is not in a
-`visibility.ts`. Grepping the obviously-named file and finding only reads
-is how this list lost them; grep the tree for the verb.
+`visibility.ts`. They are pipeline operations, so they sit with the
+pipeline.
+
+🛑 **And the way they went missing from an earlier version of this list
+was not that** — it was `grep … | head -14` over `workflow.ts` itself.
+The three sit at lines 466, 480 and 498; the output stopped short of
+them, and nothing in a truncated result says whether you reached the end.
+
+⇒ **An absence cannot be proved from a capped read.** For any claim of
+the form "there is no write for X", the search must be uncapped or
+counted, and the count reported next to the claim. A `head` on a search
+for absence silently turns "I did not look" into "it is not there".
 
 ## Recreating the UI container
 
