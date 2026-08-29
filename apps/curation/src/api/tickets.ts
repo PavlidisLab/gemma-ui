@@ -61,20 +61,56 @@ function ticketsBase(): string {
 
 /** 🛑 Refuse a write Gemma's ticket API has no equivalent for.
  *
- *  `POST /{id}/actions`, `from-accession` and `finalize-triage` exist
- *  only on the store, and `PATCH /{id}/targets/{type}/{tid}` addresses
- *  a target by type and experiment id where Gemma addresses it by the
- *  target's own row id. Sending any of them while the queue is showing
- *  GEMMA's tickets would address a store ticket that merely shares an
- *  id — a silent write to the wrong row. Better to say so. */
-function assertStoreTickets(action: string): void {
+ *  Read against `TicketsWebService` on 2026-08-29, route by route.
+ *  Gemma serves `POST /tickets`, `PUT|PATCH /{id}`, `DELETE /{id}`
+ *  (soft-close to CANCELLED), `GET /{id}/events` and
+ *  `PATCH /{id}/targets/{targetRowId}`. What it does NOT serve:
+ *
+ *  - **`POST /{id}/actions`** — the store dispatches on `action` and
+ *    schedules the agent's work as a background task. Gemma has no
+ *    such route and shouldn't: the agent writes, this app reads.
+ *  - **`POST /tickets/from-accession`** — a store convenience that
+ *    resolves an accession to an experiment and opens a ticket in one
+ *    call. Gemma's `POST /tickets` takes explicit numeric targets.
+ *  - **`POST /{id}/finalize-triage`** and the whole
+ *    `triage_disposition` field — `grep -ri triagedisposition` over
+ *    the Gemma tree is empty. Gemma's target row carries `status` and
+ *    nothing else, so an include/exclude/unsure decision has no column
+ *    to land in.
+ *
+ *  Sending any of these while the queue is showing GEMMA's tickets
+ *  would address a store ticket that merely shares an id — a silent
+ *  write to the wrong row. Better to say so.
+ *
+ *  The status half of the target patch is NOT in this list any more:
+ *  see `usePatchTicketTarget`, which maps it onto Gemma's row-id
+ *  addressing rather than refusing. */
+function assertStoreTickets(action: string, because: string): void {
   if (resolveGemmaMode().mode === "remote") {
     throw new Error(
-      `Cannot ${action} on a Gemma ticket: this action exists only on the ` +
-        `curation store, and the two services number their tickets ` +
-        `independently. Switch to a store-backed session.`,
+      `Cannot ${action} on a Gemma ticket: ${because} The two services ` +
+        `number their tickets independently, so sending it anyway would ` +
+        `write to a store ticket that merely shares this id. Switch to a ` +
+        `store-backed session.`,
     );
   }
+}
+
+/** Resolve a store-shaped `(target_type, target_id)` address to the
+ *  target ROW id Gemma's patch route takes. Returns `null` when the
+ *  ticket has no such target, or when the matching target carries no
+ *  row id (every store ticket — see `TicketTarget.id`).
+ *
+ *  Pure, so the mapping is testable without a network or a cache. */
+export function targetRowId(
+  ticket: Ticket | undefined | null,
+  target_type: TicketTargetType,
+  target_id: number,
+): number | null {
+  const hit = ticket?.targets?.find(
+    (t) => t.target_type === target_type && t.target_id === target_id,
+  );
+  return typeof hit?.id === "number" ? hit.id : null;
 }
 
 import { api } from "@/api/client";
@@ -125,6 +161,19 @@ export type TicketTargetTriageDisposition =
   | null;
 
 export interface TicketTarget {
+  /** The target ROW's own primary key — Gemma's
+   *  ``TicketTargetValueObject.id``, and the address its
+   *  ``PATCH /tickets/{id}/targets/{targetRowId}`` takes.
+   *
+   *  🛑 **Only Gemma sends it.** Measured 2026-08-29 against both
+   *  live services: gemma2's targets arrive as
+   *  ``{id: 5, targetType, targetId: 861, status, …}``; the store's
+   *  arrive as ``{target_type, target_id, status,
+   *  triage_disposition, …}`` with no row id at all, because the
+   *  store addresses a target by ``(target_type, target_id)``. So
+   *  this is ``undefined`` on every store ticket, and
+   *  ``targetRowId`` below is what resolves the two addressings. */
+  id?: number;
   /** Wire-shape ID of the targeted entity. For
    *  ``EXPRESSION_EXPERIMENT`` this is the numeric experiment_id the
    *  ``/experiments/{id}`` route accepts. For ``GEO_ACCESSION``
@@ -382,7 +431,11 @@ export function useRunTicketAction(ticketId: number) {
   return useMutation({
     mutationFn: async (action: string) => {
       return await api.post<unknown>(
-        (assertStoreTickets("run a ticket action"),
+        (assertStoreTickets(
+          "run a ticket action",
+          "actions schedule the agent's background work on the curation " +
+            "store, and Gemma has no route that does it.",
+        ),
         `/curation/v1/tickets/${ticketId}/actions`),
         { action },
       );
@@ -414,14 +467,94 @@ export interface TicketCreateBody {
   }>;
 }
 
+/** Ticket types Gemma's `TicketType` enum does NOT have.
+ *
+ *  Compared enum-to-enum on 2026-08-29. Six values are shared
+ *  (`BATCH_INFO_NEEDED`, `REALIGNMENT_NEEDED`, `QUALITY_REVIEW`,
+ *  `PRELOAD`, `CURATION`, `GENERIC`). The store adds `SCREENING` and
+ *  `REVIEW`; Gemma adds `LITERATURE_SEARCH`, which nothing here can
+ *  raise.
+ *
+ *  🛑 `REVIEW` is the store's most common type — it is what
+ *  `from-accession` defaults to and what every review ticket carries —
+ *  so this is the gap a curator actually hits, not a corner. Filed
+ *  against the Gemma tree; until it closes, refuse with the type
+ *  named rather than let Jackson turn it into an opaque 400. */
+const TYPES_GEMMA_LACKS = new Set<TicketType>(["SCREENING", "REVIEW"]);
+
+/** Target types Gemma's `TicketTargetType` enum does not have.
+ *  `GEO_ACCESSION` is the store's synthetic triage target — a row for
+ *  an accession Gemma has not imported, which by construction cannot
+ *  exist in Gemma. */
+const TARGET_TYPES_GEMMA_LACKS = new Set<TicketTargetType>(["GEO_ACCESSION"]);
+
+/** Translate a create body into the shape Gemma's `CreateTicketRequest`
+ *  reads. Pure, and exported so the mapping is pinned by a test rather
+ *  than discovered by a 400.
+ *
+ *  🛑 The client sends request bodies VERBATIM — `client.ts` snakeifies
+ *  responses only — so a store-shaped `target_type` reaches Jackson as
+ *  an unknown property, `targetType` stays null, and the handler
+ *  answers "Each target requires targetType and targetId". The keys
+ *  have to be rewritten here; nothing downstream does it.
+ *
+ *  `assignee` is dropped rather than guessed: the store takes a
+ *  username string, Gemma takes a numeric `assigneeId` and 400s on an
+ *  id it cannot load. Resolving one to the other needs a user lookup
+ *  this module has no business doing, and an unassigned ticket in the
+ *  queue is recoverable where a failed create is not. */
+export function gemmaCreateBody(
+  body: TicketCreateBody,
+): Record<string, unknown> {
+  if (TYPES_GEMMA_LACKS.has(body.type)) {
+    throw new Error(
+      `Cannot create a ${body.type} ticket in Gemma: its ticket types are ` +
+        `BATCH_INFO_NEEDED, REALIGNMENT_NEEDED, QUALITY_REVIEW, PRELOAD, ` +
+        `CURATION, LITERATURE_SEARCH and GENERIC. ${body.type} exists only ` +
+        `on the curation store.`,
+    );
+  }
+  const bad = body.targets.find((t) =>
+    TARGET_TYPES_GEMMA_LACKS.has(t.target_type),
+  );
+  if (bad) {
+    throw new Error(
+      `Cannot create a ticket targeting ${bad.target_type} in Gemma: that ` +
+        `target type exists only on the curation store.`,
+    );
+  }
+  const out: Record<string, unknown> = {
+    type: body.type,
+    title: body.title,
+    targets: body.targets.map((t) => ({
+      targetType: t.target_type,
+      targetId: t.target_id,
+      ...(t.status ? { status: t.status } : {}),
+    })),
+  };
+  if (body.priority) out.priority = body.priority;
+  if (body.mode) out.mode = body.mode;
+  if (body.body !== undefined) out.body = body.body;
+  return out;
+}
+
 /** Mutation hook for creating a ticket. Invalidates the curator's
  *  open-ticket list on success so the dashboard / leave-guard pick
- *  up the new ticket without a manual refetch. */
+ *  up the new ticket without a manual refetch.
+ *
+ *  Works in both modes: Gemma serves `POST /tickets` too, and it is
+ *  the one write the curation workflow cannot do without. The body is
+ *  translated per mode — see `gemmaCreateBody`. */
 export function useCreateTicket() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: TicketCreateBody) => {
-      assertStoreTickets("create a ticket");
+      if (resolveGemmaMode().mode === "remote") {
+        return await api.post<Ticket>(
+          `${ticketsBase()}/tickets`,
+          gemmaCreateBody(body),
+        );
+      }
       return await api.post<Ticket>("/curation/v1/tickets", body);
     },
     onSuccess: () => {
@@ -466,7 +599,12 @@ export function useCreateTicketFromAccession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (body: TicketFromAccessionBody) => {
-      assertStoreTickets("create a ticket from an accession");
+      assertStoreTickets(
+        "create a ticket from an accession",
+        "this route imports the experiment into the store before opening " +
+          "the ticket, and against the real Gemma there is nothing to " +
+          "import — use the plain create instead.",
+      );
       return await api.post<Ticket>("/curation/v1/tickets/from-accession", body);
     },
     onSuccess: () => {
@@ -673,6 +811,72 @@ export function toWirePatch(
   return out;
 }
 
+/** The remote arm of `usePatchTicketTarget` — the one store write that
+ *  DOES map onto Gemma.
+ *
+ *  Two things have to be bridged, and only one of them can be:
+ *
+ *  **Addressing.** The store patches
+ *  `/{id}/targets/{target_type}/{target_id}`; Gemma patches
+ *  `/{id}/targets/{targetRowId}`, where the row id is the
+ *  `TicketTarget` primary key and NOT the id of the thing targeted.
+ *  Gemma's VO ships that row id (`{id: 5, targetId: 861}` on ticket 5,
+ *  measured), so the ticket we already hold is enough to translate —
+ *  no new endpoint, no id guessing. The cached ticket is tried first
+ *  and re-fetched when cold, because a curator who deep-links to a
+ *  ticket can reach Finalize before the list query has ever run.
+ *
+ *  **The triage decision.** It cannot be bridged: Gemma's target row
+ *  has `status` and nothing else. So a patch carrying a disposition
+ *  still refuses, and one carrying only `status` goes through. The
+ *  split is per-FIELD rather than per-caller on purpose — the same
+ *  hook serves Finalize (status only, works) and the triage table
+ *  (disposition, refuses), and keying on the caller would have let a
+ *  future third caller pick the wrong arm silently. */
+async function patchGemmaTargetStatus(
+  qc: ReturnType<typeof useQueryClient>,
+  ticketId: number,
+  args: {
+    target_type: TicketTargetType;
+    target_id: number;
+    patch: TicketTargetPatchBody;
+  },
+): Promise<Ticket> {
+  if (
+    "triage_disposition" in args.patch ||
+    "triage_disposition_reason" in args.patch
+  ) {
+    assertStoreTickets(
+      "record a triage decision",
+      "Gemma's ticket targets carry a status and nothing else, so an " +
+        "include / exclude / unsure decision has no field to land in.",
+    );
+  }
+  if (args.patch.status === undefined) {
+    throw new Error(
+      "Cannot update a Gemma ticket target: the patch sets no status, and " +
+        "status is the only field Gemma's target row has.",
+    );
+  }
+  const cached = qc.getQueryData<Ticket>(["ticket", ticketId]);
+  let rowId = targetRowId(cached, args.target_type, args.target_id);
+  if (rowId == null) {
+    const fresh = await api.get<Ticket>(`${ticketsBase()}/tickets/${ticketId}`);
+    rowId = targetRowId(fresh, args.target_type, args.target_id);
+  }
+  if (rowId == null) {
+    throw new Error(
+      `Cannot update this ticket target: ticket ${ticketId} has no ` +
+        `${args.target_type} target for id ${args.target_id}, or the target ` +
+        `arrived without the row id Gemma's patch route addresses.`,
+    );
+  }
+  return await api.patch<Ticket>(
+    `${ticketsBase()}/tickets/${ticketId}/targets/${rowId}`,
+    { status: args.patch.status },
+  );
+}
+
 /** Mutation hook for per-target patches on a ticket. Optimistically
  *  updates the cached ticket so the row flips immediately; server
  *  response replaces the cache on success. */
@@ -684,9 +888,11 @@ export function usePatchTicketTarget(ticketId: number) {
       target_id: number;
       patch: TicketTargetPatchBody;
     }) => {
+      if (resolveGemmaMode().mode === "remote") {
+        return await patchGemmaTargetStatus(qc, ticketId, args);
+      }
       const path =
-        (assertStoreTickets("update a ticket target"),
-        `/curation/v1/tickets/${ticketId}/targets/`) +
+        `/curation/v1/tickets/${ticketId}/targets/` +
         `${encodeURIComponent(args.target_type)}/${args.target_id}`;
       return await api.patch<Ticket>(path, toWirePatch(args.patch));
     },
@@ -724,7 +930,11 @@ export function useFinalizeTriage(ticketId: number) {
   return useMutation({
     mutationFn: async () => {
       return await api.post<TriageFinalizeResponse>(
-        (assertStoreTickets("finalize triage"),
+        (assertStoreTickets(
+          "finalize triage",
+          "finalizing buckets the targets by their triage disposition, " +
+            "and Gemma's ticket targets have no disposition field.",
+        ),
         `/curation/v1/tickets/${ticketId}/finalize-triage`),
         {},
       );
