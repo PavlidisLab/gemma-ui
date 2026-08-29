@@ -11,6 +11,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import type {
   AsyncTask,
   Candidate,
@@ -508,7 +509,7 @@ export function useSetVisibility(experimentId: number | string) {
 // Groups
 // ---------------------------------------------------------------------------
 
-/** 🛑 **`/rest/v2/groups` IS A REAL GEMMA ROUTE, and it is not ours.**
+/** 🛑 **`/rest/v2/groups` is a real GEMMA route as well as ours.**
  *  Gemma serves its own USER groups there — measured on gemma2:
  *  `/rest/v2/groups` returns `{id, name, description, memberCount}`
  *  objects ("Administrators", 14 members), and
@@ -516,7 +517,12 @@ export function useSetVisibility(experimentId: number | string) {
  *  bare STRINGS (`["Agents","Administrators"]`).
  *
  *  Curation sets answer the same paths on the store, so in remote mode
- *  the two collide and Gemma's answer arrives in a `Group[]` shape. The
+ *  the two collide and Gemma's answer arrives in a `Group[]` shape.
+ *  Neither side took the other's name: the store's routes date from
+ *  2026-05-01 and 05-08, Gemma's from 05-22 — two services grew the
+ *  same nouns three weeks apart. Which one moves is a decision about
+ *  cost (Gemma has external clients; the store's prefix is scaffolding
+ *  for a service being absorbed), not about who was first. The
  *  strings render as chips with no label and a
  *  "undefined · undefined · undefined members" tooltip; the user-group
  *  objects are worse, because `memberCount` snakeifies into
@@ -528,6 +534,38 @@ export function useSetVisibility(experimentId: number | string) {
  *  filed as `UIB_TO_CAB_2026_08_29_THE_SETS_API_COLLIDES_WITH_GEMMAS_OWN_GROUPS`.
  *  Delete this once the routes move; until then a set with no `type`
  *  is not a set we can render. */
+
+/** 🛑 **A set mutation in remote mode edits Gemma's ACCESS CONTROL.**
+ *
+ *  These calls sit on `/rest/v2/groups*`, which is Gemma's own
+ *  `GroupsWebService` — `POST /groups` creates a USER group, `PUT`
+ *  renames one, `DELETE` removes one, and the member routes add and
+ *  remove people from it. Every one is gated on `isAuthenticated()`
+ *  alone.
+ *
+ *  Measured, the exposure is narrower than that list looks but not
+ *  gone: Gemma coerces `{id}` to a `Long`, so every per-id call
+ *  carrying one of our UUIDs 404s — rename, delete, members, finalize
+ *  and reopen are all inert. **The collection `POST /groups` is live.**
+ *  It may 400 on our unknown `type` field, but that is inferred from
+ *  Jackson config rather than tried, and without `type` it creates a
+ *  real `UserGroup` owned by the caller.
+ *
+ *  So this throws before the request rather than after: there is no
+ *  safe version of finding out. Reads have {@link curationSetsOnly};
+ *  writes have nowhere to go until the store moves to `/curation/v1`
+ *  (Paul, 2026-08-29 — Gemma's routes stay put, the store takes the
+ *  prefix). Delete this guard when the calls move. */
+function assertCurationStore(action: string): void {
+  if (resolveGemmaMode().mode !== "local") {
+    throw new Error(
+      `Cannot ${action} against Gemma: curation sets live in the curation ` +
+        `store, and this path is Gemma's own user-group API. Switch to a ` +
+        `store-backed session.`,
+    );
+  }
+}
+
 export function curationSetsOnly(rows: unknown): Group[] {
   if (!Array.isArray(rows)) return [];
   return rows.filter(
@@ -604,7 +642,8 @@ export function useCreateGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: GroupCreate) =>
-      api.post<Group>("/rest/v2/groups", body),
+      (assertCurationStore("create a set"),
+      api.post<Group>("/rest/v2/groups", body)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
     },
@@ -615,7 +654,8 @@ export function useUpdateGroup(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: GroupPatch) =>
-      api.patch<Group>(`/rest/v2/groups/${groupId}`, body),
+      (assertCurationStore("rename a set"),
+      api.patch<Group>(`/rest/v2/groups/${groupId}`, body)),
     onSuccess: (updated) => {
       qc.setQueryData(KEY.group(groupId), updated);
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
@@ -627,7 +667,8 @@ export function useDeleteGroup() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (groupId: string) =>
-      api.delete<void>(`/rest/v2/groups/${groupId}`),
+      (assertCurationStore("delete a set"),
+      api.delete<void>(`/rest/v2/groups/${groupId}`)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
     },
@@ -670,10 +711,12 @@ export function useReopenGroup(groupId: string) {
 export function useAddGroupMembers(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (memberIds: (string | number)[]) =>
-      api.post<Group>(`/rest/v2/groups/${groupId}/members`, {
+    mutationFn: (memberIds: (string | number)[]) => {
+      assertCurationStore("add set members");
+      return api.post<Group>(`/rest/v2/groups/${groupId}/members`, {
         member_ids: memberIds,
-      } satisfies GroupMembersAdd),
+      } satisfies GroupMembersAdd);
+    },
     onSuccess: (updated) => {
       qc.setQueryData(KEY.group(groupId), updated);
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
@@ -685,7 +728,8 @@ export function useRemoveGroupMember(groupId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (memberId: string) =>
-      api.delete<void>(`/rest/v2/groups/${groupId}/members/${memberId}`),
+      (assertCurationStore("remove a set member"),
+      api.delete<void>(`/rest/v2/groups/${groupId}/members/${memberId}`)),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY.group(groupId) });
       qc.invalidateQueries({ queryKey: ["workflow", "groups"] });
