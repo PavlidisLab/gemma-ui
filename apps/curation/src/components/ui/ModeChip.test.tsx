@@ -79,31 +79,22 @@ describe("ModeChip — tier", () => {
     expect(pop.textContent).toContain("treat anything you write here as real");
   });
 
-  it("local mode says the writes land in the local store", async () => {
-    const pop = await openChipFor({ mode: "local" });
-    expect(pop.textContent).toContain("Local curation store");
-    expect(pop.textContent).toContain("local SQLite DB");
-  });
 });
 
+/**
+ * 🛑 Four tests lived here asserting the chip's prose — "Local curation
+ * store", "local SQLite DB", "Nothing asks you to confirm", "straight
+ * at this host", "GEEQ recalculate", "outlier flags". The prose is gone
+ * (Paul, 2026-08-29: the curator does not need spoonfeeding), so they
+ * went with it rather than being rewritten.
+ *
+ * They are worth a note because they PASSED while the sentences they
+ * pinned were false. A test that a string is present cannot tell you
+ * the string is true, and this one held four claims steady through the
+ * routing change that falsified them. Pin what the chip resolves —
+ * mode, host, tier — not what it says.
+ */
 describe("ModeChip — what it claims about writes", () => {
-  it("promises no confirmation step, because there is none", async () => {
-    const pop = await openChipFor(GEMMA2);
-    expect(pop.textContent).toContain("Nothing asks you to confirm");
-    expect(pop.textContent).not.toMatch(/require an explicit confirmation/i);
-    expect(pop.textContent).not.toMatch(/confirmation modal/i);
-  });
-
-  it.each([
-    ["production", "https://gemma2.msl.ubc.ca"],
-    ["unrecognized", "http://localhost:8081"],
-  ])("names the writes that bypass the agent — %s tier", async (_tier, url) => {
-    const pop = await openChipFor({ mode: "remote", gemmaBaseUrl: url });
-    expect(pop.textContent).toContain("straight at this host");
-    expect(pop.textContent).toContain("GEEQ recalculate");
-    expect(pop.textContent).toContain("outlier flags");
-  });
-
   it("says nothing about host-bound writes in local mode", async () => {
     const pop = await openChipFor({ mode: "local" });
     expect(pop.textContent).not.toContain("straight at this host");
