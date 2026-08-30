@@ -82,7 +82,12 @@ describe("commit in remote mode", () => {
   it("says why, rather than leaving a dead button", () => {
     renderBar("remote");
     expect(screen.getByText(/Remote mode/)).toBeTruthy();
-    expect(screen.getByText(/commit is\s+blocked here/i)).toBeTruthy();
+    // Asserts that a reason is given and where commits go — NOT the
+    // sentence it is given in. The old copy explained the store's
+    // design shape versus Gemma's design route across four sentences;
+    // pinning that wording made the test an obstacle to shortening it
+    // rather than a guard on the curator being told something.
+    expect(screen.getByText(/through the agent/i)).toBeTruthy();
   });
 
   it("tells the curator their edits survive and what to do", () => {

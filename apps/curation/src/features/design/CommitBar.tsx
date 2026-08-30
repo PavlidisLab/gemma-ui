@@ -243,7 +243,14 @@ export function CommitBar({
     // disappears when the draft is clean (``return null`` above).
     // Keeps everything top-and-right without the previous full-page
     // sticky bar that obscured the actual page content.
-    <div className="inline-block">
+    // 🛑 `max-w` is what makes the prose panels below WRAP. The bar is
+    // `inline-block`, so it shrink-wraps to its widest child — with no
+    // cap, a paragraph laid itself out as one unbroken line and
+    // stretched the whole bar across the viewport, shoving the banner
+    // chrome sideways. Every panel under the status row is prose and
+    // has the same failure mode, so the cap belongs here, once, rather
+    // than on each of them.
+    <div className="inline-block max-w-[34rem]">
       <div className={wrapperCls}>
         <div className="px-2 py-1 flex items-center gap-2 whitespace-nowrap">
           <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium ${labelCls}`}>
@@ -300,13 +307,16 @@ export function CommitBar({
           </div>
         </div>
         {remoteMode ? (
+          // Two facts and no mechanism: the edits are safe, and there is
+          // one way to land them. The previous copy spent four sentences
+          // on why this write cannot reach a real Gemma — the store's
+          // design shape vs the shape Gemma's design route reads — which
+          // is true, still on the commit button's `title`, and not what
+          // anyone reads a red bar to find out.
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200">
-            <span className="font-semibold">Remote mode</span> — commit is
-            blocked here. This save is the older whole-design write, and it
-            sends the curation store&rsquo;s design shape, which is not the
-            shape Gemma&rsquo;s design route reads. Committing against a real
-            Gemma goes through the agent. Your edits are kept; switch to local
-            mode to commit them.
+            <span className="font-semibold">Remote mode</span> — commits go
+            through the agent, not from here. Your edits are kept; switch to
+            local mode to commit them.
           </div>
         ) : null}
         {lockedOut ? (
