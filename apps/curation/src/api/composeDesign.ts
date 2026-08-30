@@ -119,6 +119,10 @@ interface LegacyBiomaterial {
    *  ``BiomaterialD.geo_fields`` (design_schemas.py) and snakeified by
    *  the client; forwarded to the popover's "From GEO — raw" section. */
   geo_fields?: Record<string, string>;
+  /** GEO sample id. Absent on the local API's projection (its
+   *  `short_name` already IS the GSM); populated by
+   *  `sampleBiomaterials`, whose names may carry no GSM at all. */
+  accession?: string | null;
 }
 
 /** The wire-only half of the design payload: fields this adapter
@@ -296,6 +300,10 @@ export function composeCurationDesign(
   overlay?: CurationProposalOverlay | null,
   externalSource?: ExternalSource | null,
   meta?: DatasetMetaSlim | null,
+  /** Per-sample detail from `/datasets/{id}/samples`, used only when
+   *  the design payload carries no legacy `biomaterials` array — which
+   *  is every design that comes from Gemma rather than the local API. */
+  sampleBiomaterials?: LegacyBiomaterial[] | null,
 ): Design {
   const fvOverlay = overlay?.factor_values ?? {};
   /** The experiment's abstract, which only the dataset row carries. */
@@ -377,8 +385,17 @@ export function composeCurationDesign(
   // depend on. Fall back to the minimum-viable mapping from the
   // ``bio_material_assignments`` table for any consumer (real Gemma
   // 2.0?) that doesn't emit the legacy field.
+  //
+  // 🛑 When the server sends no legacy array, `sampleBiomaterials` fills
+  // the same slot from `/datasets/{id}/samples` — see
+  // `api/sampleBiomaterials.ts` for why that second fetch exists. The
+  // legacy array still WINS where present: it is the local API's own
+  // projection, and it carries two fields `/samples` does not
+  // (`source_biomaterial_id`, `geo_fields`).
   const legacyByShortName = new Map<string, LegacyBiomaterial>();
-  for (const lb of g2.biomaterials ?? []) {
+  for (const lb of g2.biomaterials?.length
+    ? g2.biomaterials
+    : (sampleBiomaterials ?? [])) {
     if (lb.short_name) legacyByShortName.set(lb.short_name, lb);
   }
   const biomaterials: Biomaterial[] = (g2.bio_material_assignments ?? []).map(
@@ -397,6 +414,7 @@ export function composeCurationDesign(
           .map((a) => ({ short_name: a.short_name, name: a.name ?? "" })),
         source_biomaterial_id: legacy?.source_biomaterial_id ?? null,
         geo_fields: legacy?.geo_fields,
+        accession: legacy?.accession ?? null,
       };
     },
   );

@@ -179,6 +179,17 @@ export interface Biomaterial {
    *  that Gemma does not promote to a characteristic. Optional / absent
    *  for payloads predating GEO-field capture. */
   geo_fields?: Record<string, string>;
+  /** GEO sample id (`GSM…`), when the source recorded one.
+   *
+   *  🛑 The join key for `sourceMetadata`'s per-sample document. It used
+   *  to be read off `short_name`, which only holds a GSM when Gemma
+   *  minted the biomaterial name with a pipe
+   *  (`GSE2018_bioMaterial_7|GSM36429`). Names without one —
+   *  `GSE324761_Biomat_1` — left the join matching nothing and the
+   *  popover saying "no GEO fields for this sample". Absent where the
+   *  payload does not carry an accession; readers fall back to
+   *  `short_name`, which is correct for the piped names. */
+  accession?: string | null;
 }
 
 export interface Tag {

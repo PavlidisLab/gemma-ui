@@ -133,9 +133,15 @@ export function BiomaterialMetaPopover({
   // (`hyb_protocol`, `scan_protocol`, `label_protocol`, the `ch2_*`
   // two-channel family, `characteristics_unparsed`, `supplementary_files`).
   const sourceMeta = useSourceMetadata(experimentId);
+  // 🛑 `accession` first, `short_name` only as the fallback. The join
+  // wants a GSM, and `short_name` is one only when Gemma minted the
+  // biomaterial name with a pipe (`GSE2018_bioMaterial_7|GSM36429`).
+  // Names without one — `GSE324761_Biomat_1` — matched nothing, and a
+  // miss here is indistinguishable from a record that has no GEO
+  // fields, so it read as "no GEO fields for this sample".
   const geoSample = geoSampleFor(
     sourceMeta.data?.state === "document" ? sourceMeta.data.doc : undefined,
-    bm.short_name,
+    bm.accession || bm.short_name,
   );
   const geoEntries = Object.entries(geoSample ?? {}).filter(
     ([k, v]) =>
