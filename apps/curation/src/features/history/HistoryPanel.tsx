@@ -4,7 +4,6 @@ import {
   useAuditEvents,
   type AuditEvent,
 } from "@/api/history";
-import { experimentAuditTrailUrl } from "@/lib/gemmaUrls";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import { ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -40,11 +39,6 @@ export function HistoryPanel({ experimentId }: { experimentId: number | string }
     error,
     refetch,
   } = useAuditEvents(experimentId, { compact, excludeEmpty });
-  // Real Gemma's audit trail (full DWR-only view) lives at the
-  // canonical web URL — link out for context the REST surface
-  // can't provide today.
-  const fullHistoryUrl = experimentAuditTrailUrl(experimentId);
-
   // Soft-fail sentinel from the hook: this experiment id isn't in
   // gemma-rest. Show a distinct empty state rather than throwing
   // an error banner — the experiment may live in local_api but
@@ -149,15 +143,6 @@ export function HistoryPanel({ experimentId }: { experimentId: number | string }
           />
           refresh
         </button>
-        <a
-          href={fullHistoryUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-xs text-blue-700 hover:underline"
-          title="See the complete audit trail on Gemma — REST exposes only the most-recent events of each type"
-        >
-          full trail on Gemma ↗
-        </a>
       </div>
       {error ? (
         <div className="px-3 py-4 text-sm text-rose-700">

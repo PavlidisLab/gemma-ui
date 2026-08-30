@@ -50,9 +50,24 @@ export function experimentPageUrl(experimentId: number | string): string {
   return `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperiment.html?id=${experimentId}`;
 }
 
-export function experimentAuditTrailUrl(experimentId: number | string): string {
-  return `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperimentAuditTrail.html?id=${experimentId}`;
-}
+/* 🛑 REMOVED 2026-08-29: `experimentAuditTrailUrl`, which built
+ * `${GEMMA_WEB_URL}/expressionExperiment/showExpressionExperimentAuditTrail.html?id=`
+ * for the History panel's "full trail on Gemma" link.
+ *
+ * There is no such page and there never was: `git log --all -S` over the
+ * Gemma repo finds the path on no branch, and it answers 404 on
+ * gemma.msl.ubc.ca AND gemma2.msl.ubc.ca. The Gemma 1.0 experiment page
+ * (which does serve, 200) carries no audit-trail section either.
+ *
+ * The caveat it carried — "REST exposes only the most-recent events of
+ * each type" — is also false. `/datasets/1658/auditEvents` returns 71
+ * events over 13 types, up to 35 of a single type, and the store returns
+ * byte-identical counts through the proxy. The panel already has the
+ * complete trail, so the link offered a curator a 404 in exchange for a
+ * limitation that does not exist.
+ *
+ * Don't restore it against a different path without fetching that path
+ * first. */
 
 /**
  * Build the external-database URL for an individual sample
