@@ -1,6 +1,22 @@
 /**
- * Per-sample biomaterial detail, read from Gemma's
- * `GET /rest/v2/datasets/{id}/samples`.
+ * The parts of a curation `Design` that Gemma's `/datasets/{id}/design`
+ * does not carry, fetched from the endpoints that do.
+ *
+ * The local API's `Design` (`design_schemas.py`) is a richer object than
+ * Gemma's: alongside factors and assignments it holds `biomaterials`,
+ * `tags`, `publications` and `overall_design`. `composeDesign` reads all
+ * of them off the design payload. Gemma's endpoint has none of them, so
+ * on a Gemma-backed experiment each one composed empty — and an empty
+ * list renders identically to "this experiment has none", which is why
+ * four separate holes went unnoticed until one of them was noticed.
+ *
+ * Each is available; none was being asked for:
+ *
+ *     biomaterials  <- /datasets/{id}/samples        (sample.characteristics)
+ *     tags          <- /datasets/{id}/annotations    (objectClass ExperimentTag)
+ *     publications  <- /datasets/{id}/publications
+ *     overall_design<- /datasets/{id}/sourceMetadata (read in OverviewPanel,
+ *                                                     which already has it)
  *
  * 🛑 **Why a second fetch exists at all.** `composeDesign` reads
  * per-sample characteristics off a legacy `biomaterials` array. Only the
@@ -32,6 +48,7 @@
  * overloading `short_name` further.
  */
 import { api } from "./client";
+import type { Publication, Tag } from "@/features/experiment/types";
 
 /** One characteristic on a BioMaterial, post-`snakeify`. */
 interface WireCharacteristic {
@@ -177,4 +194,107 @@ export async function fetchSampleBiomaterials(
     `/rest/v2/datasets/${experimentId}/samples`,
   );
   return toSampleBiomaterials(Array.isArray(assays) ? assays : []);
+}
+
+// ─── EE tags ──────────────────────────────────────────────────────────
+
+/** One row of `/datasets/{id}/annotations`, post-`snakeify`.
+ *
+ *  🛑 `object_class` is the field that says WHERE the annotation lives —
+ *  `ExperimentTag`, `FactorValue` or `BioMaterial` — and the endpoint
+ *  returns all three flattened into one list. Gemma 1.0's page renders
+ *  that list without surfacing the field, which is why an MCF7 sitting
+ *  on the biomaterials looked like an experiment tag with no visible
+ *  origin. Only `ExperimentTag` rows are EE tags. */
+interface WireAnnotation {
+  id?: number | null;
+  class_name?: string | null;
+  class_uri?: string | null;
+  term_name?: string | null;
+  term_uri?: string | null;
+  evidence_code?: string | null;
+  object_class?: string | null;
+}
+
+/** The EE-level tags, and only those.
+ *
+ *  Sample- and factor-level rows are deliberately dropped: a
+ *  BioMaterial characteristic reaches the tag bar as an INHERITED chip
+ *  via `augmentInferredFromBiomaterials`, which marks it read-only and
+ *  violet. Passing it here instead would present a projection as a
+ *  stored tag a curator can remove — see the `inferred` rules in
+ *  `TagBar`. */
+export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
+  const tags: Tag[] = [];
+  for (const r of rows) {
+    if (r.object_class !== "ExperimentTag") continue;
+    const label = (r.term_name ?? "").trim();
+    const category = (r.class_name ?? "").trim();
+    if (!label && !category) continue;
+    tags.push({
+      id: r.id ?? tags.length + 1,
+      category: { label: category, uri: r.class_uri ?? null },
+      value: { label, uri: r.term_uri ?? null },
+      evidence_code: r.evidence_code ?? undefined,
+    });
+  }
+  return tags;
+}
+
+export async function fetchExperimentTags(
+  experimentId: number | string,
+): Promise<Tag[]> {
+  const rows = await api.get<WireAnnotation[]>(
+    `/rest/v2/datasets/${experimentId}/annotations`,
+  );
+  return toExperimentTags(Array.isArray(rows) ? rows : []);
+}
+
+// ─── Publications ─────────────────────────────────────────────────────
+
+/** One row of `/datasets/{id}/publications`, post-`snakeify`.
+ *
+ *  `association` already arrives in the shape the UI's
+ *  `PublicationAssociation` expects — status / role / source /
+ *  evidence — because Gemma carries the publication-provenance block
+ *  natively. It is passed through rather than rebuilt. */
+interface WirePublication {
+  pub_accession?: string | null;
+  title?: string | null;
+  citation?: { citation?: string | null } | string | null;
+  association?: unknown;
+}
+
+/** 🛑 The VO has no DOI field. `doi` is required on `Publication`, so it
+ *  is filled with the empty string — the same thing the local API's
+ *  projection does when GEO gave it only a PMID. Do not invent one from
+ *  the citation text. */
+export function toPublications(rows: WirePublication[]): Publication[] {
+  const out: Publication[] = [];
+  for (const r of rows) {
+    const pmid = (r.pub_accession ?? "").trim();
+    const title = (r.title ?? "").trim();
+    const citation =
+      typeof r.citation === "string"
+        ? r.citation
+        : ((r.citation?.citation ?? "") as string);
+    if (!pmid && !title) continue;
+    out.push({
+      pubmed_id: pmid,
+      doi: "",
+      citation: citation.trim(),
+      title,
+      association: (r.association ?? null) as Publication["association"],
+    });
+  }
+  return out;
+}
+
+export async function fetchPublications(
+  experimentId: number | string,
+): Promise<Publication[]> {
+  const rows = await api.get<WirePublication[]>(
+    `/rest/v2/datasets/${experimentId}/publications`,
+  );
+  return toPublications(Array.isArray(rows) ? rows : []);
 }

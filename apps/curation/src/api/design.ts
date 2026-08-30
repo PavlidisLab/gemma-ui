@@ -9,7 +9,11 @@ import {
   type CurationProposalOverlay,
   type G2Design,
 } from "./composeDesign";
-import { fetchSampleBiomaterials } from "./sampleBiomaterials";
+import {
+  fetchExperimentTags,
+  fetchPublications,
+  fetchSampleBiomaterials,
+} from "./designFromGemma";
 
 const KEY = {
   byExperiment: (experimentId: number | string) => ["design", experimentId] as const,
@@ -73,16 +77,19 @@ export function fillStatementCategoriesFromParent(d: Design): Design {
 export async function fetchDesignSnapshot(
   experimentId: number | string,
 ): Promise<Design> {
-  const [g2, overlay, datasetMeta, sampleBms] = await Promise.all([
+  const [g2, overlay, datasetMeta, sampleBms, gemmaTags, gemmaPubs] =
+    await Promise.all([
     api.get<G2Design>(`/rest/v2/datasets/${experimentId}/design`),
     fetchLatestProposalOverlay(experimentId),
     fetchDatasetMeta(experimentId),
-    // Per-sample characteristics + the GEO accession. Gemma's `/design`
-    // carries neither, so without this a Gemma-backed design composes
-    // every sample with `characteristics: {}` — see
-    // `api/sampleBiomaterials.ts`. Failure here must not take the design
-    // down with it: an empty list is the same fallback as before.
+    // Three things the local API's Design carries and Gemma's does not.
+    // Each composed empty on a Gemma-backed experiment, and an empty
+    // list is indistinguishable from "this experiment has none" — see
+    // `api/designFromGemma.ts`. Failure on any one must not take the
+    // design down with it: an empty list is the same fallback as before.
     fetchSampleBiomaterials(experimentId).catch(() => []),
+    fetchExperimentTags(experimentId).catch(() => []),
+    fetchPublications(experimentId).catch(() => []),
   ]);
   const composed = composeCurationDesign(
     g2,
@@ -97,7 +104,7 @@ export async function fetchDesignSnapshot(
         }
       : null,
     datasetMeta,
-    sampleBms,
+    { biomaterials: sampleBms, tags: gemmaTags, publications: gemmaPubs },
   );
   return fillStatementCategoriesFromParent(composed);
 }

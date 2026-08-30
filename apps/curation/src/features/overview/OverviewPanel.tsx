@@ -119,9 +119,19 @@ export function OverviewPanel() {
   // The GEO series overall design, from its own field or (legacy packs)
   // dug back out of the description fold. Rendered as the "design (GEO)"
   // row below, and used to de-duplicate the description read view.
+  // 🛑 The third fallback is not belt-and-braces — it is the only one
+  // that fires on a Gemma-backed experiment. `meta.overall_design` is
+  // the local API's field and Gemma's dataset payload has no
+  // counterpart; the description fold only exists in legacy packs. So
+  // both earlier branches come up empty and the row rendered nothing,
+  // while `geoRecord` — already fetched right here for the GEO card —
+  // holds the text verbatim from the series record.
   const overallDesign =
     (meta?.overall_design ?? "").trim() ||
-    overallDesignFromDescription(meta?.description);
+    overallDesignFromDescription(meta?.description) ||
+    (geoRecord.data?.state === "document"
+      ? (geoRecord.data.doc.overall_design ?? "").trim()
+      : "");
   // Pull every proposal for this experiment so the Publications
   // card can surface paper excerpts the agent fetched. The most
   // recent submission with a non-empty ``paper_excerpt`` wins —

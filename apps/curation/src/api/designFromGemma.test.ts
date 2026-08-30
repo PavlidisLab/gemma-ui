@@ -14,7 +14,11 @@
  * inferred relations while appearing nowhere in the UI.
  */
 import { describe, expect, it } from "vitest";
-import { toSampleBiomaterials } from "./sampleBiomaterials";
+import {
+  toExperimentTags,
+  toPublications,
+  toSampleBiomaterials,
+} from "./designFromGemma";
 
 const SAMPLES_91164 = [
   {
@@ -210,5 +214,137 @@ describe("the shapes that are not GSE324761", () => {
     expect(toSampleBiomaterials([{ id: 1, name: "a", sample: null }])).toEqual(
       [],
     );
+  });
+});
+
+// ─── EE tags ──────────────────────────────────────────────────────────
+
+/** `GET /datasets/91164/annotations`, captured 2026-08-29, snakeified.
+ *  All four rows verbatim — the point of the fixture is that they are
+ *  NOT all experiment tags. */
+const ANNOTATIONS_91164 = [
+  {
+    id: 55441651,
+    class_uri: "http://purl.obolibrary.org/obo/OBI_0000070",
+    class_name: "assay",
+    term_uri: "http://purl.obolibrary.org/obo/OBI_0003090",
+    term_name: "bulk RNA-seq assay",
+    evidence_code: null,
+    object_class: "ExperimentTag",
+  },
+  {
+    id: 55619863,
+    class_uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00101",
+    class_name: "disease model",
+    term_uri: "http://purl.obolibrary.org/obo/MONDO_0004976",
+    term_name: "amyotrophic lateral sclerosis",
+    evidence_code: "IC",
+    object_class: "ExperimentTag",
+  },
+  {
+    id: 55619861,
+    class_uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+    class_name: "treatment",
+    term_uri: "http://purl.obolibrary.org/obo/OBI_0000025",
+    term_name: "reference substance role",
+    evidence_code: "IC",
+    object_class: "FactorValue",
+  },
+  {
+    id: 55441635,
+    class_uri: "http://purl.obolibrary.org/obo/CLO_0000031",
+    class_name: "cell line",
+    term_uri: "http://purl.obolibrary.org/obo/CLO_0007606",
+    term_name: "MCF7 cell",
+    evidence_code: "IIA",
+    object_class: "BioMaterial",
+  },
+];
+
+describe("toExperimentTags", () => {
+  const tags = toExperimentTags(ANNOTATIONS_91164);
+
+  it("keeps only the ExperimentTag rows", () => {
+    expect(tags.map((t) => t.value.label)).toEqual([
+      "bulk RNA-seq assay",
+      "amyotrophic lateral sclerosis",
+    ]);
+  });
+
+  it("does NOT promote the BioMaterial row to a tag", () => {
+    // MCF7 reaches the tag bar as an inherited chip via
+    // `augmentInferredFromBiomaterials` — read-only, violet. Passing it
+    // here would present a projection as a stored tag the curator can
+    // delete.
+    expect(tags.some((t) => t.value.label === "MCF7 cell")).toBe(false);
+    expect(tags.some((t) => t.value.label === "reference substance role")).toBe(
+      false,
+    );
+  });
+
+  it("carries category, URIs and the evidence code", () => {
+    const als = tags[1];
+    expect(als.category).toEqual({
+      label: "disease model",
+      uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00101",
+    });
+    expect(als.value.uri).toBe("http://purl.obolibrary.org/obo/MONDO_0004976");
+    expect(als.evidence_code).toBe("IC");
+  });
+});
+
+// ─── Publications ─────────────────────────────────────────────────────
+
+/** `GET /datasets/1658/publications` (GSE11630), captured 2026-08-29. */
+const PUBLICATIONS_1658 = [
+  {
+    pub_accession: "18156441",
+    title:
+      "Identification of Nrf2-dependent airway epithelial adaptive response to proinflammatory oxidant-hypochlorous acid challenge by transcription profiling.",
+    citation: {
+      id: 799,
+      citation:
+        "Zhu, Lingxiang et al. (2008) Identification of Nrf2-dependent airway epithelial adaptive response to proinflammatory oxidant-hypochlorous acid challenge by transcription profiling.; Am J Physiol Lung Cell Mol Physiol, 294: L469-77",
+    },
+    association: {
+      status: "accepted",
+      role: "primary",
+      source: "geo_submitter_link",
+      evidence:
+        "Checked against GEO on 2026-08-18: GSE11630 lists !Series_pubmed_id 18156441 as its first (primary) publication.",
+    },
+  },
+];
+
+describe("toPublications", () => {
+  const pubs = toPublications(PUBLICATIONS_1658);
+
+  it("reads the PMID off pubAccession", () => {
+    expect(pubs[0].pubmed_id).toBe("18156441");
+  });
+
+  it("unwraps the nested citation object", () => {
+    expect(pubs[0].citation).toContain("Zhu, Lingxiang et al. (2008)");
+  });
+
+  it("passes Gemma's association block through untouched", () => {
+    // Gemma carries the publication-provenance block natively and in
+    // the shape this type wants. Rebuilding it here would be a second
+    // copy to drift.
+    expect(pubs[0].association).toMatchObject({
+      status: "accepted",
+      role: "primary",
+      source: "geo_submitter_link",
+    });
+  });
+
+  it("leaves doi empty rather than inventing one from the citation", () => {
+    expect(pubs[0].doi).toBe("");
+  });
+
+  it("returns nothing for a dataset with no linked paper", () => {
+    // GSE324761 really has none — /publications answers {"data":[]} and
+    // its GEO record carries no Pubmed-ID either.
+    expect(toPublications([])).toEqual([]);
   });
 });

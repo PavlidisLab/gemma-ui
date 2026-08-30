@@ -300,10 +300,14 @@ export function composeCurationDesign(
   overlay?: CurationProposalOverlay | null,
   externalSource?: ExternalSource | null,
   meta?: DatasetMetaSlim | null,
-  /** Per-sample detail from `/datasets/{id}/samples`, used only when
-   *  the design payload carries no legacy `biomaterials` array — which
-   *  is every design that comes from Gemma rather than the local API. */
-  sampleBiomaterials?: LegacyBiomaterial[] | null,
+  /** What Gemma's `/design` omits, fetched separately — see
+   *  `api/designFromGemma.ts`. Each half is used only where the design
+   *  payload has nothing, so a local-API design is unaffected. */
+  fromGemma?: {
+    biomaterials?: LegacyBiomaterial[] | null;
+    tags?: Tag[] | null;
+    publications?: Publication[] | null;
+  } | null,
 ): Design {
   const fvOverlay = overlay?.factor_values ?? {};
   /** The experiment's abstract, which only the dataset row carries. */
@@ -395,7 +399,7 @@ export function composeCurationDesign(
   const legacyByShortName = new Map<string, LegacyBiomaterial>();
   for (const lb of g2.biomaterials?.length
     ? g2.biomaterials
-    : (sampleBiomaterials ?? [])) {
+    : (fromGemma?.biomaterials ?? [])) {
     if (lb.short_name) legacyByShortName.set(lb.short_name, lb);
   }
   const biomaterials: Biomaterial[] = (g2.bio_material_assignments ?? []).map(
@@ -451,14 +455,28 @@ export function composeCurationDesign(
     // tags. Pre-2026-05-23 this was ``overlay?.tags ?? []`` which
     // dropped the saved tags on the floor and caused the banner's
     // ModalityIndicator to misclassify single-cell studies as bulk.
-    tags: overlay?.tags ?? g2.tags ?? [],
+    // 🛑 Order matters and the Gemma fetch goes LAST. An overlay's tags
+    // are the agent's proposal for this experiment and a stored
+    // `g2.tags` is the local API's own list; either outranks a
+    // re-read of what Gemma currently holds. Only where both are
+    // absent — every Gemma-backed design — does the fetch fill in,
+    // which is the difference between "no tags" and "never asked".
+    tags: overlay?.tags ?? g2.tags ?? fromGemma?.tags ?? [],
     // Publications copy-through. composeCurationDesign was building
     // a fresh Design from g2 + overlay + meta but had never been
     // taught about the design's `publications` field — so the
     // OverviewPanel "Publications" card and the PrePublishChecklist
     // both rendered as empty even when the local API returned a
     // populated PMID list. Fixed 2026-06-11 (design review GSE102415).
-    publications: g2.publications ?? [],
+    // 🛑 And the same field was empty again for a different reason:
+    // Gemma's `/design` has no `publications` at all, so the
+    // copy-through had nothing to copy on any Gemma-backed experiment.
+    // `/datasets/{id}/publications` does carry them — with Gemma's own
+    // `association` provenance block already in the shape this type
+    // wants — so it fills in where the design payload is silent.
+    publications: g2.publications?.length
+      ? g2.publications
+      : (fromGemma?.publications ?? []),
     external_source: externalSource ?? null,
     // 🛑 `||`, not `??`, and the dataset row as the fallback.
     //
