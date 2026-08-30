@@ -3,7 +3,12 @@ import { createPortal } from "react-dom";
 import type { Biomaterial } from "@/features/experiment/types";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { Term } from "@/components/ui/Term";
-import { geoSampleFor, useSourceMetadata } from "@/api/sourceMetadata";
+import {
+  constantGeoFields,
+  geoSampleFor,
+  useSourceMetadata,
+} from "@/api/sourceMetadata";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
 
 /**
  * Tiny "i" chip beside a sample's short_name in the samples table.
@@ -133,6 +138,8 @@ export function BiomaterialMetaPopover({
   // (`hyb_protocol`, `scan_protocol`, `label_protocol`, the `ch2_*`
   // two-channel family, `characteristics_unparsed`, `supplementary_files`).
   const sourceMeta = useSourceMetadata(experimentId);
+  // The biomaterial list, for deciding which GEO fields are constant.
+  const draft = useDesignDraft().draft;
   // 🛑 `accession` first, `short_name` only as the fallback. The join
   // wants a GSM, and `short_name` is one only when Gemma minted the
   // biomaterial name with a pipe (`GSE2018_bioMaterial_7|GSM36429`).
@@ -143,10 +150,26 @@ export function BiomaterialMetaPopover({
     sourceMeta.data?.state === "document" ? sourceMeta.data.doc : undefined,
     bm.accession || bm.short_name,
   );
+  // A field carrying the same value on every sample is a fact about the
+  // EXPERIMENT that GEO happened to store per-sample, and the Overview
+  // states it once. Repeating it here puts a screenful of identical
+  // `data_processing` prose behind all N samples and buries the fields
+  // that actually differ, which are the reason to open this popover.
+  //
+  // Subtracted rather than hidden by a toggle: the curator has already
+  // read it on the front tab, and this list is short enough that a
+  // control to restore it would cost more attention than the rows.
+  const constantKeys = new Set(
+    constantGeoFields(
+      sourceMeta.data?.state === "document" ? sourceMeta.data.doc : undefined,
+      (draft?.biomaterials ?? []).map((b) => b.accession || b.short_name),
+    ).map((f) => f.key),
+  );
   const geoEntries = Object.entries(geoSample ?? {}).filter(
     ([k, v]) =>
       k !== "description" &&
       k !== "characteristics" &&
+      !constantKeys.has(k) &&
       v != null &&
       (Array.isArray(v) ? v.length > 0 : String(v).trim() !== ""),
   );

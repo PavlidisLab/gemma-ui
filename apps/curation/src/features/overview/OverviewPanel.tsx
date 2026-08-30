@@ -330,11 +330,22 @@ export function OverviewPanel() {
             if (overallDesign) rows.push({ label: "design (GEO)", text: overallDesign });
             rows.push(
               ...orderGeoFields(
+                // 🛑 `meta.biomaterials` does not exist — `DatasetMeta`
+                // has no such field, so this was `[]` on every dataset,
+                // `constantGeoFields` returned early on an empty sample
+                // list, and this row has never rendered once. The
+                // constants stayed where they were: repeated verbatim in
+                // all N sample popovers. The draft is what carries the
+                // biomaterials, and `accession` is what the GEO document
+                // joins on — `short_name` is a GSM only where Gemma
+                // minted the name with a pipe.
                 constantGeoFields(
                   geoRecord.data?.state === "document"
                     ? geoRecord.data.doc
                     : undefined,
-                  (meta?.biomaterials ?? []).map((b) => b.short_name),
+                  (draft?.biomaterials ?? []).map(
+                    (b) => b.accession || b.short_name,
+                  ),
                 ),
               ).map(({ key, text }) => ({ label: geoFieldLabel(key), text })),
             );
