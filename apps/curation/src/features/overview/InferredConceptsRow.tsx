@@ -2,7 +2,7 @@ import {
   sourceDisplayName,
   useDatasetInferredConcepts,
 } from "@/api/termRelations";
-import { shortenUri } from "@/lib/curie";
+import { CurieLink } from "@/components/ui/CurieLink";
 
 /**
  * "Inferred" — concepts Gemma can derive from this experiment's own
@@ -95,7 +95,7 @@ export function InferredConceptsRowBody({
   // a reader looking for a `Hep-G2` annotation that is not there and
   // cannot be. The source is what makes the unfamiliar name explicable,
   // so the two travel together and dedupe together.
-  type Seed = { label: string; source: string };
+  type Seed = { label: string; predicate: string; source: string };
   const byConcept = new Map<
     string,
     { row: (typeof data)[number]; from: Seed[]; seen: Set<string> }
@@ -108,18 +108,60 @@ export function InferredConceptsRowBody({
     if (!byConcept.has(key)) byConcept.set(key, entry);
     const seedLabel = (r.implied_subject ?? "").trim();
     if (!seedLabel) continue;
-    // Deduped on the seed's URI where it has one: the same seed under
-    // two predicates is one implication, while one URI under two source
-    // spellings is two things to a reader and both are worth showing.
-    const seedKey = `${(r.implied_subject_uri ?? seedLabel).toLowerCase()}|${(
+    // Deduped on the seed's URI where it has one, and on the PREDICATE
+    // beside it: one URI under two source spellings is two things to a
+    // reader, and so is one seed related two different ways.
+    //
+    // 🛑 The predicate used to be excluded here, on the reasoning that
+    // "the same seed under two predicates is one implication". That was
+    // true while the tooltip named only the seed; it stopped being true
+    // when the tooltip started stating the RELATIONSHIP. Collapsing them
+    // now would print one predicate and silently drop the other.
+    const seedPredicate = (r.implied_predicate ?? r.predicate ?? "").trim();
+    const seedKey = `${(r.implied_subject_uri ?? seedLabel).toLowerCase()}|${seedPredicate.toLowerCase()}|${(
       r.source ?? ""
     ).toUpperCase()}`;
     if (entry.seen.has(seedKey)) continue;
     entry.seen.add(seedKey);
-    entry.from.push({ label: seedLabel, source: sourceDisplayName(r.source) });
+    entry.from.push({
+      label: seedLabel,
+      predicate: seedPredicate,
+      source: sourceDisplayName(r.source),
+    });
   }
   const concepts = [...byConcept.values()];
   if (concepts.length === 0) return null;
+
+  // Grouped by the object's CATEGORY, which the wire carries as
+  // `object_category` (`disease` / `cell type` / `organism part`) and
+  // this row used to drop on the floor.
+  //
+  // 🛑 A category is a GROUP HEADER, never an in-chip prefix — the
+  // TagBar settled that on 2026-05-17 and the inferred chips have to
+  // read the same way beside it. So the categories cluster the chips
+  // and label the cluster; the chip face stays the value alone.
+  //
+  // 🛑 The category is NOT the predicate, and the two are easy to
+  // conflate here: `APP/PS1 --has role in modeling--> Alzheimer
+  // disease` puts `disease` in the category and "modeling" in the
+  // predicate. Printing the predicate as the category would state that
+  // Alzheimer disease is a kind of model, which is backwards.
+  //
+  // Rows with no category fall in a trailing unlabelled group rather
+  // than borrowing a neighbour's — an uncategorised inference is a
+  // real state of the data, not a formatting gap.
+  const byCategory = new Map<string, typeof concepts>();
+  for (const c of concepts) {
+    const cat = (c.row.object_category ?? "").trim();
+    const group = byCategory.get(cat);
+    if (group) group.push(c);
+    else byCategory.set(cat, [c]);
+  }
+  const groups = [...byCategory.entries()].sort(([a], [b]) =>
+    // Uncategorised last; otherwise alphabetical, so the row does not
+    // reshuffle as the relation set changes underneath it.
+    a === b ? 0 : a === "" ? 1 : b === "" ? -1 : a.localeCompare(b),
+  );
 
   return (
     <div className="flex items-baseline gap-2 flex-wrap pl-2 py-0.5">
@@ -129,50 +171,86 @@ export function InferredConceptsRowBody({
       >
         inferred
       </span>
-      {concepts.map(({ row, from }) => {
-        const label = row.implied_object ?? "";
-        const uri = row.implied_object_uri ?? null;
-        const curie = uri ? shortenUri(uri) : null;
-        // 🛑 One fact, nothing else: *"it should just say 'Inferred
-        // from: nuclear RNA extract'"*. The explanation and the
-        // approximate caveat live on the row LABEL, said once, rather
-        // than repeated on every chip.
-        //
-        // 🛑 Do NOT append `BASIS_COPY[row.basis].title`. Its CURATED
-        // copy reads "A curator wrote this as a statement on an
-        // experiment. Not inferred." — written for a term card, where it
-        // separates an assertion from an inference. Inside a chip that
-        // is by definition inferred it contradicts the row it sits in,
-        // and it shipped that way until it was seen on screen.
-        //
-        // 🛑 The seed is named WITH its source — *"just say 'Inferred
-        // from Hep-G2 cell via Cellosaurus'"* (2026-08-28). A
-        // seed label the curator cannot find in the annotation block is
-        // not a defect to hide: it is a second resource's name for the
-        // term the experiment IS annotated with, and saying which
-        // resource is the whole explanation. Origin, never judgement.
-        const sources =
-          from.length > 0
-            ? from
-                .map((s) => (s.source ? `${s.label} via ${s.source}` : s.label))
-                .join(", ")
-            : "this experiment's annotations";
-        const title = `Inferred from: ${sources}`;
-        return (
+      {groups.map(([category, inCategory]) => (
+        <span
+          key={category || "(uncategorised)"}
+          className="inline-flex items-baseline gap-1.5 flex-wrap"
+        >
           <span
-            key={(uri ?? label) + label}
-            title={title}
-            className="inline-flex items-baseline gap-1 rounded border border-dashed border-indigo-400 px-1.5 py-0.5 text-xs text-indigo-800 dark:border-indigo-500 dark:text-indigo-200"
+            className="text-[10px] uppercase tracking-wide text-indigo-400 dark:text-indigo-400/80"
+            title={
+              category
+                ? `Category of the inferred concept, as the relation states it — not the relation itself.`
+                : "The relation states no category for this concept."
+            }
           >
-            <span>{label}</span>
-            {curie ? (
-              <span className="font-mono text-[10px] text-indigo-500 dark:text-indigo-400">
-                {curie}
-              </span>
-            ) : null}
+            {category || "—"}
           </span>
-        );
-      })}
+          {inCategory.map(({ row, from }) => {
+            const label = row.implied_object ?? "";
+            const uri = row.implied_object_uri ?? null;
+            // 🛑 One fact, nothing else: *"it should just say 'Inferred
+            // from: nuclear RNA extract'"*. The explanation and the
+            // approximate caveat live on the row LABEL, said once, rather
+            // than repeated on every chip.
+            //
+            // That one fact is the RELATIONSHIP, not just the seed —
+            // *"it should be in the tooltip then to describe the
+            // relationship"* (2026-08-30), on seeing that the wire
+            // carries the predicate. Stated subject → predicate →
+            // object, the order the rest of the app states a statement
+            // in, so it reads the same here as on a statement chip.
+            //
+            // 🛑 Do NOT append `BASIS_COPY[row.basis].title`. Its CURATED
+            // copy reads "A curator wrote this as a statement on an
+            // experiment. Not inferred." — written for a term card, where it
+            // separates an assertion from an inference. Inside a chip that
+            // is by definition inferred it contradicts the row it sits in,
+            // and it shipped that way until it was seen on screen.
+            //
+            // 🛑 The seed is named WITH its source — *"just say 'Inferred
+            // from Hep-G2 cell via Cellosaurus'"* (2026-08-28). A
+            // seed label the curator cannot find in the annotation block is
+            // not a defect to hide: it is a second resource's name for the
+            // term the experiment IS annotated with, and saying which
+            // resource is the whole explanation. Origin, never judgement.
+            const sources =
+              from.length > 0
+                ? from
+                    .map((s) => {
+                      // The object is the chip being hovered, but the
+                      // sentence is stated in full anyway: a tooltip has
+                      // to say what the relation concluded rather than
+                      // leave the reader to supply the missing half.
+                      const triple = s.predicate
+                        ? `${s.label} → ${s.predicate} → ${label}`
+                        : s.label;
+                      return s.source ? `${triple}, via ${s.source}` : triple;
+                    })
+                    .join("; ")
+                : "this experiment's annotations";
+            const title = `Inferred from: ${sources}`;
+            return (
+              <span
+                key={(uri ?? label) + label}
+                title={title}
+                className="inline-flex items-baseline gap-1 rounded border border-dashed border-indigo-400 px-1.5 py-0.5 text-xs text-indigo-800 dark:border-indigo-500 dark:text-indigo-200"
+              >
+                <span>{label}</span>
+                {/* Hot like every other CURIE in the app — `CurieLink` owns
+                the popover wire. Opening a term card is a READ, so it
+                does not contradict the "nothing here is editable" rule
+                above: the chip still offers no way to change anything.
+                Renders nothing when the row carries no object URI. */}
+                <CurieLink
+                  uri={uri}
+                  className="font-mono text-[10px] text-indigo-500 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-200 whitespace-nowrap no-underline hover:underline cursor-pointer bg-transparent border-0 p-0"
+                />
+              </span>
+            );
+          })}
+        </span>
+      ))}
     </div>
   );
 }

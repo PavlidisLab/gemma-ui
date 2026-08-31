@@ -94,8 +94,9 @@ describe("InferredConceptsRow", () => {
     await waitFor(() =>
       expect(screen.getAllByText("prostate gland")).toHaveLength(1),
     );
-    // Both sources survive into the tooltip.
-    expect(screen.getByTitle(/PC-3, 22Rv1/)).toBeTruthy();
+    // Both seeds survive into the tooltip, each as its own statement.
+    expect(screen.getByTitle(/PC-3 → has disease → prostate gland/)).toBeTruthy();
+    expect(screen.getByTitle(/22Rv1 → has disease → prostate gland/)).toBeTruthy();
   });
 
   it("names the resource that uses the seed's label", async () => {
@@ -116,7 +117,9 @@ describe("InferredConceptsRow", () => {
     open();
     // Cased for a sentence, not shouted as the wire spells it.
     const chip = await waitFor(() =>
-      screen.getByTitle("Inferred from: Hep-G2 via Cellosaurus"),
+      screen.getByTitle(
+        "Inferred from: Hep-G2 → has disease → hepatoblastoma, via Cellosaurus",
+      ),
     );
     expect(chip).toBeTruthy();
   });
@@ -142,7 +145,10 @@ describe("InferredConceptsRow", () => {
         basis: "EXTERNAL",
         source: "CELLOSAURUS",
       }),
-      // Same seed, same source, a second predicate — one implication.
+      // Same seed, same source, a SECOND PREDICATE. This was collapsed
+      // into the row above while the tooltip named only the seed; once
+      // the tooltip states the relationship the two are two different
+      // statements, and dropping one would misdescribe the data.
       row({
         implied_subject: "Hep-G2",
         implied_subject_uri: cloUri,
@@ -156,7 +162,9 @@ describe("InferredConceptsRow", () => {
     open();
     const chip = await waitFor(() => screen.getByTitle(/^Inferred from: /));
     expect(chip.getAttribute("title")).toBe(
-      "Inferred from: Hep G2 cell via CLO, Hep-G2 via Cellosaurus",
+      "Inferred from: Hep G2 cell → has disease → liver, via CLO; " +
+        "Hep-G2 → has disease → liver, via Cellosaurus; " +
+        "Hep-G2 → derives from anatomic part → liver, via Cellosaurus",
     );
   });
 
@@ -181,10 +189,119 @@ describe("InferredConceptsRow", () => {
     }
   });
 
+  it("states the RELATIONSHIP in the tooltip, subject → predicate → object", async () => {
+    rows.current = [
+      row({
+        implied_subject: "APP/PS1",
+        implied_predicate: "has role in modeling",
+        implied_object: "Alzheimer disease",
+        source: "TGEMO",
+      }),
+    ];
+    open();
+    const chip = await waitFor(() => screen.getByTitle(/^Inferred from: /));
+    expect(chip.getAttribute("title")).toBe(
+      "Inferred from: APP/PS1 → has role in modeling → Alzheimer disease, via TGEMO",
+    );
+  });
+
+  it("🛑 keeps two predicates on one seed as two statements", async () => {
+    // They were deduped to one while the tooltip named only the seed.
+    // Naming the relationship makes that a lie: it would print one
+    // predicate and drop the other.
+    rows.current = [
+      row({
+        implied_subject: "APP/PS1",
+        implied_subject_uri: "u:seed",
+        implied_predicate: "has role in modeling",
+        source: "TGEMO",
+      }),
+      row({
+        implied_subject: "APP/PS1",
+        implied_subject_uri: "u:seed",
+        implied_predicate: "has disease",
+        source: "TGEMO",
+      }),
+    ];
+    open();
+    const chip = await waitFor(() => screen.getByTitle(/^Inferred from: /));
+    const title = chip.getAttribute("title") ?? "";
+    expect(title).toMatch(/has role in modeling/);
+    expect(title).toMatch(/has disease/);
+  });
+
+  it("labels each concept with its category from the wire", async () => {
+    // Measured on eid 27103: `object_category: "disease"` alongside
+    // `predicate: "has role in modeling"`.
+    rows.current = [
+      row({
+        object_category: "disease",
+        object_category_uri: "http://www.ebi.ac.uk/efo/EFO_0000408",
+        predicate: "has role in modeling",
+        implied_predicate: "has role in modeling",
+      }),
+    ];
+    open();
+    await waitFor(() => expect(screen.getByText("breast cancer")).toBeTruthy());
+    expect(screen.getByText("disease")).toBeTruthy();
+  });
+
+  it("🛑 shows the CATEGORY, never the predicate, as the group label", async () => {
+    // `APP/PS1 --has role in modeling--> Alzheimer disease` — the
+    // object is a disease and the relation is what does the modelling.
+    // Labelling the group "has role in modeling" would say the disease
+    // is a kind of model, which is backwards.
+    rows.current = [
+      row({
+        object_category: "disease",
+        predicate: "has role in modeling",
+        implied_predicate: "has role in modeling",
+      }),
+    ];
+    open();
+    await waitFor(() => expect(screen.getByText("disease")).toBeTruthy());
+    expect(screen.queryByText(/has role in modeling/)).toBeNull();
+  });
+
+  it("groups by category and puts the uncategorised last", async () => {
+    rows.current = [
+      row({ implied_object: "uncategorised thing", implied_object_uri: "u:1" }),
+      row({
+        implied_object: "brain",
+        implied_object_uri: "u:2",
+        object_category: "organism part",
+      }),
+      row({
+        implied_object: "breast cancer",
+        implied_object_uri: "u:3",
+        object_category: "disease",
+      }),
+    ];
+    open();
+    await waitFor(() => expect(screen.getByText("brain")).toBeTruthy());
+    const text = screen.getByText("inferred").parentElement?.textContent ?? "";
+    expect(text.indexOf("disease")).toBeLessThan(text.indexOf("organism part"));
+    // The em dash stands in for "the relation states no category" and
+    // sorts to the end, so a missing category never borrows a
+    // neighbour's heading.
+    expect(text.indexOf("organism part")).toBeLessThan(text.indexOf("\u2014"));
+  });
+
   it("offers nothing editable — these are not annotations", async () => {
     rows.current = [row()];
     open();
     await waitFor(() => expect(screen.getByText("breast cancer")).toBeTruthy());
-    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    // 🛑 This counted buttons to zero, which stopped being the same
+    // question the moment the CURIE became a `CurieLink`. Opening a term
+    // card is a READ; the rule is that nothing here MUTATES. So the
+    // assertion names the affordances that would break the rule instead
+    // of forbidding interactivity outright — otherwise the next read-only
+    // affordance fails a test whose title it does not contradict.
+    const buttons = screen.queryAllByRole("button");
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].textContent).toBe("MONDO:0007254");
+    for (const b of buttons) {
+      expect(b.textContent ?? "").not.toMatch(/edit|delete|remove|add|×/i);
+    }
   });
 });
