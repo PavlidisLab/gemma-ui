@@ -104,9 +104,16 @@ export function useCellTypeAssignment(
 }
 
 /** How many of the assignment's cell types carry an ontology term.
- *  Grounding is a property of the terms, NOT of who assigned them —
- *  the two are reported separately because conflating them is how "no
- *  URI" turns into "the authors wrote it". */
+ *
+ *  🛑 **Grounding is a property of the terms, not of who assigned
+ *  them**, and the numbers say how wrong conflating them would be.
+ *  Provenance is the dominant factor — `author-submitted` subset cell
+ *  types are 33% grounded against 86-97% for every pipeline version —
+ *  but it is nowhere near the whole story: of 8,606 free-text rows,
+ *  4,501 are author-submitted and **3,396 sit on assignments our own
+ *  pipeline produced** (gembro, 2026-08-31). So "no URI, therefore the
+ *  authors" would be wrong about two rows in five. Reported as two
+ *  separate axes for that reason, not out of caution. */
 export function groundedCount(a: CellTypeAssignment): number {
   return (a.cell_types ?? []).filter((c) => !!c.value_uri).length;
 }
