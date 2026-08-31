@@ -1779,7 +1779,20 @@ function FlagChip({ label, color }: { label: string; color: "red" | "amber" | "s
 
 // ─── Differential Expression tab ──────────────────────────────────────────────
 
-/** Shared query options for a result set's corrected p-value histogram.
+/** Shared query options for a result set's RAW p-value histogram.
+ *
+ *  🛑 **Raw, never corrected.** The shape of this histogram is the
+ *  whole point of showing it — a flat distribution with a spike near 0
+ *  says the contrast has signal, a flat one says it does not, and a
+ *  peak at 1 says something is wrong with the model. Multiple-testing
+ *  correction destroys exactly that: FDR-adjusted values pile up near
+ *  1 and the diagnostic reads as "no signal" on data that has plenty.
+ *  A reader cannot tell the two apart from the picture. Paul,
+ *  2026-08-31: "it MUST be raw pvalues".
+ *
+ *  The route takes `column=raw|corrected`; corrected stays available
+ *  for anything that genuinely wants FDR, which the gene tables below
+ *  do (they RANK by it, which is the right use).
  *  Used both by the per-row {@link PvalueHistogramStrip} and by the
  *  tab-level prefetch below — keeping the key/args/staleTime identical
  *  in one place so a prefetch reliably warms the cache the strips read.
@@ -1789,7 +1802,7 @@ function pvalueDistQueryOptions(resultSetId: number) {
   return {
     queryKey: ["resultset-pvalue-dist", resultSetId] as const,
     queryFn: ({ signal }: QueryFunctionContext) =>
-      getPvalueDistribution(resultSetId, { bins: 20, column: "corrected" }, signal),
+      getPvalueDistribution(resultSetId, { bins: 20, column: "raw" }, signal),
     staleTime: 30 * 60_000,
   };
 }
@@ -2445,7 +2458,7 @@ function DeCountChip({
   );
 }
 
-/** Tiny inline histogram of the corrected-p-value distribution for a
+/** Tiny inline histogram of the raw-p-value distribution for a
  *  result set. Fetches the binned payload from
  *  ``GET /resultSets/{id}/pvalueDistribution`` (shipped 2026-05-23).
  *  Renders 20 bars
@@ -2502,14 +2515,14 @@ function PvalueHistogramStrip({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Enlarge corrected p-value distribution"
+        aria-label="Enlarge raw p-value distribution"
         className="inline-flex items-center align-middle rounded p-0 cursor-pointer hover:ring-1 hover:ring-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-400"
       >
         <svg
           width={W}
           height={H}
           role="img"
-          aria-label="corrected p-value distribution"
+          aria-label="raw p-value distribution"
           className="inline-block align-middle"
           style={{ display: "inline-block" }}
         >
@@ -2564,7 +2577,7 @@ function PvalueHistogramStrip({
   );
 }
 
-/** Enlarged, axis-labelled corrected-p-value histogram shown in the
+/** Enlarged, axis-labelled raw-p-value histogram shown in the
  *  pop-out modal when a curator clicks the inline strip. Same data +
  *  colour semantics as the strip (leftmost bin = smallest p-values,
  *  highlighted; dashed uniform-null reference) with real axes: probe
@@ -2595,7 +2608,7 @@ function PvalueHistogramLarge({ dist }: { dist: PvalueDistribution }) {
         width={W}
         height={H}
         role="img"
-        aria-label="corrected p-value distribution, enlarged"
+        aria-label="raw p-value distribution, enlarged"
       >
         <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
         {/* y grid + tick labels */}
@@ -2716,7 +2729,7 @@ function PvalueHistogramLarge({ dist }: { dist: PvalueDistribution }) {
           textAnchor="middle"
           fontFamily="-apple-system, sans-serif"
         >
-          corrected p-value
+          raw p-value
         </text>
         <text
           x={16}

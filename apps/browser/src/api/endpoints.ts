@@ -1046,7 +1046,7 @@ export async function getTopDiffExpressedGenes(
 
 /**
  * Binned p-value histogram for a DE result set.
- * `GET /rest/v2/resultSets/{id}/pvalueDistribution?bins=20&column=corrected`
+ * `GET /rest/v2/resultSets/{id}/pvalueDistribution?bins=20&column=raw`
  *
  * Returns ``null`` on 204 (result set has no p-values in the chosen
  * column) so callers can render an "—" empty state without an error.
