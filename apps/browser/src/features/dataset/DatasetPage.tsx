@@ -37,6 +37,7 @@ import type {
 import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
+import { parseAnnotationStatement } from "@/lib/annotationStatement";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
@@ -639,11 +640,23 @@ function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnno
           {grouped.map(([cat, terms]) => (
             <div key={cat} className="flex items-baseline gap-2 flex-wrap">
               <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{cat}</span>
-              {terms.map((t, i) => (
-                <OntologyTermChip key={`${t.termUri ?? t.termName}-${i}`} uri={t.termUri}>
-                  {t.termName}
-                </OntologyTermChip>
-              ))}
+              {terms.map((t, i) => {
+                // Statement-shaped rows render subject · predicate ·
+                // object compactly; parseAnnotationStatement returns
+                // null (falls back to the plain term chip, unchanged)
+                // whenever termName can't be confidently split — see
+                // its doc comment.
+                const stmt = parseAnnotationStatement(t);
+                return (
+                  <OntologyTermChip
+                    key={`${t.termUri ?? t.termName}-${i}`}
+                    uri={stmt ? stmt.subjectUri : t.termUri}
+                    pairs={stmt?.pairs}
+                  >
+                    {stmt ? stmt.subject : t.termName}
+                  </OntologyTermChip>
+                );
+              })}
             </div>
           ))}
         </div>

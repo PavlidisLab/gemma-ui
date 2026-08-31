@@ -604,6 +604,24 @@ export interface DatasetAnnotation {
   classUri: string | null;
   termName: string;
   termUri: string | null;
+  /** Present when this row is a subject-predicate-object statement
+   *  rather than a bare term — `termUri`/`termName` above are the
+   *  SUBJECT's own URI/label slot. Gemma also folds the object(s)
+   *  into `termName` itself as a server-composed run-on string (e.g.
+   *  "Homozygous negative  Il10 [mouse] interleukin 10" for subject
+   *  "Il10 [mouse] interleukin 10" / predicate "has_genotype" /
+   *  object "Homozygous negative" — verified against
+   *  gemma2.msl.ubc.ca 2026-08-30); that composition isn't a fixed
+   *  format across statement shapes, so `termName` is NOT reliably
+   *  splittable in general. See `parseAnnotationStatement`. */
+  predicate?: string | null;
+  predicateUri?: string | null;
+  object?: string | null;
+  objectUri?: string | null;
+  secondPredicate?: string | null;
+  secondPredicateUri?: string | null;
+  secondObject?: string | null;
+  secondObjectUri?: string | null;
 }
 
 /** Shape returned by GET /annotations/search?query=...  */
