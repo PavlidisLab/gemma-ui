@@ -3,6 +3,7 @@ import { useCategories } from "@/api/categories";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { cn } from "@/lib/cn";
 import { shortenUri } from "@/lib/curie";
+import { stripObsoletePrefix } from "@/lib/ontologyTerm";
 import type { OntologyTerm } from "@/features/experiment/types";
 
 /**
@@ -80,7 +81,10 @@ export function CategoryPicker({
     const starts: typeof list = [];
     const contains: typeof list = [];
     for (const c of list) {
-      const l = c.label.toLowerCase();
+      // Match what the row SHOWS. Typing "dis" must reach the disease
+      // category; against the raw `obsolete_disease` it would not,
+      // because the prefix is what the label starts with.
+      const l = stripObsoletePrefix(c.label).toLowerCase();
       if (l.startsWith(q)) starts.push(c);
       else if (l.includes(q)) contains.push(c);
     }
@@ -101,8 +105,12 @@ export function CategoryPicker({
       setEditing(false);
       return;
     }
+    // Typed text is compared against the displayed spelling, so
+    // typing "disease" lands on the real category instead of falling
+    // through to a free-text commit.
     const hit = list.find(
-      (c) => c.label.trim().toLowerCase() === label.toLowerCase(),
+      (c) =>
+        stripObsoletePrefix(c.label).toLowerCase() === label.toLowerCase(),
     );
     if (hit) {
       commitTerm({ label: hit.label, uri: hit.uri ?? null });
@@ -190,7 +198,7 @@ export function CategoryPicker({
                 )}
                 title={c.uri ?? "free text"}
               >
-                {c.label}
+                {stripObsoletePrefix(c.label)}
               </span>
               {c.uri ? (
                 <span className="text-[10px] text-slate-400 font-mono shrink-0">
@@ -225,13 +233,21 @@ export function CategoryPicker({
 
   // ----- read view -----
 
-  const label = value?.label ?? "";
+  // Display spelling — the URI stays identity; only the words change.
+  const label = stripObsoletePrefix(value?.label ?? "");
   const hasUri = !!value?.uri;
+  // 🛑 Compare on the stripped spelling BOTH SIDES. A stored `disease`
+  // (what Gemma's write path normalises to, and what an agent sends)
+  // against a list carrying `obsolete_disease` matches nothing, and the
+  // face would tell the curator a live Gemma category is "not in the
+  // canonical category list".
   const isUnknown =
     !!label &&
     list.length > 0 &&
     !list.some(
-      (c) => c.label.trim().toLowerCase() === label.trim().toLowerCase(),
+      (c) =>
+        stripObsoletePrefix(c.label).toLowerCase() ===
+        stripObsoletePrefix(label).toLowerCase(),
     );
 
   return (

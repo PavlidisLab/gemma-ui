@@ -30,6 +30,7 @@ import { useValidateTerms } from "@/api/validateTerms";
 import type { TermValidationStatus } from "@/api/validateTerms";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { shortenUri } from "@/lib/curie";
+import { stripObsoletePrefix } from "@/lib/ontologyTerm";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import {
   locateTooltipFor,
@@ -467,7 +468,11 @@ function isTombstoneOf(
   const c = (canonical ?? "").trim().toLowerCase();
   const st = (stored ?? "").trim().toLowerCase();
   if (!c || !st) return false;
-  return c === `obsolete_${st}` || c === `obsolete ${st}`;
+  // The two spellings live in `stripObsoletePrefix`; asking it is what
+  // keeps this check and the picker's display agreeing about what a
+  // deprecation prefix looks like.
+  const bare = stripObsoletePrefix(c).toLowerCase();
+  return bare !== c && bare === st;
 }
 
 /**

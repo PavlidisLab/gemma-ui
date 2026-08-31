@@ -119,3 +119,32 @@ export function capitalizeCategory(
   if (!s) return "";
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** Drop an ontology's deprecation prefix from a category label for
+ *  DISPLAY. `obsolete_disease` → `disease`.
+ *
+ *  🛑 A RENDER transform, like `capitalizeCategory` above — never
+ *  mutate the stored label and never run it through identity / lookup
+ *  paths. The URI is the identity; only the words shown change.
+ *
+ *  Why it is needed at all: `EFO_0000408` is a LIVE Gemma annotation
+ *  category (Paul, 2026-08-16, reaffirmed 08-20) whose label in current
+ *  EFO is `obsolete_disease`, and `GET /rest/v2/annotations/categories`
+ *  publishes it under that spelling — measured on gemma2 2026-08-30,
+ *  where it is 1 of the 28 categories and the only one carrying the
+ *  prefix. Without this a curator picks a category that reads
+ *  `obsolete_disease`, which describes EFO's opinion of the term rather
+ *  than Gemma's use of it. Gemma's own curation write path strips the
+ *  same marker in the category slot (`96e7a5d790`).
+ *
+ *  Both spellings occur — EFO uses the underscore, CLO the space. Only
+ *  a leading prefix is dropped, so a term legitimately containing the
+ *  word later in its label is untouched. */
+export function stripObsoletePrefix(
+  label: string | null | undefined,
+): string {
+  const s = (label ?? "").trim();
+  if (!s) return "";
+  const m = /^obsolete[_ ]+(.+)$/i.exec(s);
+  return m ? m[1] : s;
+}
