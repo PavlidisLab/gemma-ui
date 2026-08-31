@@ -21,6 +21,7 @@
  * URL directly anyway.
  */
 import { type ReactNode, useEffect, useState } from "react";
+import { HashLink } from "@/components/ui/HashLink";
 import { ModeChip } from "@/components/ui/ModeChip";
 import { HealthChip } from "@/components/ui/HealthChip";
 import { SettingsMenu } from "@/features/settings/SettingsMenu";
@@ -223,16 +224,19 @@ function BackToDashboardLink() {
   // ``useHashMatches`` returns true on bare "#/" — exactly the case
   // where we DON'T want to render the back-link.
   if (onDashboard) return null;
+  // A `HashLink`, not a button: the dashboard is where a curator opens
+  // a SECOND experiment from, and a button cannot be right-clicked into
+  // a new tab. Plain click still routes through `navigate()`, so an
+  // unsaved draft is not walked away from silently.
   return (
-    <button
-      type="button"
-      onClick={() => navigate("#/")}
-      title="Back to the curator dashboard"
-      className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-stone-300 text-stone-700 hover:bg-stone-200/60 hover:text-stone-900 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40 dark:hover:text-slate-100 bg-transparent cursor-pointer shrink-0 whitespace-nowrap"
+    <HashLink
+      to="#/"
+      title="Back to the curator dashboard — cmd/ctrl-click opens a second tab"
+      className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border border-stone-300 text-stone-700 hover:bg-stone-200/60 hover:text-stone-900 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-700/40 dark:hover:text-slate-100 bg-transparent cursor-pointer shrink-0 whitespace-nowrap no-underline hover:no-underline"
     >
       <span aria-hidden>←</span>
       <span>Dashboard</span>
-    </button>
+    </HashLink>
   );
 }
 
