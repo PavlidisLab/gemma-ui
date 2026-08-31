@@ -41,6 +41,41 @@ export function useCurationDetails(experimentId: number | string) {
   });
 }
 
+/** Snake → camel for THIS request body.
+ *
+ *  🛑 **`client.ts` normalizes RESPONSES only.** `snakeify` runs on the
+ *  way in; nothing runs on the way out, so a patch written in the
+ *  app's snake_case goes to Gemma verbatim — and
+ *  `CurationDetailsUpdateRequest` is
+ *  `{troubled, needsAttention, curationNote, note}`. `needs_attention`
+ *  and `curation_note` are not fields it has, so the flag toggle
+ *  reported "save failed" while sending a body the server had no
+ *  reason to accept.
+ *
+ *  Written as an explicit map rather than a generic camelizer: this
+ *  DTO has four fields, `note` and `curationNote` are DIFFERENT
+ *  destinations (see the patch type below), and a blanket transform
+ *  over an unknown payload is how a field silently changes meaning.
+ *
+ *  Only keys actually present are sent — the route treats an omitted
+ *  field as "leave unchanged" and an explicit null as a value. */
+function toCurationDetailsWire(patch: {
+  curation_note?: string;
+  troubled?: boolean;
+  needs_attention?: boolean;
+  note?: string;
+}): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  if ("troubled" in patch) out.troubled = patch.troubled;
+  if ("needs_attention" in patch) out.needsAttention = patch.needs_attention;
+  if ("curation_note" in patch) out.curationNote = patch.curation_note;
+  if ("note" in patch) out.note = patch.note;
+  return out;
+}
+
+/** Exposed for test — the casing IS the bug. */
+export const __test = { toCurationDetailsWire };
+
 /**
  * Patch the curation-details for an experiment. Pass any subset of
  * `{curation_note, troubled, needs_attention}`; fields you omit
@@ -79,7 +114,7 @@ export function useUpdateCurationDetails(
     ) =>
       api.put<CurationDetails>(
         `/rest/v2/datasets/${experimentId}/curationDetails?reviewer=${encodeURIComponent(reviewer)}`,
-        patch,
+        toCurationDetailsWire(patch),
       ),
     onSuccess: (server) => {
       qc.setQueryData(KEY(experimentId), server);
