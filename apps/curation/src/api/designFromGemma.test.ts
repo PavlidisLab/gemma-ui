@@ -514,3 +514,83 @@ describe("toExperimentTags — the b5c6747f68 field rename", () => {
     expect(tag.value.label).toBe("v");
   });
 });
+
+/**
+ * Composed EE tags — the shape 87 queued tags will arrive in.
+ *
+ * 🛑 **No experiment carries one today.** cab measured zero non-null
+ * predicates across all 68,786 experiment-level characteristics
+ * (2026-08-31), so this is written against the write-back's known output
+ * rather than against a live row: the subject/predicate/object triples
+ * are cab's (`CAB_TO_UIB_2026_08_31_THERE_IS_NO_SUCH_EXPERIMENT_YET_AND_THERE_WILL_BE_87.md`),
+ * the URIs are synthetic and only prove pass-through.
+ *
+ * All 87 are single-pair; the two-pair case is covered because the wire
+ * slot exists, not because anything fills it yet.
+ */
+describe("toExperimentTags — composed statements", () => {
+  it("carries the pair as a Statement instead of dropping it", () => {
+    const [tag] = toExperimentTags([
+      {
+        id: 55648200,
+        object_class: "ExperimentTag",
+        category: "cell type",
+        category_uri: "http://www.ebi.ac.uk/efo/EFO_0000324",
+        value: "Schwann cell",
+        value_uri: "http://purl.obolibrary.org/obo/CL_0002573",
+        predicate: "derives from part of",
+        predicate_uri: "http://example.invalid/derives_from_part_of",
+        object: "sciatic nerve",
+        object_uri: "http://purl.obolibrary.org/obo/UBERON_0001322",
+      },
+    ]);
+    expect(tag.statements).toHaveLength(1);
+    const [st] = tag.statements!;
+    // The subject is the tag's own value — one tag carrying a
+    // relationship, not two tags carrying none.
+    expect(st.subject.label).toBe("Schwann cell");
+    expect(st.predicate?.label).toBe("derives from part of");
+    expect(st.object?.label).toBe("sciatic nerve");
+    expect(st.object?.uri).toBe("http://purl.obolibrary.org/obo/UBERON_0001322");
+    expect(st.category?.label).toBe("cell type");
+    expect(st.gemma_id).toBe(55648200);
+  });
+
+  it("both pairs of one row share the id — that is what the ceiling counts", () => {
+    const [tag] = toExperimentTags([
+      {
+        id: 55648201,
+        object_class: "ExperimentTag",
+        category: "organism part",
+        value: "liver",
+        predicate: "has disease",
+        object: "hepatocellular carcinoma",
+        second_predicate: "has modifier",
+        second_object: "organoid",
+      },
+    ]);
+    expect(tag.statements).toHaveLength(2);
+    expect(tag.statements!.map((s) => s.gemma_id)).toEqual([55648201, 55648201]);
+    expect(tag.statements!.map((s) => s.predicate?.label)).toEqual([
+      "has disease",
+      "has modifier",
+    ]);
+  });
+
+  it("a flat tag gets undefined, not an empty array", () => {
+    // `TagBar` branches on `statements?.length`; an empty array is the
+    // flat tag it already renders, so the two must not differ by identity.
+    const [tag] = toExperimentTags([
+      {
+        id: 39131052,
+        object_class: "ExperimentTag",
+        category: "strain",
+        value: "Ascl1CreERT2/Ai14",
+        value_uri: null,
+        predicate: null,
+        object: null,
+      },
+    ]);
+    expect(tag.statements).toBeUndefined();
+  });
+});

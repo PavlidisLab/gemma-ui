@@ -50,7 +50,12 @@
  */
 import type { FindingEvidence } from "@/api/justification";
 import { api } from "./client";
-import type { Publication, Tag } from "@/features/experiment/types";
+import type {
+  OntologyTerm,
+  Publication,
+  Statement,
+  Tag,
+} from "@/features/experiment/types";
 
 /** One characteristic on a BioMaterial, post-`snakeify`. */
 interface WireCharacteristic {
@@ -271,6 +276,40 @@ interface WireAnnotation {
   /** @deprecated */ term_uri?: string | null;
   evidence_code?: string | null;
   object_class?: string | null;
+  /** 🛑 **The two (predicate, object) slots Gemma's
+   *  `AnnotationValueObject` holds — there is no third.** The subject
+   *  is the row's own `value`; these are pairs hanging off it, so one
+   *  row can carry a whole composed statement.
+   *
+   *  Zero experiment-level characteristics in the corpus have a
+   *  non-null predicate today (cab, 2026-08-31, over all 68,786 —
+   *  so the six datasets probed from this side were exhaustive by
+   *  accident, not lucky). They are read anyway because 87 composed
+   *  tags across 74 datasets are built and queued for write-back,
+   *  and the shape they will arrive in is known:
+   *
+   *      GSE104324  cell type: Schwann cell
+   *                   + derives from part of -> sciatic nerve
+   *      GSE34669   organism part: liver
+   *                   + has disease -> hepatocellular carcinoma
+   *
+   *  The predicates to expect are `derives from part of`,
+   *  `derives from cell line`, `has modifier` and `has disease`; all
+   *  87 are single-pair, so `second_predicate` is unexercised and read
+   *  on principle rather than on evidence.
+   *
+   *  Dropping them is not a cosmetic loss: `cell type = Schwann cell`
+   *  rendered without the sciatic nerve is a different claim, and the
+   *  composed form exists precisely so it is one tag carrying a
+   *  relationship rather than two tags carrying none. */
+  predicate?: string | null;
+  predicate_uri?: string | null;
+  object?: string | null;
+  object_uri?: string | null;
+  second_predicate?: string | null;
+  second_predicate_uri?: string | null;
+  second_object?: string | null;
+  second_object_uri?: string | null;
   /** 🛑 The ONLY provenance a characteristic carries. Unlike a
    *  publication — which ships a whole `association` block with source,
    *  evidence text, assertedBy and assertedAt — an annotation row is
@@ -319,6 +358,44 @@ function asFindingEvidence(v: unknown): FindingEvidence[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+/** The (predicate, object) pairs on one annotation row, as the flat
+ *  `Statement` rows the UI keeps.
+ *
+ *  🛑 **Both pairs share the row's id.** `gemma_id` is what tells two
+ *  pairs of ONE statement apart from two separate statements on one
+ *  subject, and only the former is against Gemma's two-pair ceiling —
+ *  the same rule `composeDesign`'s factor-value statements follow. A
+ *  row that came without an id gets null, which is the "made by the
+ *  curator, no statement of its own yet" case.
+ *
+ *  Subject and category are the tag's own; a pair with neither a
+ *  predicate nor an object is not a statement and is skipped. */
+function toTagStatements(
+  r: WireAnnotation,
+  category: OntologyTerm,
+  subject: OntologyTerm,
+): Statement[] {
+  const gemma_id = typeof r.id === "number" ? r.id : null;
+  const pairs: [string | null | undefined, string | null | undefined, string | null | undefined, string | null | undefined][] = [
+    [r.predicate, r.predicate_uri, r.object, r.object_uri],
+    [r.second_predicate, r.second_predicate_uri, r.second_object, r.second_object_uri],
+  ];
+  const out: Statement[] = [];
+  for (const [pLabel, pUri, oLabel, oUri] of pairs) {
+    const p = (pLabel ?? "").trim();
+    const o = (oLabel ?? "").trim();
+    if (!p && !o) continue;
+    out.push({
+      gemma_id,
+      category,
+      subject,
+      predicate: p ? { label: p, uri: pUri ?? null } : null,
+      object: o ? { label: o, uri: oUri ?? null } : null,
+    });
+  }
+  return out;
+}
+
 export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
   const tags: Tag[] = [];
   for (const r of rows) {
@@ -330,10 +407,23 @@ export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
     const label = (r.value ?? r.term_name ?? "").trim();
     const category = (r.category ?? r.class_name ?? "").trim();
     if (!label && !category) continue;
+    const categoryTerm: OntologyTerm = {
+      label: category,
+      uri: r.category_uri ?? r.class_uri ?? null,
+    };
+    const valueTerm: OntologyTerm = {
+      label,
+      uri: r.value_uri ?? r.term_uri ?? null,
+    };
+    const statements = toTagStatements(r, categoryTerm, valueTerm);
     tags.push({
       id: r.id ?? tags.length + 1,
-      category: { label: category, uri: r.category_uri ?? r.class_uri ?? null },
-      value: { label, uri: r.value_uri ?? r.term_uri ?? null },
+      category: categoryTerm,
+      value: valueTerm,
+      // Left undefined rather than `[]` — `TagBar` branches on
+      // `statements?.length`, and an empty array is the flat tag it
+      // already renders, so the two must not be told apart by identity.
+      statements: statements.length > 0 ? statements : undefined,
       evidence_code: r.evidence_code ?? undefined,
       // Passed through, not reshaped: the wire shape IS
       // `FindingEvidence[]`. Anything else is dropped rather than
