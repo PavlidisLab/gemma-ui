@@ -510,17 +510,42 @@ export interface Platform {
 }
 
 export interface AnnotationTerm {
+  /** @deprecated Gemma commit b5c6747f68 (merged, not yet deployed —
+   *  prod is 5328441870) renames this to `categoryUri` with no
+   *  server-side alias. Coalesced from `categoryUri` at fetch time by
+   *  `withAnnotationTermCompat` (api/endpoints.ts) so this field stays
+   *  populated either way — delete both once every Gemma this app
+   *  talks to serves b5c6747f68. */
   classUri: string | null;
+  /** @deprecated superseded by `category`; see `classUri`. */
   className: string | null;
+  /** @deprecated superseded by `valueUri`; see `classUri`. */
   termUri: string | null;
+  /** @deprecated superseded by `value`; see `classUri`. */
   termName: string | null;
+  /** Gemma's post-b5c6747f68 name for `classUri`. Absent from a
+   *  pre-rename server. */
+  categoryUri?: string | null;
+  /** Post-b5c6747f68 name for `className`. */
+  category?: string | null;
+  /** Post-b5c6747f68 name for `termUri`. */
+  valueUri?: string | null;
+  /** Post-b5c6747f68 name for `termName`. */
+  value?: string | null;
   numberOfExpressionExperiments?: number;
   children?: AnnotationTerm[] | null;
 }
 
 export interface Category {
+  /** @deprecated see `AnnotationTerm.classUri` — same rename, same
+   *  coalescing (`withCategoryCompat` in api/endpoints.ts). */
   classUri: string | null;
+  /** @deprecated superseded by `category`; see `classUri`. */
   className: string | null;
+  /** Gemma's post-b5c6747f68 name for `classUri`. */
+  categoryUri?: string | null;
+  /** Post-b5c6747f68 name for `className`. */
+  category?: string | null;
   numberOfExpressionExperiments?: number;
 }
 
@@ -600,20 +625,44 @@ export interface User {
 
 export interface DatasetAnnotation {
   objectClass: string;
+  /** @deprecated Gemma commit b5c6747f68 (merged, not yet deployed —
+   *  prod is 5328441870) renames this to `category` with no
+   *  server-side alias. Coalesced from `category` at fetch time by
+   *  `withDatasetAnnotationCompat` (api/endpoints.ts) so this field
+   *  stays populated either way — delete both once every Gemma this
+   *  app talks to serves b5c6747f68. */
   className: string;
+  /** @deprecated superseded by `categoryUri`; see `className`. */
   classUri: string | null;
+  /** @deprecated superseded by `value`; see `className`. Also see the
+   *  ``termName`` composition note below, which only applies pre-rename —
+   *  post-rename `value` is always the bare term. */
   termName: string;
+  /** @deprecated superseded by `valueUri`; see `className`. */
   termUri: string | null;
+  /** Gemma's post-b5c6747f68 name for `className`. Absent from a
+   *  pre-rename server. */
+  category?: string;
+  /** Post-b5c6747f68 name for `classUri`. */
+  categoryUri?: string | null;
+  /** Post-b5c6747f68 name for `termName`. Unlike `termName`, this is
+   *  always the bare subject term, never a server-composed sentence —
+   *  see `parseAnnotationStatement`. */
+  value?: string;
+  /** Post-b5c6747f68 name for `termUri`. */
+  valueUri?: string | null;
   /** Present when this row is a subject-predicate-object statement
    *  rather than a bare term — `termUri`/`termName` above are the
-   *  SUBJECT's own URI/label slot. Gemma also folds the object(s)
-   *  into `termName` itself as a server-composed run-on string (e.g.
-   *  "Homozygous negative  Il10 [mouse] interleukin 10" for subject
-   *  "Il10 [mouse] interleukin 10" / predicate "has_genotype" /
-   *  object "Homozygous negative" — verified against
+   *  SUBJECT's own URI/label slot. Pre-rename, Gemma also folds the
+   *  object(s) into `termName` itself as a server-composed run-on
+   *  string (e.g. "Homozygous negative  Il10 [mouse] interleukin 10"
+   *  for subject "Il10 [mouse] interleukin 10" / predicate
+   *  "has_genotype" / object "Homozygous negative" — verified against
    *  gemma2.msl.ubc.ca 2026-08-30); that composition isn't a fixed
-   *  format across statement shapes, so `termName` is NOT reliably
-   *  splittable in general. See `parseAnnotationStatement`. */
+   *  format across statement shapes, so pre-rename `termName` is NOT
+   *  reliably splittable in general. Post-rename, `value` is already
+   *  the bare subject and no splitting is needed. See
+   *  `parseAnnotationStatement`. */
   predicate?: string | null;
   predicateUri?: string | null;
   object?: string | null;

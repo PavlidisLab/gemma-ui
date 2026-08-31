@@ -172,3 +172,76 @@ describe("clause-stripped predicates", () => {
     expect(s).toBeNull();
   });
 });
+
+describe("b5c6747f68 rename compatibility", () => {
+  const TGEMO = (n: string) => `http://gemma.msl.ubc.ca/ont/TGEMO_${n}`;
+
+  it("a pre-rename row and its post-rename equivalent parse to the same statement", () => {
+    // Same real row as "splits a one-pair statement" above: once as a
+    // pre-rename payload (termName/termUri only, composed sentence),
+    // and once as `withDatasetAnnotationCompat` (api/endpoints.ts)
+    // would leave it post-rename — `value`/`valueUri` present and
+    // coalesced onto termName/termUri too.
+    const preRename = ann({
+      termUri: "http://purl.org/commons/record/ncbi_gene/16153",
+      termName: "Homozygous negative  Il10 [mouse] interleukin 10",
+      predicate: "has_genotype",
+      predicateUri: "http://purl.obolibrary.org/obo/GENO_0000222",
+      object: "Homozygous negative",
+      objectUri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001",
+    });
+    const postRename = ann({
+      termUri: "http://purl.org/commons/record/ncbi_gene/16153",
+      termName: "Il10 [mouse] interleukin 10",
+      valueUri: "http://purl.org/commons/record/ncbi_gene/16153",
+      value: "Il10 [mouse] interleukin 10",
+      predicate: "has_genotype",
+      predicateUri: "http://purl.obolibrary.org/obo/GENO_0000222",
+      object: "Homozygous negative",
+      objectUri: "http://gemma.msl.ubc.ca/ont/TGEMO_00001",
+    });
+    expect(parseAnnotationStatement(postRename)).toEqual(parseAnnotationStatement(preRename));
+  });
+
+  it("🛑 a post-rename dose row still recovers the dose, with no ignoredPredicates special case", () => {
+    // Same case as "🛑 recovers the object Gemma strips from termName"
+    // above, but as it looks once Gemma serves b5c6747f68: `value` is
+    // already the bare subject for every predicate, not just the
+    // three ignoredPredicates ones, so the `a.value` branch handles it
+    // directly instead of falling through to `isStripped`.
+    const s = parseAnnotationStatement(
+      ann({
+        className: "developmental stage",
+        termUri: "http://purl.obolibrary.org/obo/UBERON_0018241",
+        termName: "prime adult stage",
+        valueUri: "http://purl.obolibrary.org/obo/UBERON_0018241",
+        value: "prime adult stage",
+        predicate: "has developmental stage",
+        predicateUri: TGEMO("00168"),
+        object: "6 month",
+      }),
+    );
+    expect(s?.subject).toBe("prime adult stage");
+    expect(s?.pairs[0].object).toBe("6 month");
+  });
+
+  it("two post-rename rows both reading 'prime adult stage' stay distinguishable by object", () => {
+    // Same guarantee as "keeps two experiments apart" above — 6-month
+    // mice vs. 20-31-year-old humans — proven against a post-rename row.
+    const statementFor = (object: string) =>
+      parseAnnotationStatement(
+        ann({
+          termUri: "http://purl.obolibrary.org/obo/UBERON_0018241",
+          termName: "prime adult stage",
+          valueUri: "http://purl.obolibrary.org/obo/UBERON_0018241",
+          value: "prime adult stage",
+          predicate: "has developmental stage",
+          predicateUri: TGEMO("00168"),
+          object,
+        }),
+      );
+    const mouse = statementFor("6 month");
+    const human = statementFor("20-31 years");
+    expect(mouse?.pairs[0].object).not.toBe(human?.pairs[0].object);
+  });
+});

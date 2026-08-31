@@ -9,6 +9,7 @@ import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
   AnnotationSearchResult,
   AnnotationTerm,
+  Category,
   CategoryWithChildren,
   Dataset,
   DatasetAnnotation,
@@ -21,6 +22,50 @@ import { apiBase as BASE } from "./base";
 import type { HeatmapRowGene } from "@gemma/heatmap";
 
 /* --------------------- requests --------------------- */
+
+// ─── b5c6747f68 field-rename compatibility ─────────────────────────────────
+//
+// Gemma commit b5c6747f68 renames className→category, classUri→categoryUri,
+// termName→value, termUri→valueUri on every annotation-shaped response
+// (merged, not yet deployed — prod is currently 5328441870). There is no
+// server-side alias: a server on either side of the deploy sends exactly one
+// spelling per field. These three functions are the one place each wire
+// shape enters the app (getCategories, getAnnotationsByCategory,
+// getDatasetAnnotations, getPlatformAnnotations below all pass their
+// response through one of them), so everything downstream keeps reading the
+// old field names unchanged.
+//
+// @deprecated delete this whole block, the old-named fields it populates
+// (see the `@deprecated` tags in lib/types.ts), and the call sites below,
+// once every Gemma this app talks to serves b5c6747f68.
+export function withCategoryCompat(raw: Category): Category {
+  return {
+    ...raw,
+    className: raw.category ?? raw.className ?? null,
+    classUri: raw.categoryUri ?? raw.classUri ?? null,
+  };
+}
+
+export function withAnnotationTermCompat(raw: AnnotationTerm): AnnotationTerm {
+  return {
+    ...raw,
+    className: raw.category ?? raw.className ?? null,
+    classUri: raw.categoryUri ?? raw.classUri ?? null,
+    termName: raw.value ?? raw.termName ?? null,
+    termUri: raw.valueUri ?? raw.termUri ?? null,
+    children: raw.children ? raw.children.map(withAnnotationTermCompat) : raw.children,
+  };
+}
+
+export function withDatasetAnnotationCompat(raw: DatasetAnnotation): DatasetAnnotation {
+  return {
+    ...raw,
+    className: raw.category ?? raw.className ?? "",
+    classUri: raw.categoryUri ?? raw.classUri ?? null,
+    termName: raw.value ?? raw.termName ?? "",
+    termUri: raw.valueUri ?? raw.termUri ?? null,
+  };
+}
 
 export interface DatasetsArgs {
   query?: string;
@@ -104,11 +149,8 @@ export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) 
     params.excludeUncategorizedTerms = "true";
     params.excludedTerms = await compressArg(excludedTerms.join(","));
   }
-  return apiGet<PaginatedResponse<{
-    classUri: string | null;
-    className: string | null;
-    numberOfExpressionExperiments?: number;
-  }>>(`${BASE}/datasets/categories`, { params, signal });
+  const r = await apiGet<PaginatedResponse<Category>>(`${BASE}/datasets/categories`, { params, signal });
+  return { ...r, data: (r.data ?? []).map(withCategoryCompat) };
 }
 
 export interface AnnotationsByCategoryArgs {
@@ -136,7 +178,8 @@ export async function getAnnotationsByCategory(args: AnnotationsByCategoryArgs, 
     params.excludedTerms = await compressArg(excludedTerms.join(","));
     if (args.excludeFreeText) params.excludeFreeTextTerms = "true";
   }
-  return apiGet<PaginatedResponse<AnnotationTerm>>(`${BASE}/datasets/annotations`, { params, signal });
+  const r = await apiGet<PaginatedResponse<AnnotationTerm>>(`${BASE}/datasets/annotations`, { params, signal });
+  return { ...r, data: (r.data ?? []).map(withAnnotationTermCompat) };
 }
 
 export interface PlatformsArgs {
@@ -702,10 +745,11 @@ export async function getMyself(signal?: AbortSignal): Promise<User | null> {
 }
 
 export async function getDatasetAnnotations(datasetId: number, signal?: AbortSignal) {
-  return apiGet<PaginatedResponse<DatasetAnnotation>>(
+  const r = await apiGet<PaginatedResponse<DatasetAnnotation>>(
     `${BASE}/datasets/${datasetId}/annotations`,
     { signal },
   );
+  return { ...r, data: (r.data ?? []).map(withDatasetAnnotationCompat) };
 }
 
 /** Single dataset by id (numeric id) or short-name (e.g. "GSE12345"). The
@@ -1154,7 +1198,7 @@ export async function getPlatformAnnotations(
     `${BASE}/platforms/${platformId}/annotations`,
     { params: { limit: 500 }, signal },
   );
-  return r.data ?? [];
+  return (r.data ?? []).map(withAnnotationTermCompat);
 }
 
 // ─── Gene endpoints ───────────────────────────────────────────────────────────
