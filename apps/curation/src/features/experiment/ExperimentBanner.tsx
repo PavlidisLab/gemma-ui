@@ -23,6 +23,7 @@ import {
 import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import { useExperimentSetsFor } from "@/api/experimentSets";
 import {
   inferModality,
   modalityLabel,
@@ -162,6 +163,7 @@ export function ExperimentBanner({
           <div className="flex items-baseline gap-3 flex-wrap">
             <ModalityIndicator />
             <TitleEditor title={title} />
+            <ExperimentSetChips experimentId={experimentId} />
           </div>
           {/* ``items-center`` matters here now that the row mixes plain
               text with bordered chips. Flex defaults to `stretch`, so
@@ -651,6 +653,52 @@ function TitleEditor({ title }: { title: string }) {
       className="w-full text-sm font-semibold text-slate-900 leading-snug border border-blue-300 rounded px-1 py-0 outline-none focus:border-blue-500"
       aria-label="experiment title"
     />
+  );
+}
+
+/** Chips for the Gemma experiment sets this dataset belongs to.
+ *
+ *  🛑 **A different thing from `ExperimentGroupChips` below**, which
+ *  shows the curation-side workflow groups. These are Gemma's own
+ *  `ExpressionExperimentSet`s — what a `/browse` user filters by — and
+ *  a curator wants to know an experiment is in one BEFORE editing it,
+ *  because someone else's analysis is keyed on that membership (Paul,
+ *  2026-08-31). Neither surface subsumes the other.
+ *
+ *  On the TITLE row, not the meta row. The meta row had just been
+ *  emptied of its link-outs for being overloaded; putting a variable
+ *  number of chips back on it would undo that in one step.
+ *
+ *  Renders nothing when the dataset is in no set, which is most of
+ *  them — 640 sets over ~23.5k datasets. Not a link: Gemma has no
+ *  per-set page this app can honestly deep-link to, and a chip that
+ *  looks clickable and is not is worse than a plain one. */
+function ExperimentSetChips({
+  experimentId,
+}: {
+  experimentId: number | string;
+}) {
+  const { sets } = useExperimentSetsFor(experimentId);
+  if (sets.length === 0) return null;
+  return (
+    <span className="flex items-center gap-1.5 flex-wrap">
+      {sets.map((s) => (
+        <span
+          key={s.id}
+          className="text-[11px] px-1.5 py-0.5 rounded border border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-200"
+          title={
+            `Gemma experiment set "${s.name ?? s.id}"` +
+            (typeof s.size === "number" ? ` · ${s.size} datasets` : "") +
+            (s.description ? ` — ${s.description}` : "")
+          }
+        >
+          {s.name || `set ${s.id}`}
+          {typeof s.size === "number" ? (
+            <span className="ml-1 opacity-70">{s.size}</span>
+          ) : null}
+        </span>
+      ))}
+    </span>
   );
 }
 
