@@ -1,8 +1,11 @@
 /**
  * Every query parameter we send to Gemma must be one Gemma declares.
  *
- * 🛑 As of `e800aa7874` an unknown query parameter is a **400**, not a
- * silent drop. Before that it was worse than it looked: gembro sampled
+ * 🛑 An unknown query parameter is becoming a **400** instead of a
+ * silent drop. Merged, not yet deployed — gemma2 serves `e800aa7874`,
+ * where a garbage parameter still answers 200 (measured 2026-08-31).
+ *
+ * The silent drop is the worse half anyway: gembro sampled
  * 5,556 live requests to frink and found exactly one bad parameter in
  * the whole window, and it was ours —
  * `GET /rest/v2/tickets?include_targets=false`, answered 200 with 92 KB
