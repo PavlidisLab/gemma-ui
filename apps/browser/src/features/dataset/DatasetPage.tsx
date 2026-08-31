@@ -38,7 +38,7 @@ import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
-import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
+import { tintForIndex, compareValuesNatural, compareSortColumn } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
@@ -1407,38 +1407,111 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
       .sort((a, b) => Number(a.isBlock) - Number(b.isBlock));
   }, [samples, factorDescriptions]);
 
+  // Column key encoding, one string so a single `sort` state covers the
+  // fixed columns and every dynamically-generated factor column alike:
+  // "name" / "accession" / "flags" / "factor:<experimentalFactorId>".
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+
+  // "" means "no value" — sampleSortValue never returns the "—"
+  // placeholder the cells display, so a blank always compares as
+  // missing rather than sorting into the alphabet at "—".
+  const sampleSortValue = (s: BioAssay, key: string): string => {
+    if (key === "name") return s.name ?? s.shortName ?? `BA ${s.id}`;
+    if (key === "accession") return s.accession?.accession ?? "";
+    if (key === "flags") {
+      if (s.userFlaggedOutlier) return "outlier";
+      if (s.predictedOutlier) return "predicted outlier";
+      return "";
+    }
+    const fid = Number(key.slice("factor:".length));
+    const fv = s.sample?.factorValues?.find((f) => f.experimentalFactorId === fid);
+    return fv?.summary || fv?.value || "";
+  };
+
+  const sortedSamples = useMemo(() => {
+    if (!sort) return samples;
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...samples].sort((a, b) =>
+      compareSortColumn(sampleSortValue(a, sort.key), sampleSortValue(b, sort.key), dir),
+    );
+  }, [samples, sort]);
+
+  // asc -> desc -> unsorted, matching DesignBreakdown's crosstab above.
+  const onSortClick = (key: string) =>
+    setSort((cur) => {
+      if (!cur || cur.key !== key) return { key, dir: "asc" };
+      if (cur.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+  const sortArrow = (key: string) =>
+    !sort || sort.key !== key ? "" : sort.dir === "asc" ? " ▲" : " ▼";
+  const thCls = "text-left py-1.5 pr-4 font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-100";
+
   return (
     <SectionCard title="Samples"
       subtitle={q.isLoading ? "loading…" : `${samples.length || nSamples} sample${nSamples === 1 ? "" : "s"}`}>
       {q.isLoading ? <LoadingRow /> : q.isError ? <ErrorRow /> : samples.length === 0 ? <Empty msg="no samples" /> : (
+        // Name + Accession stay sticky (left-0 / left-44, matched to
+        // Name's w-44) so a 100-factor-column dataset still reads who
+        // each row is while scrolling right. This container — not the
+        // page — is what scrolls: overflow-x-auto here plus the block
+        // (non-flex) ancestor chain up to the max-w-[1200px] page wrapper
+        // keeps a wide table from ever forcing the whole page sideways.
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-slate-200">
-                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Name</th>
-                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Accession</th>
+                <th
+                  className={thCls + " sticky left-0 z-10 bg-white w-44 min-w-[11rem] max-w-[11rem]"}
+                  onClick={() => onSortClick("name")}
+                  title="click to sort"
+                >
+                  Name{sortArrow("name")}
+                </th>
+                <th
+                  className={thCls + " sticky left-44 z-10 bg-white border-r border-slate-200"}
+                  onClick={() => onSortClick("accession")}
+                  title="click to sort"
+                >
+                  Accession{sortArrow("accession")}
+                </th>
                 {factorColumns.map((c) => (
-                  <th key={c.id} className="text-left py-1.5 pr-4 font-medium text-slate-600">
-                    <span className="block max-w-[12rem] truncate" title={c.label}>
-                      {c.label}
+                  <th
+                    key={c.id}
+                    className={thCls}
+                    onClick={() => onSortClick(`factor:${c.id}`)}
+                    title={`${c.label}\n\n(click to sort)`}
+                  >
+                    <span className="flex items-center gap-0.5">
+                      <span className="max-w-[12rem] truncate">{c.label}</span>
+                      <span className="shrink-0">{sortArrow(`factor:${c.id}`)}</span>
                     </span>
                   </th>
                 ))}
-                <th className="text-left py-1.5 font-medium text-slate-600">Flags</th>
+                <th
+                  className="text-left py-1.5 font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-100"
+                  onClick={() => onSortClick("flags")}
+                  title="click to sort"
+                >
+                  Flags{sortArrow("flags")}
+                </th>
               </tr>
             </thead>
             <tbody>
-              {samples.map((s) => {
+              {sortedSamples.map((s) => {
                 const outlier = s.outlier || s.predictedOutlier || s.userFlaggedOutlier;
+                const stickyBg = outlier ? "bg-amber-50" : "bg-white";
                 return (
                   <tr key={s.id} className={"border-b border-slate-100 " + (outlier ? "bg-amber-50/40" : "")}>
-                    <td className="py-1.5 pr-4 text-slate-800">
-                      <span className="inline-flex items-center">
-                        {s.name ?? s.shortName ?? `BA ${s.id}`}
+                    <td className={`py-1.5 pr-4 text-slate-800 sticky left-0 z-10 w-44 min-w-[11rem] max-w-[11rem] ${stickyBg}`}>
+                      <span className="flex items-center gap-1">
+                        <span className="truncate min-w-0" title={s.name ?? s.shortName ?? `BA ${s.id}`}>
+                          {s.name ?? s.shortName ?? `BA ${s.id}`}
+                        </span>
                         <SampleMetaPopover assay={s} />
                       </span>
                     </td>
-                    <td className="py-1.5 pr-4 font-mono text-slate-600">
+                    <td className={`py-1.5 pr-4 font-mono text-slate-600 sticky left-44 z-10 border-r border-slate-200 ${stickyBg}`}>
                       {s.accession?.accession
                         ? <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${s.accession.accession}`}
                             target="_blank" rel="noopener noreferrer"

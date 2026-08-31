@@ -28,3 +28,19 @@ export function tintForIndex(idx: number): string | undefined {
 export function compareValuesNatural(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
+
+/**
+ * Comparator for a sortable table column, on top of
+ * {@link compareValuesNatural}. "" means "no value" rather than "the
+ * smallest string" — a blank always sorts after every real value, in
+ * both directions, so flipping a column's sort direction never
+ * surfaces the missing rows first. `dir` is `1` ascending, `-1`
+ * descending. Mirrors the curation app's ``SampleDetailsPanel`` sort
+ * (empty values sort last regardless of direction).
+ */
+export function compareSortColumn(a: string, b: string, dir: 1 | -1): number {
+  if (a === "" && b === "") return 0;
+  if (a === "") return 1;
+  if (b === "") return -1;
+  return compareValuesNatural(a, b) * dir;
+}
