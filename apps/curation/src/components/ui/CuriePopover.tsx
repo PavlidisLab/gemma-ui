@@ -22,6 +22,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useAnchoredPosition, useDismissOnOutside } from "./anchoredCard";
 import {
   useGemmaTerm,
   useNcbiGene,
@@ -173,47 +174,16 @@ export function CuriePopover({ uri, anchorRect, onClose, zIndex }: CuriePopoverP
     olsCapable && gemmaDone && !gemmaHit && !olsRequested && !olsHit;
   const primaryLoading = isNcbiGene ? ncbi.isLoading : gemma.isLoading;
 
-  // Position: below the chip if there's room, else above. Width
-  // capped so the popover doesn't blow up on a wide screen.
-  const popoverRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number }>({
-    left: anchorRect.left,
-    top: anchorRect.bottom + 6,
-  });
-  useEffect(() => {
-    if (!popoverRef.current) return;
-    const rect = popoverRef.current.getBoundingClientRect();
-    const margin = 8;
-    let left = anchorRect.left;
-    if (left + rect.width > window.innerWidth - margin) {
-      left = Math.max(margin, window.innerWidth - rect.width - margin);
-    }
-    let top = anchorRect.bottom + 6;
-    if (top + rect.height > window.innerHeight - margin) {
-      top = anchorRect.top - rect.height - 6;
-      if (top < margin) top = margin;
-    }
-    setPos({ left, top });
-  }, [anchorRect, detail]);
-
-  // Outside-click + Escape close.
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (!popoverRef.current) return;
-      if (e.target instanceof Node && !popoverRef.current.contains(e.target)) {
-        onClose();
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("mousedown", onDocClick);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDocClick);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
+  // Position (below the chip if there's room, else above) and
+  // dismiss-on-outside both live in `anchoredCard` — `PubmedPopover`
+  // is the same card shape and must behave identically at the edge of
+  // the viewport. Width stays capped by the class list below so the
+  // popover doesn't blow up on a wide screen.
+  const { ref: popoverRef, pos } = useAnchoredPosition<HTMLDivElement>(
+    anchorRect,
+    [detail],
+  );
+  useDismissOnOutside(popoverRef, onClose);
 
   return createPortal(
     <div

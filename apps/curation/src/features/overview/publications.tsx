@@ -11,6 +11,7 @@
  */
 import { useEffect, useState } from "react";
 import { usePubmedMetadata } from "@/api/pubmed";
+import { PubmedLink } from "@/components/ui/PubmedPopover";
 import { shortenUri } from "@/lib/curie";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { publicationRefId } from "@/features/provenance/refs";
@@ -276,9 +277,6 @@ export function PublicationRow({
   const displayCitation =
     publication.citation?.trim() || pubmedMeta?.citation || "";
   const effectiveDoi = publication.doi?.trim() || pubmedMeta?.doi || "";
-  const pmidUrl = publication.pubmed_id
-    ? `https://pubmed.ncbi.nlm.nih.gov/${encodeURIComponent(publication.pubmed_id)}/`
-    : null;
   const doiUrl = effectiveDoi
     ? `https://doi.org/${encodeURIComponent(effectiveDoi)}`
     : null;
@@ -314,16 +312,13 @@ export function PublicationRow({
               on the row itself (only discoverable by opening the
               sidebar and reading an unlabeled list). */}
           <AuditDot targetId={publicationTarget(publication.pubmed_id)} />
-          {pmidUrl ? (
-            <a
-              href={pmidUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
-            >
-              PMID {publication.pubmed_id} ↗
-            </a>
-          ) : null}
+          {/* The PMID is the hot spot, the way a CURIE is on a term
+              chip: it opens the paper's abstract and MeSH headings in
+              place, and "open in PubMed ↗" moved INSIDE that card. The
+              link-out is one extra click, and the question it used to
+              answer — "is this the right paper?" — is now answerable
+              without leaving the experiment. */}
+          <PubmedLink pmid={publication.pubmed_id} />
           {doiUrl ? (
             <a
               href={doiUrl}
