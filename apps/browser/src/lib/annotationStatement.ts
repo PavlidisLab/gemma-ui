@@ -38,11 +38,56 @@ export interface AnnotationStatement {
   pairs: StatementPair[];
 }
 
+/** The three predicates Gemma strips from `termName` entirely — clause
+ *  and all — so a tag list reads as terms rather than protocol detail
+ *  (`ExpressionExperimentReadServiceImpl`'s `ignoredPredicates`).
+ *
+ *  🛑 **The object is still on the wire.** `AnnotationValueObject`'s
+ *  constructor populates `predicate` / `object` straight from the
+ *  Statement, unconditionally; `ignoredPredicates` touches only the
+ *  composed string. So `dexamethasone delivered at dose 10 µM` arrives
+ *  as `termName: "dexamethasone"` with `object: "10 µM"` intact.
+ *
+ *  That makes these rows the EASY case, not the hard one: because the
+ *  clause was removed rather than paraphrased, `termName` is already
+ *  the bare subject label and needs no recovery. Measured across 15
+ *  datasets, they are 8 of 23 statement rows — and they carry exactly
+ *  the quantitative detail that distinguishes otherwise-identical
+ *  experiments. Two rows both reading `prime adult stage` are 6-month
+ *  mice and 20-31-year-old humans; without the object the page cannot
+ *  tell them apart. */
+const CLAUSE_STRIPPED_PREDICATES = new Set([
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00166", // delivered at dose
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00167", // delivered for duration
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00168", // has developmental stage
+]);
+
+const isStripped = (uri: string | null | undefined) =>
+  CLAUSE_STRIPPED_PREDICATES.has((uri ?? "").trim());
+
 export function parseAnnotationStatement(
   a: DatasetAnnotation,
 ): AnnotationStatement | null {
   const hasFirstPair = !!(a.predicate || a.predicateUri || a.object || a.objectUri);
   if (!hasFirstPair) return null;
+
+  // Every clause on this row was stripped, so `termName` is the subject
+  // verbatim. Requiring ALL of them — a row mixing a stripped clause
+  // with a composed one still has the composed one inside `termName`,
+  // and using it as the subject would print that clause twice.
+  const hasSecond = !!(
+    a.secondPredicate ||
+    a.secondPredicateUri ||
+    a.secondObject ||
+    a.secondObjectUri
+  );
+  if (
+    isStripped(a.predicateUri) &&
+    (!hasSecond || isStripped(a.secondPredicateUri))
+  ) {
+    const subject = (a.termName ?? "").trim();
+    if (subject) return { subject, subjectUri: a.termUri ?? null, pairs: pairsOf(a) };
+  }
 
   const expectedPrefix = [a.object, a.secondObject]
     .map((s) => (s ?? "").trim())
@@ -61,6 +106,13 @@ export function parseAnnotationStatement(
   const subject = segments[segments.length - 1];
   if (!subject) return null;
 
+  const pairs = pairsOf(a);
+
+  return { subject, subjectUri: a.termUri ?? null, pairs };
+}
+
+/** The one or two predicate/object pairs a row carries. */
+function pairsOf(a: DatasetAnnotation): StatementPair[] {
   const pairs: StatementPair[] = [
     {
       predicate: a.predicate ?? null,
@@ -77,6 +129,5 @@ export function parseAnnotationStatement(
       objectUri: a.secondObjectUri ?? null,
     });
   }
-
-  return { subject, subjectUri: a.termUri ?? null, pairs };
+  return pairs;
 }

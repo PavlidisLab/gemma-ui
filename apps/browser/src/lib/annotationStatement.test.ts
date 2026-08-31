@@ -111,3 +111,64 @@ describe("parseAnnotationStatement", () => {
     expect(parseAnnotationStatement(a)).toBeNull();
   });
 });
+
+describe("clause-stripped predicates", () => {
+  const TGEMO = (n: string) => `http://gemma.msl.ubc.ca/ont/TGEMO_${n}`;
+  const row = (over: Partial<DatasetAnnotation>): DatasetAnnotation =>
+    ({
+      objectClass: "FactorValue",
+      className: "developmental stage",
+      classUri: null,
+      termName: "prime adult stage",
+      termUri: "http://purl.obolibrary.org/obo/UBERON_0018241",
+      predicate: "has developmental stage",
+      predicateUri: TGEMO("00168"),
+      object: "6 month",
+      objectUri: null,
+      ...over,
+    }) as DatasetAnnotation;
+
+  it("🛑 recovers the object Gemma strips from termName", () => {
+    // Real row, eid 27103. Gemma's `ignoredPredicates` drops the whole
+    // clause from the composed string, so `termName` is already the
+    // bare subject — but `object` was never dropped from the wire.
+    const s = parseAnnotationStatement(row({}));
+    expect(s?.subject).toBe("prime adult stage");
+    expect(s?.pairs[0].object).toBe("6 month");
+  });
+
+  it("keeps two experiments apart that otherwise read identically", () => {
+    // Both are `prime adult stage`: 6-month mice and 20-31-year-old
+    // humans. Without the object the page cannot tell them apart.
+    const mouse = parseAnnotationStatement(row({ object: "6 month" }));
+    const human = parseAnnotationStatement(row({ object: "20-31 years" }));
+    expect(mouse?.pairs[0].object).not.toBe(human?.pairs[0].object);
+  });
+
+  it("covers dose and duration too", () => {
+    for (const [uri, obj] of [
+      [TGEMO("00166"), "10 µM"],
+      [TGEMO("00167"), "24 h"],
+    ]) {
+      const s = parseAnnotationStatement(
+        row({ termName: "dexamethasone", predicateUri: uri, object: obj }),
+      );
+      expect(s?.subject).toBe("dexamethasone");
+      expect(s?.pairs[0].object).toBe(obj);
+    }
+  });
+
+  it("🛑 refuses a row mixing a stripped clause with a composed one", () => {
+    // The composed clause is still inside `termName`, so treating it as
+    // the subject would print that clause twice.
+    const s = parseAnnotationStatement(
+      row({
+        termName: "prime adult stage has background APP/PS1",
+        secondPredicate: "has background",
+        secondPredicateUri: "http://gemma.msl.ubc.ca/ont/TGEMO_00216",
+        secondObject: "APP/PS1",
+      }),
+    );
+    expect(s).toBeNull();
+  });
+});
