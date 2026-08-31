@@ -241,10 +241,33 @@ export async function fetchSampleBiomaterials(
  *  origin. Only `ExperimentTag` rows are EE tags. */
 interface WireAnnotation {
   id?: number | null;
+  /** 🛑 **Four fields were renamed and there are no aliases** — a hard
+   *  rename, deliberately, because the thing being removed was itself a
+   *  compatibility shim (gembro, `b5c6747f68`, merged 2026-08-31, not
+   *  deployed; prod is `5328441870`).
+   *
+   *      className -> category      termName -> value
+   *      classUri  -> categoryUri   termUri  -> valueUri
+   *
+   *  Both spellings are read HERE, at the one adapter that touches
+   *  them, rather than per-field at the call sites — the same rule the
+   *  case boundary follows. It is a bounded transition: once every
+   *  Gemma we read serves `b5c6747f68`, delete the four legacy fields
+   *  and the coalescing below.
+   *
+   *  The rename also brings this route into line with
+   *  `/datasets/{id}/samples`, which has always used
+   *  `{category, categoryUri, value, valueUri}` — `foldCharacteristics`
+   *  above needs no change for the same reason. */
+  category?: string | null;
+  category_uri?: string | null;
+  value?: string | null;
+  value_uri?: string | null;
+  /** @deprecated pre-`b5c6747f68` spellings; see above. */
   class_name?: string | null;
-  class_uri?: string | null;
-  term_name?: string | null;
-  term_uri?: string | null;
+  /** @deprecated */ class_uri?: string | null;
+  /** @deprecated */ term_name?: string | null;
+  /** @deprecated */ term_uri?: string | null;
   evidence_code?: string | null;
   object_class?: string | null;
   /** 🛑 The ONLY provenance a characteristic carries. Unlike a
@@ -299,13 +322,17 @@ export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
   const tags: Tag[] = [];
   for (const r of rows) {
     if (r.object_class !== "ExperimentTag") continue;
-    const label = (r.term_name ?? "").trim();
-    const category = (r.class_name ?? "").trim();
+    // 🛑 `value` is the TERM now, not a composed sentence. It used to
+    // hold `formatStatement(...)` output on a factor-value row — `"wild
+    // type genotype has background APP/PS1"`, or `"dexamethasone"` with
+    // the dose clause stripped. Nothing here has to undo that any more.
+    const label = (r.value ?? r.term_name ?? "").trim();
+    const category = (r.category ?? r.class_name ?? "").trim();
     if (!label && !category) continue;
     tags.push({
       id: r.id ?? tags.length + 1,
-      category: { label: category, uri: r.class_uri ?? null },
-      value: { label, uri: r.term_uri ?? null },
+      category: { label: category, uri: r.category_uri ?? r.class_uri ?? null },
+      value: { label, uri: r.value_uri ?? r.term_uri ?? null },
       evidence_code: r.evidence_code ?? undefined,
       // Passed through, not reshaped: the wire shape IS
       // `FindingEvidence[]`. Anything else is dropped rather than

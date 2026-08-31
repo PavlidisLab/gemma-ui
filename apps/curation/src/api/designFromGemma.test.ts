@@ -466,3 +466,51 @@ describe("toExperimentTags — supportingEvidence", () => {
     expect(out?.[0].quote).toBe("kept");
   });
 });
+
+describe("toExperimentTags — the b5c6747f68 field rename", () => {
+  // 🛑 Four fields renamed with NO aliases, deliberately: className ->
+  // category, classUri -> categoryUri, termName -> value, termUri ->
+  // valueUri. Both spellings are read at this adapter for the length of
+  // the transition; delete the legacy branch once every Gemma we read
+  // serves it.
+  const base = { object_class: "ExperimentTag", id: 7 };
+
+  it("reads the new spelling", () => {
+    const [tag] = toExperimentTags([
+      {
+        ...base,
+        category: "organism part",
+        category_uri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+        value: "brain",
+        value_uri: "http://purl.obolibrary.org/obo/UBERON_0000955",
+      },
+    ]);
+    expect(tag.category.label).toBe("organism part");
+    expect(tag.category.uri).toBe("http://www.ebi.ac.uk/efo/EFO_0000635");
+    expect(tag.value.label).toBe("brain");
+    expect(tag.value.uri).toBe("http://purl.obolibrary.org/obo/UBERON_0000955");
+  });
+
+  it("still reads the old spelling until every Gemma is upgraded", () => {
+    const [tag] = toExperimentTags([
+      {
+        ...base,
+        class_name: "organism part",
+        class_uri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+        term_name: "brain",
+        term_uri: "http://purl.obolibrary.org/obo/UBERON_0000955",
+      },
+    ]);
+    expect(tag.category.label).toBe("organism part");
+    expect(tag.value.label).toBe("brain");
+    expect(tag.value.uri).toBe("http://purl.obolibrary.org/obo/UBERON_0000955");
+  });
+
+  it("prefers the new spelling when a row somehow carries both", () => {
+    const [tag] = toExperimentTags([
+      { ...base, category: "new", class_name: "old", value: "v", term_name: "t" },
+    ]);
+    expect(tag.category.label).toBe("new");
+    expect(tag.value.label).toBe("v");
+  });
+});
