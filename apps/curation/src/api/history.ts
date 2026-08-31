@@ -42,6 +42,15 @@ export interface AuditEvent {
   event_type: string;
   note: string;
   detail: string;
+  /** `compact=true` MERGES repeats rather than filtering them, and
+   *  ships `collapsedCount` / `lastOccurrence` on the survivor
+   *  (gembro, 2026-08-31: 61 rows of 84 under the flag). Without
+   *  rendering these, compact silently swallows 23 occurrences and
+   *  looks like it did nothing. Null when the row stands for itself. */
+  collapsed_count?: number | null;
+  /** When the LAST of the collapsed run happened; the row's own `date`
+   *  is the first. */
+  last_occurrence?: string | null;
   /** Mock-side: shape counts at the time of the event. Empty /
    *  null when sourced from real Gemma until the REST API exposes
    *  per-event body summaries. */
@@ -173,6 +182,13 @@ function adaptAuditEvents(raw: unknown): AuditEvent[] {
       detail: (row.detail as string | undefined) ?? "",
       shape:
         (row.shape as AuditEvent["shape"] | undefined | null) ?? null,
+      collapsed_count: numOrNull(row.collapsed_count),
+      last_occurrence: (row.last_occurrence as string | undefined) ?? null,
     };
   });
+}
+
+function numOrNull(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
