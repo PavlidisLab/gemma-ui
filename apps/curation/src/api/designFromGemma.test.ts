@@ -128,6 +128,82 @@ describe("toSampleBiomaterials — real gemma2 bytes", () => {
   });
 });
 
+describe("two characteristics sharing one category — GSE43526.2 (8959)", () => {
+  // Both `molecular entity` rows are on every sample: `polyA RNA
+  // extract` is grounded, the treatment beside it is not. The join and
+  // its first-URI-wins map are kept for the consumers that read them;
+  // the decomposition is what lets a chip know which value the term
+  // belongs to.
+  const OBI_POLYA = "http://purl.obolibrary.org/obo/OBI_0000869";
+  const rows = toSampleBiomaterials([
+    {
+      id: 1,
+      name: "assay",
+      accession: { accession: "GSM1064721" },
+      sample: {
+        id: 9,
+        name: "GSE43526_bioMaterial_1|GSM1064721",
+        characteristics: [
+          {
+            category: "molecular entity",
+            category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+            value: "polyA RNA extract",
+            value_uri: OBI_POLYA,
+          },
+          {
+            category: "molecular entity",
+            category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+            value: "Topotecan",
+            value_uri: null,
+          },
+        ],
+      },
+    },
+  ]);
+
+  it("still joins the two into one characteristics slot", () => {
+    expect(rows[0].characteristics["molecular entity"]).toBe(
+      "polyA RNA extract; Topotecan",
+    );
+  });
+
+  it("still keeps the first URI on the category map", () => {
+    expect(rows[0].characteristic_uris["molecular entity"].value_uri).toBe(
+      OBI_POLYA,
+    );
+  });
+
+  it("carries each value's own URIs, in the order they were joined", () => {
+    expect(rows[0].characteristic_value_uris["molecular entity"]).toEqual([
+      {
+        value: "polyA RNA extract",
+        category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+        value_uri: OBI_POLYA,
+      },
+      {
+        value: "Topotecan",
+        category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+        value_uri: null,
+      },
+    ]);
+  });
+
+  it("emits the decomposition for undoubled categories too", () => {
+    expect(rows[0].characteristic_value_uris["molecular entity"]).toHaveLength(2);
+    expect(
+      toSampleBiomaterials(SAMPLES_91164)[0].characteristic_value_uris[
+        "cell line"
+      ],
+    ).toEqual([
+      {
+        value: "MCF7 cell",
+        category_uri: "http://purl.obolibrary.org/obo/CLO_0000031",
+        value_uri: "http://purl.obolibrary.org/obo/CLO_0007606",
+      },
+    ]);
+  });
+});
+
 describe("the shapes that are not GSE324761", () => {
   it("splits a piped name the way parseShortName does", () => {
     const rows = toSampleBiomaterials([

@@ -170,6 +170,11 @@ function snakifyKey(key: string): string {
 const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
   "characteristics",
   "characteristic_uris",
+  // Same key space again. Its entries are ARRAYS of ``{value,
+  // categoryUri, valueUri}`` — the value labels ride in a field, not as
+  // a second level of keys, which is what lets the one-level-deep
+  // normalization below stay correct for it.
+  "characteristic_value_uris",
   "geo_fields",
 ]);
 

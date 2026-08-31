@@ -299,4 +299,51 @@ describe("augmentInferredFromBiomaterials", () => {
     const next = augmentInferredFromBiomaterials([direct], bms);
     expect(next.filter((t) => t.inferred)).toHaveLength(0);
   });
+
+  // -------------------------------------------------------------------------
+  // Two characteristics sharing one category (GSE43526.2 / experiment 8959)
+  // -------------------------------------------------------------------------
+
+  /** A sample whose `molecular entity` carries two characteristics, as
+   *  `foldCharacteristics` emits it: the joined string plus the
+   *  decomposition that says how many values are really in there. */
+  function folded8959(shortName: string, treatment: string): Biomaterial {
+    const OBI_POLYA = "http://purl.obolibrary.org/obo/OBI_0000869";
+    return {
+      short_name: shortName,
+      name: shortName,
+      characteristics: { "molecular entity": `polyA RNA extract; ${treatment}` },
+      characteristic_uris: {
+        "molecular entity": { category_uri: null, value_uri: OBI_POLYA },
+      },
+      characteristic_value_uris: {
+        "molecular entity": [
+          { value: "polyA RNA extract", category_uri: null, value_uri: OBI_POLYA },
+          { value: treatment, category_uri: null, value_uri: null },
+        ],
+      },
+    };
+  }
+
+  it("synthesises three values from a category folded from two characteristics", () => {
+    // 10 samples, all carrying `polyA RNA extract` and half carrying
+    // each treatment. The joined form gave two values — both reading
+    // `polyA RNA ex…` once the chip truncated.
+    const bms = [
+      folded8959("GSM1", "Topotecan"),
+      folded8959("GSM2", "Vehicle"),
+      folded8959("GSM3", "Topotecan"),
+    ];
+    const next = augmentInferredFromBiomaterials([], bms);
+    expect(next).toHaveLength(1);
+    expect(next[0].value.label).toBe("polyA RNA extract, Topotecan, Vehicle");
+  });
+
+  it("keeps the joined string whole for a producer with no decomposition", () => {
+    // Same text, no `characteristic_value_uris` — the local API's
+    // projection, or a submitter who wrote the semicolon themselves.
+    const bms = [bm("s1", { "molecular entity": "polyA RNA extract; Topotecan" })];
+    const next = augmentInferredFromBiomaterials([], bms);
+    expect(next[0].value.label).toBe("polyA RNA extract; Topotecan");
+  });
 });

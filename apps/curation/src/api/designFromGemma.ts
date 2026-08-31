@@ -91,6 +91,17 @@ export interface SampleBiomaterial {
     string,
     { category_uri?: string | null; value_uri?: string | null }
   >;
+  /** The individual characteristics behind each `characteristics`
+   *  entry, in the order they were joined into it. See
+   *  `Biomaterial.characteristic_value_uris`. */
+  characteristic_value_uris: Record<
+    string,
+    Array<{
+      value: string;
+      category_uri?: string | null;
+      value_uri?: string | null;
+    }>
+  >;
   bio_assays: Array<{ short_name: string; name: string }>;
 }
 
@@ -113,13 +124,25 @@ function shortNameOf(name: string): string {
  *  are JOINED rather than dropped. A curator reading `treatment = A; B`
  *  can see something is doubled; a curator reading `treatment = A` has
  *  no way to know B existed. The URI map keeps the first, since there
- *  is no way to join two URIs into one meaningful value. */
+ *  is no way to join two URIs into one meaningful value.
+ *
+ *  GSE43526.2 (experiment 8959) is the corpus counter-example the note
+ *  above allowed for: every one of its 10 samples carries `molecular
+ *  entity` twice — `polyA RNA extract` (OBI_0000869) plus one of
+ *  `Topotecan` / `Vehicle`, neither of which has a URI. Joined, the two
+ *  chips read the same truncated text and both showed `OBI:0000869`,
+ *  the first characteristic's term. So the join is kept (its consumers
+ *  are unchanged) and `characteristic_value_uris` carries the
+ *  decomposition beside it, each value with its OWN URIs. */
 function foldCharacteristics(chars: WireCharacteristic[]): {
   characteristics: Record<string, string>;
   characteristic_uris: SampleBiomaterial["characteristic_uris"];
+  characteristic_value_uris: SampleBiomaterial["characteristic_value_uris"];
 } {
   const characteristics: Record<string, string> = {};
   const characteristic_uris: SampleBiomaterial["characteristic_uris"] = {};
+  const characteristic_value_uris: SampleBiomaterial["characteristic_value_uris"] =
+    {};
   for (const c of chars) {
     const cat = (c.category ?? "").trim();
     const val = (c.value ?? "").trim();
@@ -133,8 +156,16 @@ function foldCharacteristics(chars: WireCharacteristic[]): {
         value_uri: c.value_uri ?? null,
       };
     }
+    // Emitted for every category, not just the doubled ones, so a
+    // reader has one enumeration path rather than a branch on whether
+    // this particular category collided.
+    (characteristic_value_uris[cat] ??= []).push({
+      value: val,
+      category_uri: c.category_uri ?? null,
+      value_uri: c.value_uri ?? null,
+    });
   }
-  return { characteristics, characteristic_uris };
+  return { characteristics, characteristic_uris, characteristic_value_uris };
 }
 
 /** Build the per-biomaterial rows for one experiment.
@@ -162,6 +193,7 @@ export function toSampleBiomaterials(
         accession,
         characteristics: folded.characteristics,
         characteristic_uris: folded.characteristic_uris,
+        characteristic_value_uris: folded.characteristic_value_uris,
         bio_assays: [],
       };
       byShortName.set(shortName, row);
