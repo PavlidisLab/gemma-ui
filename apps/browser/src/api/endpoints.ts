@@ -701,11 +701,73 @@ export async function getMyself(signal?: AbortSignal): Promise<User | null> {
   }
 }
 
+/** One annotation row as Gemma serves it today, before this adapter
+ *  puts it back into `DatasetAnnotation`'s vocabulary.
+ *
+ *  🛑 **Four fields were renamed with no aliases** — a hard rename,
+ *  because the thing removed was itself a compatibility shim (gembro,
+ *  `b5c6747f68`):
+ *
+ *      className -> category      termName -> value
+ *      classUri  -> categoryUri   termUri  -> valueUri
+ *
+ *  gemma2 `0293d82c47` serves the new names and none of the old ones. */
+interface WireDatasetAnnotation extends Partial<DatasetAnnotation> {
+  category?: string | null;
+  categoryUri?: string | null;
+  value?: string | null;
+  valueUri?: string | null;
+}
+
+/**
+ * A dataset's annotations — every one of them.
+ *
+ * 🛑 **`includeFreeText=true` is required, and it is the only parameter
+ * this route accepts.** Without it Gemma omits every UNGROUNDED
+ * annotation, and an omitted row is indistinguishable from an absent
+ * one. Measured on eid 38390: 4 rows by default, 5 with the flag, the
+ * fifth a `strain` stored since the original load with a null
+ * `valueUri`. A curator hunted that tag on two Gemma sites and
+ * concluded it had been invented. Ungrounded terms are real annotations
+ * and belong on the page (Paul, 2026-08-31); they simply are not
+ * clickable filters, which `isSelectable` already handles by requiring
+ * the term to be in the available-annotation tree.
+ *
+ * 🛑 **Both field spellings are read, HERE, at the one adapter** rather
+ * than at each of the four consumers — the same shape of fix
+ * `apps/curation` made in `e7dae4e`. Coalescing (rather than renaming
+ * the type) is what keeps this correct against an older Gemma as well
+ * as a current one, which matters while the dev proxy and production
+ * can be on different builds. It is a bounded transition: once every
+ * Gemma this app talks to serves `b5c6747f68` or later, delete
+ * `WireDatasetAnnotation` and the mapping and read the new names
+ * directly.
+ */
 export async function getDatasetAnnotations(datasetId: number, signal?: AbortSignal) {
-  return apiGet<PaginatedResponse<DatasetAnnotation>>(
+  const r = await apiGet<PaginatedResponse<WireDatasetAnnotation>>(
     `${BASE}/datasets/${datasetId}/annotations`,
-    { signal },
+    { params: { includeFreeText: true }, signal },
   );
+  return {
+    ...r,
+    data: (r.data ?? []).map(normalizeDatasetAnnotation),
+  } as PaginatedResponse<DatasetAnnotation>;
+}
+
+/** Exported for test. */
+export function normalizeDatasetAnnotation(
+  a: WireDatasetAnnotation,
+): DatasetAnnotation {
+  return {
+    objectClass: a.objectClass ?? "",
+    className: a.category ?? a.className ?? "",
+    classUri: a.categoryUri ?? a.classUri ?? null,
+    termName: a.value ?? a.termName ?? "",
+    // 🛑 Null here is the whole point of the flag above: it is what an
+    // ungrounded annotation looks like, not a missing field. The chip
+    // renders it as "free text" and it stays unclickable.
+    termUri: a.valueUri ?? a.termUri ?? null,
+  };
 }
 
 /** Single dataset by id (numeric id) or short-name (e.g. "GSE12345"). The
