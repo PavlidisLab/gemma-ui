@@ -348,3 +348,45 @@ describe("toPublications", () => {
     expect(toPublications([])).toEqual([]);
   });
 });
+
+describe("toExperimentTags — supportingEvidence", () => {
+  // 🛑 A characteristic's ONLY provenance. A publication ships a whole
+  // association block; an annotation row is `{evidenceCode,
+  // supportingEvidence}`. Null on all 12 rows of 27103 today, and the
+  // agents are about to start writing it.
+  const row = (supporting_evidence: unknown) => ({
+    object_class: "ExperimentTag",
+    id: 1,
+    class_name: "organism part",
+    class_uri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+    term_name: "brain",
+    term_uri: "http://purl.obolibrary.org/obo/UBERON_0000955",
+    supporting_evidence,
+  });
+
+  it("carries the quote array through to the tag", () => {
+    const ev = [
+      { quote: "brain tissue was dissected", source: "paper", location: "Methods" },
+    ];
+    expect(toExperimentTags([row(ev)])[0].supporting_evidence).toEqual(ev);
+  });
+
+  it("is undefined when Gemma records none — the common case today", () => {
+    expect(toExperimentTags([row(null)])[0].supporting_evidence).toBeUndefined();
+  });
+
+  it("drops a shape the evidence chip cannot render", () => {
+    // A bare string or quote-less objects must show as a MISSING chip,
+    // never a broken one.
+    expect(toExperimentTags([row("some text")])[0].supporting_evidence).toBeUndefined();
+    expect(toExperimentTags([row([{ note: "x" }])])[0].supporting_evidence).toBeUndefined();
+  });
+
+  it("keeps only the well-formed entries of a mixed array", () => {
+    const out = toExperimentTags([
+      row([{ quote: "kept", source: "paper" }, { note: "dropped" }]),
+    ])[0].supporting_evidence;
+    expect(out).toHaveLength(1);
+    expect(out?.[0].quote).toBe("kept");
+  });
+});

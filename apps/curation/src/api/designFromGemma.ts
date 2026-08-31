@@ -47,6 +47,7 @@
  * this sample". The accession travels as its own field here rather than
  * overloading `short_name` further.
  */
+import type { FindingEvidence } from "@/api/justification";
 import { api } from "./client";
 import type { Publication, Tag } from "@/features/experiment/types";
 
@@ -214,6 +215,18 @@ interface WireAnnotation {
   term_uri?: string | null;
   evidence_code?: string | null;
   object_class?: string | null;
+  /** 🛑 The ONLY provenance a characteristic carries. Unlike a
+   *  publication — which ships a whole `association` block with source,
+   *  evidence text, assertedBy and assertedAt — an annotation row is
+   *  `{evidenceCode, supportingEvidence}` and nothing else. Gemma
+   *  declares it as "a JSON array of {quote, source, location} items
+   *  the curation agents emitted", which is `FindingEvidence[]`.
+   *
+   *  Null on every row today (12 of 12 on 27103); the agents are about
+   *  to start writing it. `TagBar`'s `EvidenceTrigger` has been wired
+   *  and dark since 2026-06-18 waiting for exactly this field, so
+   *  carrying it is what lights it up rather than new UI. */
+  supporting_evidence?: unknown;
 }
 
 /** The EE-level tags, and only those.
@@ -224,6 +237,19 @@ interface WireAnnotation {
  *  violet. Passing it here instead would present a projection as a
  *  stored tag a curator can remove — see the `inferred` rules in
  *  `TagBar`. */
+/** Keep only what the evidence chip can render: an array of objects
+ *  carrying a quote. Returns undefined for null, a bare string, or an
+ *  array of anything else, so a shape change upstream shows as a
+ *  missing chip rather than a broken one. */
+function asFindingEvidence(v: unknown): FindingEvidence[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter(
+    (e): e is FindingEvidence =>
+      !!e && typeof e === "object" && typeof (e as { quote?: unknown }).quote === "string",
+  );
+  return out.length > 0 ? out : undefined;
+}
+
 export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
   const tags: Tag[] = [];
   for (const r of rows) {
@@ -236,6 +262,10 @@ export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
       category: { label: category, uri: r.class_uri ?? null },
       value: { label, uri: r.term_uri ?? null },
       evidence_code: r.evidence_code ?? undefined,
+      // Passed through, not reshaped: the wire shape IS
+      // `FindingEvidence[]`. Anything else is dropped rather than
+      // rendered — a malformed blob must not reach the quote chip.
+      supporting_evidence: asFindingEvidence(r.supporting_evidence),
     });
   }
   return tags;
