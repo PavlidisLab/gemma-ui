@@ -45,14 +45,22 @@ import { SetProgressBar } from "@/components/ui/SetProgressBar";
 import { progressFromGroup } from "./setProgress";
 import { cn } from "@/lib/cn";
 import { useStickyState } from "@/lib/useStickyState";
+import { useGemmaMode } from "@/lib/gemmaMode";
+import { maxDatasetPageSize } from "@/api/workflow";
 import { rememberTicketMemberOrder } from "@/features/tickets/ticketMemberOrder";
 
 /** Default page size + user-settable picker options.
  *
  *  Design review 2026-06-14 asked for a 200 default ("typical ticket fits in
- *  one page"). The agents side 1 raised the ``/rest/v2/datasets`` cap from 100
- *  to 1000 to make that workable,
- *  so we ship the 200 default + headroom in the picker. */
+ *  one page"). The agents side raised the ``/rest/v2/datasets`` cap from 100
+ *  to 1000 to make that workable, so we ship the 200 default + headroom.
+ *
+ *  🛑 **Gemma did NOT follow, and in remote mode this row is capped at
+ *  100** — see `MAX_DATASET_PAGE_SIZE`. So the options are filtered by
+ *  mode rather than shipped as one list: a picker offering 500 against
+ *  a server that refuses it hands the curator a 400 and no queue. The
+ *  request itself is clamped too, so a stale sticky 200 cannot fire one
+ *  either. */
 const PAGE_SIZE_DEFAULT = 200;
 const PAGE_SIZE_OPTIONS = [50, 100, 200, 500, 1000] as const;
 
@@ -197,6 +205,9 @@ function FilterBar({
   onPrev: () => void;
   onNext: () => void;
 }) {
+  // Only offer page sizes this backend will serve — Gemma caps
+  // `/rest/v2/datasets` at 100 where the local store allows 1000.
+  const pageSizeCap = maxDatasetPageSize(useGemmaMode().mode);
   const from = total === 0 ? 0 : offset + 1;
   const to = Math.min(offset + pageSize, total);
   return (
@@ -284,7 +295,7 @@ function FilterBar({
         title="Page size"
         className="text-xs rounded border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
       >
-        {PAGE_SIZE_OPTIONS.map((n) => (
+        {PAGE_SIZE_OPTIONS.filter((n) => n <= pageSizeCap).map((n) => (
           <option key={n} value={n}>
             {n}/page
           </option>
@@ -732,17 +743,19 @@ export function ExperimentQueue({
   const [dispFilter, setDispFilter] = useState<DispositionFilterState>(
     DISPOSITION_FILTER_ANY,
   );
+  const { mode } = useGemmaMode();
   const [pageSizeRaw, setPageSize] = useStickyState<number>(
     "experimentQueue.pageSize",
     PAGE_SIZE_DEFAULT,
   );
-  // Clamp against the server's max — curators who already wrote a
-  // larger value (e.g. the 200 default from the brief window before
-  // the cap was honored) would otherwise stay stuck on a 422-empty
-  // queue. Read-time clamp self-heals on the next setPageSize.
+  // Clamp against THIS MODE's max. A curator who picked 200 in local
+  // mode carries that value into remote mode, where Gemma refuses it
+  // and the queue is a 400 with no rows — so the clamp reads the mode,
+  // not just the option list. Read-time, so it self-heals without the
+  // curator finding the picker.
   const pageSize = Math.min(
     pageSizeRaw,
-    PAGE_SIZE_OPTIONS[PAGE_SIZE_OPTIONS.length - 1],
+    maxDatasetPageSize(mode),
   );
 
   // ``includeSummaries`` so the header progress bar can roll up

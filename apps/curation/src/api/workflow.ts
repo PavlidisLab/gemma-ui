@@ -245,19 +245,70 @@ function blankPipelineStatus(id: number | string): ExperimentPipelineStatus {
 // Paginated dataset list
 // ---------------------------------------------------------------------------
 
+/** The largest `limit` `/rest/v2/datasets` will accept, per mode.
+ *
+ *  🛑 **The two backends do not agree, and the difference is a 400.**
+ *  The local store raised its cap to 1000 so a whole ticket fits in one
+ *  page (design review 2026-06-14). Gemma did not: it answers
+ *  `400 {"error":{"message":"The provided limit cannot exceed 100."}}`
+ *  — measured on gemma2 `96e7a5d790` 2026-08-31, and it is the LIMIT
+ *  that is refused, not the `ids` list: the same 400 comes back with
+ *  two ids.
+ *
+ *  Clamped here rather than at the caller so no page-size picker,
+ *  sticky localStorage value or future caller can put a number on the
+ *  wire that the server refuses. */
+export const MAX_DATASET_PAGE_SIZE = { local: 1000, remote: 100 } as const;
+
+export function maxDatasetPageSize(mode: "local" | "remote"): number {
+  return MAX_DATASET_PAGE_SIZE[mode];
+}
+
+/** Where an id-scoped dataset list lives, per mode.
+ *
+ *  🛑 **Gemma has no `ids` query parameter.** Its `/datasets` takes
+ *  `query`, `filter`, `offset`, `limit`, `sort` — nothing else — and an
+ *  unknown parameter is DROPPED, not rejected. So `?ids=…` returned the
+ *  whole corpus sorted by recency: measured 2026-08-31, asking for 3 ids
+ *  answered 100 rows of `totalElements: 23547`, and a ticket queue
+ *  rendered a confident page of experiments that were not its members.
+ *
+ *  Gemma's own form is the comma list in the PATH —
+ *  `/datasets/9474,5381,27103` → `totalElements: 3` — and it honours
+ *  `sort`, `offset` and the same 100 cap. 500 ids is a 2.5 kB URL, well
+ *  inside any limit.
+ *
+ *  The local store implements `?ids=`, so the shape stays mode-scoped
+ *  rather than being "fixed" for both. */
+function datasetListPath(
+  mode: "local" | "remote",
+  ids: string | undefined,
+  qs: string,
+): string {
+  if (ids && mode === "remote") {
+    return `/rest/v2/datasets/${encodeURIComponent(ids)}?${qs}`;
+  }
+  return `/rest/v2/datasets?${qs}`;
+}
+
+/** Exposed for test — the URL shape is the whole fix. */
+export const __test = { datasetListPath };
+
 export function useDatasetsPaginated(params: DatasetListParams) {
+  const mode = resolveGemmaMode().mode;
   const p = new URLSearchParams();
   if (params.query)  p.set("query",  params.query);
   if (params.filter) p.set("filter", params.filter);
   if (params.sort)   p.set("sort",   params.sort);
-  if (params.ids)    p.set("ids",    params.ids);
-  p.set("limit",  String(params.limit  ?? 50));
+  // Remote carries the ids in the path instead — see `datasetListPath`.
+  if (params.ids && mode === "local") p.set("ids", params.ids);
+  p.set("limit",  String(Math.min(params.limit ?? 50, maxDatasetPageSize(mode))));
   p.set("offset", String(params.offset ?? 0));
   return useQuery({
     queryKey: KEY.datasetsPaginated(params),
     queryFn: async () => {
       const raw = await api.get<Record<string, unknown>>(
-        `/rest/v2/datasets?${p.toString()}`,
+        datasetListPath(mode, params.ids, p.toString()),
       );
       return adaptDatasetListResponse(raw);
     },
