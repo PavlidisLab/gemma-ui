@@ -776,12 +776,12 @@ export function useMyTickets(
       // type, state, targetType, updatedSince, offset, limit, cursor,
       // and nothing that omits targets. It was being sent to Gemma and
       // silently dropped, so remote paid 92 KB of the targets it asked
-      // not to get. Unknown parameters are being changed from
-      // silently-dropped to a 400 — merged, NOT yet deployed: gemma2
-      // serves `e800aa7874`, where `?definitely_not_a_param=1` still
-      // answers 200 (measured 2026-08-31). When it lands, sending this
-      // stops being wasteful and starts being broken. gembro found this
-      // exact call as the one bad parameter in 5,556 live requests.
+      // not to get. An unknown query parameter is now a 400 rather
+      // than a silent drop — LIVE on gemma2 as of `5328441870`,
+      // 2026-08-31, verified with `?definitely_not_a_param=1`. So
+      // sending this to Gemma is no longer merely wasteful, it fails.
+      // gembro found this exact call as the one bad parameter in 5,556
+      // live requests.
       const useLight = light && resolveGemmaMode().mode === "local";
       const raw = asTicketList(
         await api.get<unknown>(
@@ -833,8 +833,8 @@ export function experimentTicketsQueryOptions(experimentId: number | string) {
       // parameters. Gemma's `/tickets` declares `targetType` and no
       // target-id filter at all, so all three were dropped and the
       // remote call returned EVERY ticket rather than this
-      // experiment's. That is already wrong today; once the
-      // unknown-parameter rejection deploys it also becomes a 400.
+      // experiment's. That was wrong on its own, and since
+      // `5328441870` it is also a 400.
       //
       // Gemma's own form is the per-dataset route,
       // `GET /datasets/{id}/tickets` ("Retrieve the open curation

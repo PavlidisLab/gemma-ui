@@ -128,9 +128,9 @@ export function SampleCorrelationCard({
               <a
                 // 🛑 `format` is not a parameter of this route — it
                 // takes `dataset` alone. Dropped rather than renamed:
-                // there is nothing to rename it to. Once the
-                // unknown-parameter rejection deploys this would turn a
-                // working download into a 400.
+                // there is nothing to rename it to. Since `5328441870`
+                // an unknown parameter is a 400, so this would have
+                // turned a working download into a failing one.
                 href={`/rest/v2/datasets/${experimentId}/sample-correlation`}
                 className="text-blue-700 dark:text-blue-300 hover:underline"
                 download
