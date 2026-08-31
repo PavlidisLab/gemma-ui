@@ -21,6 +21,7 @@
  * a curator asked one question and gets one answer per annotation.
  */
 
+import { useGemmaMode } from "@/lib/gemmaMode";
 import {
   createContext,
   useCallback,
@@ -91,6 +92,8 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
   const [asked, setAsked] = useState(0);
   const [status, setStatus] = useState<ProvenanceRunStatus>("idle");
   const lookup = useProvenanceLookup();
+  // Only the curation store answers the lookup; see `populate`.
+  const storeBacked = useGemmaMode().mode === "local";
 
   const populate = useCallback(
     (
@@ -100,6 +103,24 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
     ) => {
       setStatus("loading");
       setAsked(refs.length);
+      // 🛑 Gemma serves no provenance route — verified against the live
+      // OpenAPI on gemma2 2026-08-31, zero paths matching
+      // `provenance`. `/rest` is a catch-all whose meaning changes with
+      // mode, so in remote mode this POST would go at Gemma and 404.
+      //
+      // The DERIVED half needs no service at all: a publication's
+      // provenance is the `association` block Gemma ships on
+      // `/datasets/{id}/publications` — status / role / source /
+      // evidence / evidenceCode / assertedBy / assertedAt, populated on
+      // 27103 — which `publicationTraces` converts from the page. So
+      // remote skips the request and reports exactly what it has,
+      // rather than the panel hiding the whole feature because half of
+      // it is unavailable.
+      if (!storeBacked) {
+        setByRef(new Map(derived ?? []));
+        setStatus("unavailable");
+        return;
+      }
       lookup.mutate(
         { experimentId, refs },
         {
@@ -123,7 +144,7 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
         },
       );
     },
-    [lookup],
+    [lookup, storeBacked],
   );
 
   const clear = useCallback(() => {

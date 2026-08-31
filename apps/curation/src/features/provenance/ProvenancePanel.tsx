@@ -53,14 +53,20 @@ export function ProvenancePanel({
   );
   const nothingToTrace = refs.length === 0;
   // 🛑 The lookup is `POST /rest/v2/datasets/{id}/provenance/lookup`,
-  // a CURATION STORE route. `/rest` is a catch-all whose meaning
-  // changes with mode, so in remote mode that POST goes at Gemma, which
-  // has no such route: the button 404s and reports "not available on
-  // this backend yet" every time. A control that cannot work is a dead
-  // end, and the sentence beside it describes the deployment rather
-  // than this experiment. Say where the answer lives instead, and do
-  // not offer the button.
-  const storeConnected = useGemmaMode().mode === "local";
+  // a CURATION STORE route, and Gemma serves nothing matching
+  // `provenance` (live OpenAPI, gemma2 2026-08-31). So in remote mode
+  // the store-backed half of a run has no answer.
+  //
+  // That is NOT a reason to hide the control, which is what it used to
+  // do. A publication's provenance is derived from the `association`
+  // block Gemma itself ships — source, evidence, evidence code, who
+  // asserted it and when — and needs no service. Hiding the button hid
+  // that too, and told the curator provenance was unavailable while
+  // Gemma was holding some.
+  //
+  // `ProvenanceProvider` skips the doomed request in remote mode and
+  // reports `unavailable`, so a run still fills in every disc it can.
+  const storeBacked = useGemmaMode().mode === "local";
 
   const Wrapper = bare ? "div" : "section";
   return (
@@ -69,13 +75,6 @@ export function ProvenancePanel({
         <span className="font-semibold text-slate-700 dark:text-slate-200 text-xs">
           Provenance
         </span>
-        {!storeConnected ? (
-          <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            Provenance is recorded in the curation store, which is not
-            connected in remote mode.
-          </span>
-        ) : null}
-        {storeConnected ? (
         <button
           type="button"
           className="btn btn-sm"
@@ -84,7 +83,9 @@ export function ProvenancePanel({
           title={
             nothingToTrace
               ? "Nothing to trace — this experiment has no factors, tags or publications yet."
-              : "Ask where each annotation on this experiment came from — factors, tags, and the linked papers. Hover a disc for the evidence behind it."
+              : storeBacked
+                ? "Ask where each annotation on this experiment came from — factors, tags, and the linked papers. Hover a disc for the evidence behind it."
+                : "Show where the linked papers came from — Gemma carries that itself. Factor and tag provenance lives in the curation store, which this backend does not serve."
           }
         >
           {run.status === "loading"
@@ -93,7 +94,6 @@ export function ProvenancePanel({
               ? `Re-populate ${refs.length}`
               : `Populate provenance (${refs.length})`}
         </button>
-        ) : null}
 
         {/* 🛑 Three different silences, three different sentences — but
             all on one line. An undeployed endpoint is not a fact about
@@ -109,7 +109,9 @@ export function ProvenancePanel({
         ) : null}
         {run.status === "unavailable" ? (
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
-            not available on this backend yet
+            {run.traced > 0
+              ? `${run.traced} with a source · the rest are recorded in the curation store, which this backend does not serve`
+              : "the curation store, which records this, is not served by this backend"}
           </span>
         ) : null}
         {run.status === "error" ? (
