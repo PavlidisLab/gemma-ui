@@ -222,10 +222,23 @@ interface WireAnnotation {
    *  declares it as "a JSON array of {quote, source, location} items
    *  the curation agents emitted", which is `FindingEvidence[]`.
    *
-   *  Null on every row today (12 of 12 on 27103); the agents are about
-   *  to start writing it. `TagBar`'s `EvidenceTrigger` has been wired
-   *  and dark since 2026-06-18 waiting for exactly this field, so
-   *  carrying it is what lights it up rather than new UI. */
+   *  Null on every row today (12 of 12 on 27103, and 0 non-null across
+   *  ~7.4M `CHARACTERISTIC` rows on prod). `TagBar`'s `EvidenceTrigger`
+   *  has been wired and dark since 2026-06-18 waiting for exactly this
+   *  field, so carrying it is what lights it up rather than new UI.
+   *
+   *  🛑 **Why it is empty is NOT "the write path discards it"** — that
+   *  was the first explanation and gembro retracted it on 2026-08-31
+   *  after tracing REST mapper → entity → column at every section and
+   *  failing to reproduce a drop. The likely cause is that a `tags`
+   *  item carrying a `gemmaId` is a KEEP-MARKER: everything else on it
+   *  — category, value, statements, supportingEvidence — is read and
+   *  thrown away, because there is no tag-update path. An edit is
+   *  `deletedIds` plus a fresh `clientRef` item.
+   *
+   *  Recorded here because the earlier mechanism reached a commit
+   *  message of ours (`d3d9e01`) and would otherwise be the version a
+   *  later reader finds. Either way this adapter's job is the same. */
   supporting_evidence?: unknown;
 }
 
