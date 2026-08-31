@@ -13,7 +13,8 @@
  * Each is available; none was being asked for:
  *
  *     biomaterials  <- /datasets/{id}/samples        (sample.characteristics)
- *     tags          <- /datasets/{id}/annotations    (objectClass ExperimentTag)
+ *     tags          <- /datasets/{id}/annotations    (objectClass ExperimentTag,
+ *                                                     includeFreeText=true)
  *     publications  <- /datasets/{id}/publications
  *     overall_design<- /datasets/{id}/sourceMetadata (read in OverviewPanel,
  *                                                     which already has it)
@@ -343,11 +344,38 @@ export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
   return tags;
 }
 
+/** 🛑 `includeFreeText=true` is not optional here — without it the route
+ *  **omits every ungrounded annotation**, and an omitted tag is
+ *  indistinguishable from an absent one.
+ *
+ *  Measured on eid 38390 (GSE256180), gemma2 `0293d82c47`:
+ *
+ *      default              →  4 EE tags,  0 BioMaterial rows
+ *      includeFreeText=true →  5 EE tags,  6 BioMaterial rows
+ *
+ *  The fifth is `strain = Ascl1CreERT2/Ai14`, `valueUri` null —
+ *  `CHARACTERISTIC.ID 39131052`, evidence code `IC`, stored since the
+ *  original load. It reads as an agent invention when the tag bar shows
+ *  no such tag and Gemma's own page shows no such tag.
+ *
+ *  It is the ONLY parameter this route accepts, and it defaults to
+ *  hiding data. Ungrounded tags are shown and marked (italic, no URI),
+ *  never suppressed — so the complete list is the one to ask for.
+ *
+ *  The BioMaterial rows it also unhides are dropped by
+ *  `toExperimentTags` as before; sample characteristics come from
+ *  `/samples`, which has never suppressed free text (verified on the
+ *  same dataset: `BioSource = Trachea`, `valueUri` null, present with
+ *  no parameter at all).
+ *
+ *  Inert in local mode — the store does not serve this route (404 with
+ *  or without the parameter), and the caller already falls back to an
+ *  empty list. */
 export async function fetchExperimentTags(
   experimentId: number | string,
 ): Promise<Tag[]> {
   const rows = await api.get<WireAnnotation[]>(
-    `/rest/v2/datasets/${experimentId}/annotations`,
+    `/rest/v2/datasets/${experimentId}/annotations?includeFreeText=true`,
   );
   return toExperimentTags(Array.isArray(rows) ? rows : []);
 }
