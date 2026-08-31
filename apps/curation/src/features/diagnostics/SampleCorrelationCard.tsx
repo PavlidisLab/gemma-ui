@@ -126,7 +126,12 @@ export function SampleCorrelationCard({
                 mutating UI. */}
             <span className="ml-auto">
               <a
-                href={`/rest/v2/datasets/${experimentId}/sample-correlation?format=tsv`}
+                // 🛑 `format` is not a parameter of this route — it
+                // takes `dataset` alone. Dropped rather than renamed:
+                // there is nothing to rename it to. An unknown query
+                // parameter is a 400 as of `e800aa7874`, which would
+                // turn a working download into a failed one.
+                href={`/rest/v2/datasets/${experimentId}/sample-correlation`}
                 className="text-blue-700 dark:text-blue-300 hover:underline"
                 download
                 title="raw matrix as TSV"

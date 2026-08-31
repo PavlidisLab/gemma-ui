@@ -771,9 +771,19 @@ export function useMyTickets(
       light ? "light" : "full",
     ],
     queryFn: async () => {
+      // 🛑 `include_targets` is a STORE parameter and Gemma has no
+      // equivalent — `/tickets` declares openOnly, assignee, priority,
+      // type, state, targetType, updatedSince, offset, limit, cursor,
+      // and nothing that omits targets. It was being sent to Gemma and
+      // silently dropped, so remote paid 92 KB of the targets it asked
+      // not to get. As of `e800aa7874` an unknown parameter is a 400,
+      // so sending it there stops being wasteful and starts being
+      // broken (gembro, 2026-08-31 — this exact call was the one bad
+      // parameter in 5,556 live requests).
+      const useLight = light && resolveGemmaMode().mode === "local";
       const raw = asTicketList(
         await api.get<unknown>(
-          light
+          useLight
             ? `${ticketsBase()}/tickets?include_targets=false`
             : `${ticketsBase()}/tickets`,
         ),
@@ -817,10 +827,24 @@ export function experimentTicketsQueryOptions(experimentId: number | string) {
   return {
     queryKey: ["tickets", "by-experiment", experimentId] as const,
     queryFn: async () => {
+      // 🛑 `target_id` / `target_type` / `include_targets` are STORE
+      // parameters. Gemma's `/tickets` declares `targetType` and no
+      // target-id filter at all, so all three were dropped and the
+      // remote call returned EVERY ticket rather than this
+      // experiment's — and after `e800aa7874` it is a 400.
+      //
+      // Gemma's own form is the per-dataset route,
+      // `GET /datasets/{id}/tickets` ("Retrieve the open curation
+      // tickets for a dataset"). It resolves membership server-side, so
+      // it still finds an experiment buried inside a 500-target ticket
+      // — verified on 27103, which returns ticket 6.
+      const remote = resolveGemmaMode().mode === "remote";
       const all = asTicketList(
         await api.get<unknown>(
-          `${ticketsBase()}/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
-            `&target_type=EXPRESSION_EXPERIMENT&include_targets=false`,
+          remote
+            ? `/rest/v2/datasets/${encodeURIComponent(String(experimentId))}/tickets`
+            : `${ticketsBase()}/tickets?target_id=${encodeURIComponent(String(experimentId))}` +
+                `&target_type=EXPRESSION_EXPERIMENT&include_targets=false`,
         ),
       );
       return all;
