@@ -1,5 +1,6 @@
 import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
 import { useActiveBaselineSource } from "@/features/comparison/useActiveBaselineSource";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMe } from "@/api/session";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { PreboardingDetailPage } from "@/features/preboarding/PreboardingDetailPage";
@@ -130,6 +131,19 @@ function useRoute(): Route {
 export default function App() {
   const route = useRoute();
   const { data: me, isLoading: meLoading, error: meError } = useMe();
+  const qc = useQueryClient();
+
+  // A 401 anywhere means the session went. `useMe` will not notice on
+  // its own (see its lockdown), so the transport tells us and we
+  // re-ask — which drops to `LoginPage` below rather than leaving a
+  // signed-out curator looking at a UI that still says their name.
+  useEffect(() => {
+    const onExpired = () => {
+      void qc.invalidateQueries({ queryKey: ["me"] });
+    };
+    window.addEventListener("gca:session-expired", onExpired);
+    return () => window.removeEventListener("gca:session-expired", onExpired);
+  }, [qc]);
 
   if (meLoading) {
     return <PageMask label="loading session…" />;

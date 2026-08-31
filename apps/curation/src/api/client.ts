@@ -220,6 +220,28 @@ async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
+    // 🛑 A 401 means the SESSION went, not that this call was wrong.
+    //
+    // `useMe` is deliberately locked down — 5-minute staleTime, no
+    // refetch on focus / mount / reconnect — because re-asking on every
+    // window transition floods gemma-rest with AccessDeniedException
+    // traces. The cost is that an expiry mid-session is invisible: the
+    // app keeps rendering as though signed in, and every request fails
+    // on its own with an error that reads like a broken feature.
+    // Paul, 2026-08-31: *"it's hard to tell when I am logged out."*
+    //
+    // So the transport says so once, and the app re-checks `me` and
+    // falls to the login page. Fired as an event rather than touching
+    // the query cache here: this module is below React and must not
+    // import a client.
+    //
+    // 🛑 401 ONLY, never 403. A 403 from Gemma is usually an ACL gap on
+    // a child entity — 1,920 FactorValues on prod have no OI row, and
+    // an admin is refused too. Signing a curator out over one would be
+    // wrong and would hide the real message.
+    if (r.status === 401 && typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("gca:session-expired"));
+    }
     const { detail, body: errorBody } = await readErrorBody(r);
     throw new ApiError(
       `${method} ${path} failed: ${r.status} ${r.statusText}${
