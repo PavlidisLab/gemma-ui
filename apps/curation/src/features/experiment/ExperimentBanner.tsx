@@ -22,11 +22,7 @@ import {
 } from "@/api/datasets";
 import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
-import {
-  browserExperimentPageUrl,
-  experimentPageUrl,
-  platformPageUrl,
-} from "@/lib/gemmaUrls";
+import { platformPageUrl } from "@/lib/gemmaUrls";
 import {
   inferModality,
   modalityLabel,
@@ -95,9 +91,6 @@ export function ExperimentBanner({
   originalPlatform,
   originalPlatformShortName,
   originalPlatformId,
-  loadedAt,
-  loadedBy,
-  externalSource,
   activeTab,
   onTabChange,
   notesOpen,
@@ -127,11 +120,6 @@ export function ExperimentBanner({
   originalPlatform: string;
   originalPlatformShortName: string;
   originalPlatformId: number | null;
-  loadedAt: string;
-  loadedBy: string;
-  /** Where the dataset came from — GEO, CELLxGENE, ArrayExpress,
-   *  etc. ``null`` for direct uploads. */
-  externalSource: ExternalSource | null;
   activeTab: TabId;
   onTabChange: (id: TabId) => void;
   notesOpen: boolean;
@@ -156,15 +144,6 @@ export function ExperimentBanner({
    *  same composition the ``commitBar`` slot uses. */
   comparisonStrip?: ReactNode;
 }) {
-  const sourceLink = externalSourceLink(externalSource);
-  // ``experimentPageUrl`` reads ``VITE_GEMMA_WEB_URL`` so a staging
-  // / preview build (pointed at a different Gemma deployment) just
-  // sets the env var; no prop plumbing.
-  // Both front-ends. Gemma 2.0 leads because it is the one being
-  // built; 1.0 stays alongside it "for now" (Paul, 2026-08-25) —
-  // some detail pages exist nowhere else yet.
-  const gemma1Url = experimentPageUrl(experimentId);
-  const gemma2Url = browserExperimentPageUrl(experimentId);
 
   return (
     <section className="bg-white border-b border-slate-200">
@@ -204,83 +183,19 @@ export function ExperimentBanner({
               originalPlatformShortName={originalPlatformShortName}
               originalPlatformId={originalPlatformId}
             />
-            {externalSource ? (
-              sourceLink ? (
-                <a
-                  href={sourceLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-700 hover:underline"
-                  title={`source: ${externalSource.database} ${externalSource.accession}`}
-                >
-                  {/* Just the database name. The accession was printed
-                      here too, which made it the THIRD copy on screen —
-                      the pinned header says "Curating GSE33744", the
-                      title row repeats it, and this link said it again
-                      (Paul, 2026-08-16: "reduce the repetition"). What
-                      the link adds is WHERE it goes, not which record;
-                      the tooltip still spells the accession out. */}
-                  {externalSource.database} ↗
-                </a>
-              ) : (
-                <span title="external source recorded but no canonical URL available">
-                  source: {externalSource.database} {externalSource.accession}
-                </span>
-              )
-            ) : (
-              <span
-                className="italic text-slate-500"
-                title="dataset not imported from an external database (direct upload)"
-              >
-                direct upload
-              </span>
-            )}
-            {/* Two Gemma front-ends, and the label says which — the
-                browser app learned that "view on Gemma" tells nobody
-                where they are about to land, and there are now two
-                places that phrase could mean. */}
-            <a
-              href={gemma2Url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
-              title="open this experiment in the Gemma 2.0 browser"
-            >
-              Gemma 2.0 ↗
-            </a>
-            <a
-              href={gemma1Url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
-              title="open this experiment in the Gemma 1.0 webapp"
-            >
-              Gemma 1.0 ↗
-            </a>
-            {/* Compact "Loaded …" pill. The raw loadedAt string from
-                Gemma's REST is an ISO with microseconds + timezone
-                (e.g. "2026-04-16 07:32:35.224000+00:00") — render
-                the date short, full datetime in the title tooltip.
-                Suppress the "by …" tail when loadedBy is empty
-                (most imports don't carry a loader name). */}
-            {loadedAt ? (
-              <span
-                className="text-slate-500"
-                title={
-                  loadedAt + (loadedBy ? ` · by ${loadedBy}` : "")
-                }
-              >
-                loaded {formatLoadedAt(loadedAt)}
-                {loadedBy ? (
-                  <>
-                    {" by "}
-                    <span className="font-medium text-slate-700">
-                      {loadedBy}
-                    </span>
-                  </>
-                ) : null}
-              </span>
-            ) : null}
+            {/* 🛑 The source link, both Gemma front-ends and the load
+                date left this line on 2026-08-31 for a "Source & links"
+                card above Publications on the Overview
+                (`overview/SourceLinksCard.tsx`). The row carries
+                identity facts, the comparison strip AND the action
+                cluster, and those six items were what made it reflow at
+                ordinary widths (Paul: "this line of stuff is too packed,
+                it flips out too easily").
+
+                What stays is what is read at a glance — taxon, sample
+                count, platform. Link-outs are consulted deliberately, so
+                a card costs nothing and buys the row back. Do not move
+                them back here without moving something else out. */}
 
             {/* The comparison strip and the action cluster ride the
                 META line rather than claiming rows of their own.
@@ -1450,7 +1365,7 @@ export function formatLoadedAt(iso: string): string {
  * Returns ``null`` for unknown databases without a stored URI — we
  * show the accession as text rather than guess a URL.
  */
-function externalSourceLink(src: ExternalSource | null): string | null {
+export function externalSourceLink(src: ExternalSource | null): string | null {
   if (!src) return null;
   if (src.uri) return src.uri;
   const acc = src.accession.trim();

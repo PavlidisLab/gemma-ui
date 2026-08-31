@@ -619,7 +619,6 @@ function Shell({
     );
   }
 
-  const externalSource = draft?.external_source ?? null;
   const shortName = draft?.experiment_short_name ?? `experiment ${experimentId}`;
 
   // "Thin" experiment — imported as a numeric-id shell with NO
@@ -741,9 +740,6 @@ function Shell({
         originalPlatform={draft?.original_platform ?? ""}
         originalPlatformShortName={draft?.original_platform_short_name ?? ""}
         originalPlatformId={draft?.original_platform_id ?? null}
-        loadedAt={draft?.loaded_at ?? ""}
-        loadedBy={draft?.loaded_by ?? ""}
-        externalSource={externalSource}
         activeTab={activeTab}
         groupContext={groupContext}
         ticketContext={ticketContext}

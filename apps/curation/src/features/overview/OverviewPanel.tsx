@@ -13,6 +13,7 @@ import { platformPageUrl } from "@/lib/gemmaUrls";
 import { constantGeoFields, sourceFieldLabel, useSourceMetadata } from "@/api/sourceMetadata";
 import { descriptionWithoutGeoRecordBlock, overallDesignFromDescription } from "./geoRecordBlock";
 import { FindPublicationButton } from "./FindPublicationButton";
+import { SourceLinksCard } from "./SourceLinksCard";
 import { KV, SummaryCard } from "./SummaryCard";
 import { DesignSummary } from "./DesignSummary";
 import { TagBar } from "./TagBar";
@@ -295,10 +296,12 @@ export function OverviewPanel() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         {/* Identity card removed 2026-04-30 — short_name + source +
-            external link already render in the ExperimentBanner at the
-            top of the page; experiment_id is internal plumbing
-            curators rarely need. The short_name is still curator-
-            editable inline on the banner. */}
+            external link all rendered in the ExperimentBanner then;
+            experiment_id is internal plumbing curators rarely need. The
+            short_name is still curator-editable inline on the banner.
+            The source and the outbound links came BACK to this panel on
+            2026-08-31, as `SourceLinksCard` below — the banner row they
+            were on had run out of width. */}
 
         <SummaryCard label="Subject + assay">
           <KV k="taxon" v={meta?.taxon || "—"} />
@@ -409,6 +412,13 @@ export function OverviewPanel() {
             of the DesignSummary card below where they're actually
             used (the curator is reading the design crosstab; "165
             samples · 1 factor / 6 FVs · 3 tags" belongs there). */}
+
+        {/* Above Publications on purpose: that card carries the other
+            outbound row ("find on PubMed: by accession / by title"), so
+            the two halves of "go look this up elsewhere" sit together.
+            These items came off the banner's meta line, which was
+            reflowing under them. */}
+        <SourceLinksCard design={meta ?? null} />
 
         <SummaryCard label="Publications">
           {(meta?.publications?.length ?? 0) === 0 ? (
