@@ -24,18 +24,25 @@ import { api, ApiError } from "./client";
  *            (`Astrocytes`, `OPCs`, `Dividing Cells`), every
  *            `valueUri` null
  *
- * 🛑 **An absent assignment is NOT evidence that the authors wrote the
- * labels.** It is the absence of a record, and those are different
- * claims — Gemma has no "submitter-supplied" marker to read. So this
- * reports what the assignment says when there is one and says plainly
- * that there is none when there is not; it must never resolve the
- * second case into an authorship claim, and "no URI, therefore the
- * authors" is exactly the inference to refuse. Asked of gembro
- * 2026-08-31; until it is answered the honest surface is a gap, not a
- * guess.
+ * 🛑 **An absent assignment is still NOT evidence that the authors
+ * wrote the labels.** It is the absence of a record, and those are
+ * different claims. 51 single-cell experiments are in exactly that
+ * state — subsets carrying cell-type characteristics with zero
+ * assignment behind them (gembro, from the database, 2026-08-31) — and
+ * nobody has established whether the assignment was deleted or never
+ * made. "No URI, therefore the authors" is the inference to keep
+ * refusing.
  *
- * `protocol` is null on every assignment seen so far, so it is carried
- * but not relied on.
+ * 🛑 **`protocol` is on the wire and always null — read `name`.** The
+ * data is in `ANALYSIS.PROTOCOL_FK`; `AnalysisValueObject` populates
+ * the field only for an initialized proxy, and the route builds the VO
+ * outside the service transaction, so a LAZY `@ManyToOne` is silently
+ * dropped. gembro has flagged it and not fixed it. When it lands,
+ * `assignmentOrigin` should read `protocol` and this name-matching
+ * should go — the protocol is a controlled vocabulary and the name is a
+ * display string nobody promised to keep. The two do not even agree in
+ * form (`author-submitted` vs `Author-submitted annotations`), so never
+ * match one against the other.
  *
  * Gemma-only in both modes (the store serves no such route), like
  * `subsets.ts` and `sourceMetadata.ts`.
@@ -102,4 +109,30 @@ export function useCellTypeAssignment(
  *  URI" turns into "the authors wrote it". */
 export function groundedCount(a: CellTypeAssignment): number {
   return (a.cell_types ?? []).filter((c) => !!c.value_uri).length;
+}
+
+/** Who made the assignment, in the terms a curator asked in — "our
+ *  pipeline, or the authors of the study?" (Paul, 2026-08-31).
+ *
+ *  🛑 **This matches on a DISPLAY NAME and that is a stopgap.** The real
+ *  field is the assignment's protocol, a controlled vocabulary of 949
+ *  rows on prod — `sc-pipeline-2.0.0` (565), `author-submitted` (223),
+ *  `sc-pipeline-1.1.2` (75), `sc-pipeline-2.0.0dev` (42),
+ *  `sc-pipeline-1.2.0` (22), `sc-pipeline-1.1.1` (12), none (10) — but
+ *  it never reaches the wire (see above). Names measured:
+ *
+ *      44580  "sc-pipeline-2.0.0-family"     -> pipeline
+ *      66278  "Author-submitted annotations"  -> authors
+ *
+ *  Anything it cannot place returns `unknown` and the caller shows the
+ *  raw name. Guessing wrong about provenance is worse than declining
+ *  to guess, so the fallback is deliberately not "probably ours". */
+export type AssignmentOrigin = "authors" | "pipeline" | "unknown";
+
+export function assignmentOrigin(name: string | null | undefined): AssignmentOrigin {
+  const n = (name ?? "").trim().toLowerCase();
+  if (!n) return "unknown";
+  if (n.includes("author")) return "authors";
+  if (n.includes("sc-pipeline") || n.includes("pipeline")) return "pipeline";
+  return "unknown";
 }

@@ -4,6 +4,7 @@ import { Term } from "@/components/ui/Term";
 import type { Tag } from "@/features/experiment/types";
 import { useDatasetSubsets, type DistinctSubset } from "@/api/subsets";
 import {
+  assignmentOrigin,
   groundedCount,
   useCellTypeAssignment,
   type CellTypeAssignmentResult,
@@ -285,9 +286,21 @@ function AssignedBy({
   const a = result.assignment;
   const total = (a.cell_types ?? []).length;
   const grounded = groundedCount(a);
+  const origin = assignmentOrigin(a.name);
+  // The question was "our pipeline, or the authors of the study?" — so
+  // answer in those words and show the name it was read from, rather
+  // than making a curator decode `sc-pipeline-2.0.0-family`.
+  const who =
+    origin === "authors"
+      ? "the study's authors"
+      : origin === "pipeline"
+        ? "our single-cell pipeline"
+        : null;
   return (
     <div className="text-[11px] leading-relaxed rounded border border-slate-200 bg-slate-50 px-2 py-1.5 text-slate-700 dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
       <span className="font-semibold">Assigned by</span>{" "}
+      {who ? <span className="font-semibold">{who}</span> : null}
+      {who ? " — " : ""}
       <span className="font-mono">{a.name || "(unnamed assignment)"}</span>
       {a.preferred ? " · preferred" : ""}
       {typeof a.number_of_assigned_cells === "number"
