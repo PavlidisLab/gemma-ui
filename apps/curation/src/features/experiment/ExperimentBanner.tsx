@@ -1412,12 +1412,25 @@ function groupTypeChipCls(type: GroupType): string {
  * Date" in the banner. Full timestamp with microseconds rides in
  * the parent's ``title`` tooltip.
  */
-function formatLoadedAt(iso: string): string {
+/** The load date, with a YEAR on anything that is not this year.
+ *
+ *  🛑 Without it a 2009 load reads as recent, and can read as
+ *  YESTERDAY: `2009-08-29T20:13:35Z` rendered as "loaded Aug 29,
+ *  01:13 PM" on 2026-08-30 (Paul). The full timestamp was already one
+ *  hover away, which is exactly the wrong place for the fact that
+ *  changes what the line means.
+ *
+ *  Kept off the current year so the common case stays short — a
+ *  dataset loaded this year is the one a curator reads as recent
+ *  without being told. Everything older says so on its face. */
+export function formatLoadedAt(iso: string): string {
   if (!iso) return "";
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleString([], {
+      year:
+        d.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
       month: "short",
       day: "numeric",
       hour: "2-digit",

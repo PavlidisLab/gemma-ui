@@ -10,7 +10,7 @@ import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { extractPaperMeta, pmidFromPaperSource } from "@/features/proposal/paperEvidence";
 import { isPaperDismissed, markPaperDismissed } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
-import { constantGeoFields, geoFieldLabel, useSourceMetadata } from "@/api/sourceMetadata";
+import { constantGeoFields, sourceFieldLabel, useSourceMetadata } from "@/api/sourceMetadata";
 import { descriptionWithoutGeoRecordBlock, overallDesignFromDescription } from "./geoRecordBlock";
 import { FindPublicationButton } from "./FindPublicationButton";
 import { KV, SummaryCard } from "./SummaryCard";
@@ -326,8 +326,21 @@ export function OverviewPanel() {
           ) : null}
           <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
           {(() => {
+            // 🛑 Whose words these are, read from the record rather than
+            // assumed. Gemma models the origin as
+            // `externalSource {database, accession, uri}` and datasets
+            // arrive from more than one — CELLxGENE among them (Paul,
+            // 2026-08-31: "we might have different fields from different
+            // providers; retain some flexibility"). Every one of the 100
+            // datasets sampled on gemma2 today says `GEO`, which is why
+            // that is the fallback and not why it should be the literal.
+            const provider = meta?.external_source?.database?.trim() || "GEO";
             const rows: Array<{ label: string; text: string }> = [];
-            if (overallDesign) rows.push({ label: "design (GEO)", text: overallDesign });
+            if (overallDesign)
+              rows.push({
+                label: sourceFieldLabel("design", provider),
+                text: overallDesign,
+              });
             rows.push(
               ...orderGeoFields(
                 // 🛑 `meta.biomaterials` does not exist — `DatasetMeta`
@@ -347,7 +360,10 @@ export function OverviewPanel() {
                     (b) => b.accession || b.short_name,
                   ),
                 ),
-              ).map(({ key, text }) => ({ label: geoFieldLabel(key), text })),
+              ).map(({ key, text }) => ({
+                label: sourceFieldLabel(key, provider),
+                text,
+              })),
             );
             return rows.map(({ label, text }) => {
               const oneLine = text.replace(/\s+/g, " ").trim();
@@ -376,7 +392,7 @@ export function OverviewPanel() {
                         {oneLine.slice(0, 72)}
                         {oneLine.length > 72 ? "…" : ""}
                         <span className="ml-1 text-[10px] italic text-slate-400">
-                          from GEO — hover
+                          from {provider} — hover
                         </span>
                       </span>
                     </Tooltip>
