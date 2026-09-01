@@ -342,11 +342,11 @@ function AnnotationFileCard({ platform: p }: { platform: Platform }) {
       <div className="text-[11px] text-gemma-subtle">
         One row per element: <span className="font-mono">ElementName</span>,{" "}
         <span className="font-mono">GeneSymbols</span>,{" "}
+        <span className="font-mono">GeneNames</span>,{" "}
         <span className="font-mono">GOTerms</span>,{" "}
         <span className="font-mono">GemmaIDs</span>,{" "}
-        <span className="font-mono">NCBIids</span>. Older files say{" "}
-        <span className="font-mono">ProbeName</span> for{" "}
-        <span className="font-mono">ElementName</span>.
+        <span className="font-mono">NCBIids</span>,{" "}
+        <span className="font-mono">EnsemblIds</span>.
       </div>
     </section>
   );

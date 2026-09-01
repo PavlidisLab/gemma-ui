@@ -1112,9 +1112,27 @@ export function datasetDataDownloadUrl(
 
 /**
  * URL for a platform's annotation file — the element → gene mapping
- * Gemma publishes per platform. Columns: `ElementName`, `GeneSymbols`,
- * `GOTerms`, `GemmaIDs`, `NCBIids` (older files say `ProbeName` for
- * `ElementName`).
+ * Gemma publishes per platform.
+ *
+ * Columns, read off the files themselves (GPL96, GPL890,
+ * Generic_human_ncbiIds — identical header on all three, 2026-09-01):
+ *
+ *     ElementName  GeneSymbols  GeneNames  GOTerms  GemmaIDs
+ *     NCBIids      EnsemblIds
+ *
+ * 🛑 **The OpenAPI description of this route is stale** — it lists five
+ * of those seven, omitting `GeneNames` and `EnsemblIds`, and adds "older
+ * files might still use ProbeName instead of ElementName". Every file
+ * checked says `ElementName`; `ProbeName` was not observed anywhere, so
+ * it is the spec's claim and not a measurement. Repeating the spec's
+ * list in the card was how a wrong column set and an unverified caveat
+ * reached the UI (`88e4877`, fixed here). If the column set needs
+ * confirming again, read a file — not the description.
+ *
+ * The files are generated on demand: two of the platforms probed on
+ * 2026-09-01 came back stamped with that minute's timestamp, having
+ * previously 404'd, so a first request builds the file. Which also means
+ * the SEQUENCING 404 below is a real "cannot", not a "not yet".
  *
  * A plain `<a href>` is all this needs, and unlike `/resultSets/{id}`
  * there is no content-negotiation trap to dodge: the route produces
