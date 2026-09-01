@@ -100,11 +100,15 @@ describe("buildCurationDocument", () => {
     expect(proposed[0].clientRef).toBeTruthy();
   });
 
-  it("🛑 never asks Gemma to delete anything", () => {
+  it("🛑 asks Gemma to delete nothing when handed no removals", () => {
     // An absent `deletedIds` removes nothing. A missed deletion is
-    // visible and fixable; an unintended one is neither.
+    // visible and fixable; an unintended one is neither — so a caller
+    // with no tombstones in hand still gets the safe document.
     expect(doc.design?.factors?.deletedIds).toBeUndefined();
     expect(doc.tags?.deletedIds).toBeUndefined();
+    expect(
+      doc.design?.factors?.items?.[0].factorValues?.deletedIds,
+    ).toBeUndefined();
   });
 
   it("🛑 skips inferred tags — Gemma derives those", () => {
@@ -139,5 +143,52 @@ describe("buildCurationDocument", () => {
         baselineLastModified: "2026-08-29T15:49:07Z",
       }).baseline,
     ).toEqual({ lastModified: "2026-08-29T15:49:07Z" });
+  });
+});
+
+describe("buildCurationDocument, handed removals", () => {
+  const doc = buildCurationDocument(DESIGN, REMOTE, {
+    factorIds: [8715],
+    factorValues: [{ factorId: 11727, valueIds: [77276, -1001] }],
+    statements: [{ valueId: 77276, statementIds: [30045176] }],
+    tagIds: [42],
+  });
+  const factor = doc.design?.factors?.items?.[0];
+
+  it("names deleted factors at the design level", () => {
+    expect(doc.design?.factors?.deletedIds).toEqual([8715]);
+  });
+
+  it("names deleted values under the factor that keeps them", () => {
+    // Keyed on `gemma_factor_id ?? id` — the same id the item carries.
+    expect(factor?.gemmaId).toBe(11727);
+    expect(factor?.factorValues?.deletedIds).toEqual([77276]);
+  });
+
+  it("🛑 drops the id Gemma never issued", () => {
+    // -1001 is an agent-proposed value: it was never sent, so there is
+    // nothing on the far side to delete and naming it is a guess.
+    expect(factor?.factorValues?.deletedIds).not.toContain(-1001);
+  });
+
+  it("names deleted statements under the value that keeps them", () => {
+    const fv = factor?.factorValues?.items?.[0];
+    expect(fv?.gemmaId).toBe(77276);
+    expect(fv?.statements?.deletedIds).toEqual([30045176]);
+  });
+
+  it("names deleted tags", () => {
+    expect(doc.tags?.deletedIds).toEqual([42]);
+  });
+
+  it("🛑 emits no key at all for a section with nothing to delete", () => {
+    // An empty array is the same instruction spelled louder. Emitting
+    // one would put a delete section on every commit.
+    const none = buildCurationDocument(DESIGN, REMOTE, {
+      factorIds: [-5],
+      tagIds: [],
+    });
+    expect(none.design?.factors?.deletedIds).toBeUndefined();
+    expect(none.tags?.deletedIds).toBeUndefined();
   });
 });

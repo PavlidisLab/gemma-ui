@@ -267,6 +267,52 @@ function term(t: { label?: string; uri?: string | null } | null | undefined):
   return { ...(label ? { label } : {}), ...(uri ? { uri } : {}) };
 }
 
+/**
+ * What the curator deleted, as ids Gemma issued.
+ *
+ * Structural for the same reason as {@link CommittableDesign} — the
+ * commit contract does not depend on the editor's types. Build it with
+ * `removalsFromDiff` in `features/design/removals.ts`, which is where
+ * the `DesignDiff` that knows these ids lives.
+ *
+ * 🛑 **A statement id is shared by the PAIRS of one statement.** Two
+ * rows carrying the same `gemma_id` are two pairs of a single Gemma
+ * statement, so removing one pair and keeping the other is an UPDATE of
+ * that statement, not a deletion. Only an id whose every pair is gone
+ * belongs here; `removalsFromDiff` enforces that, and a caller building
+ * this by hand must too. See `reference_statement_max_two_pairs`.
+ */
+export interface CommittableRemovals {
+  /** Factors deleted outright. Their values go with them — do not also
+   *  list those under {@link factorValues}. */
+  factorIds?: number[];
+  /** Values deleted from a factor that SURVIVES, keyed by the id the
+   *  design gives that factor (`gemma_factor_id ?? id`). */
+  factorValues?: Array<{ factorId: number; valueIds: number[] }>;
+  /** Statements deleted from a value that SURVIVES, keyed by the
+   *  value's id. */
+  statements?: Array<{ valueId: number; statementIds: number[] }>;
+  /** Experiment-level tags deleted. */
+  tagIds?: number[];
+}
+
+/** Ids Gemma issued, in the order given, with anything it did not
+ *  issue dropped. In remote mode a non-positive id is an agent-proposed
+ *  row that was never sent, so there is nothing on the far side to
+ *  delete and naming it would be a guess. */
+function gemmaIds(ids: number[] | undefined): number[] {
+  return (ids ?? []).filter((id) => typeof id === "number" && id > 0);
+}
+
+/** A `deletedIds` key, or nothing at all. An absent key removes
+ *  nothing; an empty array is the same instruction spelled louder, and
+ *  emitting one would put a delete section on every commit that has no
+ *  deletions in it. */
+function deletion(ids: number[] | undefined): { deletedIds?: number[] } {
+  const kept = gemmaIds(ids);
+  return kept.length ? { deletedIds: kept } : {};
+}
+
 /** Minimal shape this builder reads. Declared structurally rather than
  *  importing `Design` so the commit contract does not acquire a
  *  dependency on the whole editor's type surface. */
@@ -305,13 +351,24 @@ export interface CommittableDesign {
 /**
  * Build the commit document for a design that was seeded from Gemma.
  *
- * 🛑 **Nothing is ever DELETED.** `deletedIds` is deliberately not
- * populated: an absent `deletedIds` removes nothing, so this document
- * can add and update but cannot drop a factor, value or tag. A
- * curator's deletion therefore does NOT reach Gemma yet, which is the
- * safe half of the asymmetry to ship first — a missed deletion is
- * visible and fixable, an unintended one is neither. Wiring deletion
- * needs a tombstone list the editor does not currently hand us.
+ * 🛑 **Deletions travel in `removals`, NOT in the design.** The design
+ * argument is what the curator has now, so something they deleted is
+ * simply absent from it, and absent means "unchanged" to Gemma, not
+ * "remove this". The tombstones are a separate argument because they
+ * are separate information — `DesignDiff` is the only thing that knows
+ * an id used to be there. `removalsFromDiff` converts one to the other.
+ *
+ * 🛑 **Omitting `removals` keeps the old behaviour exactly**: no
+ * `deletedIds` key is emitted and the document removes nothing. That
+ * is still the right call for any caller that has no diff in hand — a
+ * missed deletion is visible and fixable, an unintended one is neither.
+ *
+ * 🛑 **Only ids Gemma issued are ever named.** In remote mode a
+ * positive id came from Gemma and a negative one was minted for an
+ * agent-proposed row (`composeDesign.ts`), so a negative id has nothing
+ * to delete and is dropped rather than sent. The builder throws in
+ * local mode, where ids are small positive locals and the sign carries
+ * no such meaning.
  *
  * 🛑 **Inferred tags are skipped.** They are projections of a sample
  * characteristic or an FV statement, not rows of their own, and Gemma
@@ -321,6 +378,7 @@ export interface CommittableDesign {
 export function buildCurationDocument(
   design: CommittableDesign,
   opts: { mode: "local" | "remote"; baselineLastModified?: string },
+  removals?: CommittableRemovals,
 ): CurationDocument {
   if (opts.mode !== "remote") {
     throw new Error(LOCAL_DESIGN_NOT_COMMITTABLE);
@@ -335,6 +393,11 @@ export function buildCurationDocument(
     ...(f.type ? { type: f.type } : {}),
     ...(term(f.category) ? { category: term(f.category) } : {}),
     factorValues: {
+      ...deletion(
+        (removals?.factorValues ?? []).find(
+          (r) => r.factorId === (f.gemma_factor_id ?? f.id),
+        )?.valueIds,
+      ),
       items: (f.factor_values ?? []).map((v) => ({
         ...commitTarget(v.id, "fv"),
         ...(v.free_text_label ? { freeTextLabel: v.free_text_label } : {}),
@@ -343,6 +406,10 @@ export function buildCurationDocument(
           ? { biomaterialShortNames: v.biomaterial_short_names }
           : {}),
         statements: {
+          ...deletion(
+            (removals?.statements ?? []).find((r) => r.valueId === v.id)
+              ?.statementIds,
+          ),
           items: (v.statements ?? []).map((st) => ({
             ...commitTarget(st.gemma_id, "stmt"),
             ...(term(st.category) ? { category: term(st.category) } : {}),
@@ -354,6 +421,15 @@ export function buildCurationDocument(
       })),
     },
   }));
+  // 🛑 **The sign rule does not hold for tags, and this is where it
+  // shows.** A tag the curator adds is given `max(existing id) + 1`
+  // (`mutations.ts::nextTagId`), so in remote mode a NEW tag carries a
+  // positive id one past a real Gemma id — and `commitTarget` reads any
+  // positive id as "update this". Deletions are unaffected: a tag can
+  // only be deleted if it was in the saved design, so its id came from
+  // Gemma. Creation is the exposed half, and fixing it means minting
+  // negative ids for new tags the way `composeDesign.ts` does for
+  // proposed rows — a change to the editor, not to this builder.
   const tags: TagCommit[] = (design.tags ?? [])
     .filter((t) => !t.inferred)
     .map((t) => ({
@@ -366,7 +442,7 @@ export function buildCurationDocument(
       ? { baseline: { lastModified: opts.baselineLastModified } }
       : {}),
     design: {
-      factors: { items: factors },
+      factors: { ...deletion(removals?.factorIds), items: factors },
       ...(typeof design.should_split_on_factor_id === "number"
         ? { shouldSplitOnFactorId: design.should_split_on_factor_id }
         : {}),
@@ -374,6 +450,6 @@ export function buildCurationDocument(
         ? { shouldSplitRationale: design.should_split_rationale }
         : {}),
     },
-    tags: { items: tags },
+    tags: { ...deletion(removals?.tagIds), items: tags },
   };
 }
