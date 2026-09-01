@@ -692,10 +692,11 @@ function ExperimentSetChips({
             (s.description ? ` — ${s.description}` : "")
           }
         >
+          {/* Name only. The member count was on the chip and is not
+              what the chip is for — the fact worth seeing at a glance is
+              WHICH set, and the size is one hover away in the tooltip
+              (Paul, 2026-08-31). */}
           {s.name || `set ${s.id}`}
-          {typeof s.size === "number" ? (
-            <span className="ml-1 opacity-70">{s.size}</span>
-          ) : null}
         </span>
       ))}
     </span>

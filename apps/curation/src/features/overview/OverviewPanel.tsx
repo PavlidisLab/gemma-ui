@@ -294,7 +294,18 @@ export function OverviewPanel() {
         />
       </article>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* The design sits directly under the description, above the
+          reference cards (Paul, 2026-08-31). It is the thing being
+          curated; source links, GEO fields and publications are what you
+          consult ABOUT it. It was below them because the cards grew
+          around it, not because anything wanted it there. */}
+      <DesignSummary
+        factors={draft.factors}
+        biomaterials={draft.biomaterials}
+        nTags={draft.tags.length}
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
         {/* Identity card removed 2026-04-30 — short_name + source +
             external link all rendered in the ExperimentBanner then;
             experiment_id is internal plumbing curators rarely need. The
@@ -327,7 +338,6 @@ export function OverviewPanel() {
               mono
             />
           ) : null}
-          <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
           {(() => {
             // 🛑 Whose words these are, read from the record rather than
             // assumed. Gemma models the origin as
@@ -418,6 +428,7 @@ export function OverviewPanel() {
             the two halves of "go look this up elsewhere" sit together.
             These items came off the banner's meta line, which was
             reflowing under them. */}
+        <div className="space-y-3">
         <SourceLinksCard design={meta ?? null} />
 
         <SummaryCard label="Publications">
@@ -513,13 +524,8 @@ export function OverviewPanel() {
             title={meta?.title ?? ""}
           />
         </SummaryCard>
+        </div>
       </div>
-
-      <DesignSummary
-        factors={draft.factors}
-        biomaterials={draft.biomaterials}
-        nTags={draft.tags.length}
-      />
     </div>
   );
 }
@@ -700,23 +706,6 @@ function renderPlatform(
   );
 }
 
-
-function formatTimestamp(iso: string | undefined): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString([], {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 const GUIDELINE_TOPICS: { label: string; snippet: GuidelineSnippet }[] = [
   { label: "ontologies", snippet: ONTOLOGY_GUIDELINE },
