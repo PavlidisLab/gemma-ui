@@ -266,6 +266,17 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
       // experiment in Gemma — `useDatasetSearch` sends `query=` to the
       // server — because a curator has to be able to find a dataset
       // that is not in curation yet in order to put it on a ticket.
+      //
+      // 🛑 **Do not add `curationDetails.troubled` to this filter.** A
+      // handoff warns that `AbstractCuratableDao` hides troubled rows
+      // unless a caller names that field, so the 4 troubled datasets
+      // would be missing here. Measured against gemma2 `16dfb28512ce`
+      // and it does not hold: `filter=id in (4071,4080,4738,25717)`
+      // names nothing about troubled and returns all four, and a walk
+      // of all eight pages of the query below finds 4071 and 25717
+      // among the 712. The other two have `needsAttention` false and no
+      // open ticket, so they are not in curation at all. Widening the
+      // filter would pull them in.
       const scope = remote ? "&filter=" + encodeURIComponent("inCuration = true") : "";
       const maxRows = remote ? REMOTE_CATALOGUE_CAP : Infinity;
       const raw: WorkflowDatasetListResponse["data"] = [];
