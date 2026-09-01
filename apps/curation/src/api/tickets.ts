@@ -927,6 +927,33 @@ export function useMyScratchpad() {
  *  this work before the route deploys.
  *
  *  Exported for test. */
+/** Can this ticket be closed at all?
+ *
+ *  🛑 **A scratchpad is permanent** (Paul, 2026-09-01: "we shouldn't be
+ *  allowed to close the scratchpad"). Finishing with a dataset means
+ *  REMOVING it from the ticket, not resolving the ticket — the pile
+ *  itself is the curator's workspace, and one who closed theirs would
+ *  have nowhere to put the next thing and no obvious way back.
+ *
+ *  🛑 **ONE gate, used by every close affordance.** There are four:
+ *  `NextActionBar` and `TicketActionsBar` on the detail page, the
+ *  dashboard row's Close, and the audit sidebar's offer-to-close. The
+ *  first pass gated them one at a time and missed the second — Paul
+ *  found it next to Export within the hour. Anything that can set
+ *  `state: RESOLVED` asks this, and a new close button that forgets to
+ *  is the bug this exists to prevent. */
+export function canCloseTicket(ticket: Pick<Ticket, "type">): boolean {
+  return ticket.type !== "SCRATCHPAD";
+}
+
+/** Why the close is unavailable, for the disabled control's tooltip.
+ *  Empty when it IS available — a curator should never see a reason
+ *  for something that is not blocked. */
+export function closeBlockedReason(ticket: Pick<Ticket, "type">): string {
+  if (canCloseTicket(ticket)) return "";
+  return "A scratchpad stays open. Finish with a dataset by removing it from the ticket, not by closing the ticket.";
+}
+
 export function pinScratchpadFirst(
   tickets: Ticket[],
   scratchpad?: Ticket | null,

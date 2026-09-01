@@ -18,6 +18,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import { markdownToPlainText } from "@/lib/markdown";
 import {
+  canCloseTicket,
+  closeBlockedReason,
   useMyScratchpad,
   useMyTickets,
   pinScratchpadFirst,
@@ -662,11 +664,12 @@ function TicketCloseReopenControl({ ticket }: { ticket: Ticket }) {
           if (closed) void apply("OPEN", "reopened");
           else setConfirmingClose(true);
         }}
-        disabled={patch.isPending}
+        disabled={patch.isPending || (!closed && !canCloseTicket(ticket))}
         title={
           closed
             ? "Reopen this ticket (back to Open)."
-            : "Resolve this ticket. Targets stay in the system; only the ticket closes."
+            : closeBlockedReason(ticket) ||
+              "Resolve this ticket. Targets stay in the system; only the ticket closes."
         }
         className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >
