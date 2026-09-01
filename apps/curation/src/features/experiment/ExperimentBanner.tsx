@@ -23,6 +23,8 @@ import {
 import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { platformPageUrl } from "@/lib/gemmaUrls";
+import { TicketMenu } from "@/features/tickets/TicketMenu";
+import { pushRecentTicketId } from "@/features/tickets/recentTickets";
 import { useExperimentSetsFor } from "@/api/experimentSets";
 import {
   inferModality,
@@ -1940,12 +1942,77 @@ export function TicketContextChip({
   ticketContext,
 }: {
   experimentId: number | string;
-  ticketContext: string;
+  /** The ticket the curator arrived from, or null when they did not
+   *  arrive from one. Null is the common case and still renders the
+   *  management menu — see `TicketMenu`. */
+  ticketContext?: string | null;
 }) {
-  const ticketId = parseInt(ticketContext, 10);
+  const ticketId = ticketContext == null ? NaN : parseInt(ticketContext, 10);
   const { data: ticket } = useTicket(Number.isFinite(ticketId) ? ticketId : null);
   const [open, setOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
+  const menuRef = useRef<HTMLSpanElement>(null);
+  // Same dismissal contract as the member popover, kept separate so
+  // closing one does not close the other.
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onPointer(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setMenuOpen(false);
+    }
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [menuOpen]);
+
+  const numericExperimentId =
+    typeof experimentId === "number"
+      ? experimentId
+      : parseInt(String(experimentId), 10);
+
+  /** The management dropdown. Rendered in BOTH states — with a ticket
+   *  context it sits after the walker, without one it is the whole
+   *  chip. */
+  const managementMenu = (
+    <span ref={menuRef} className="relative inline-flex items-center">
+      <button
+        type="button"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((v) => !v)}
+        title="Ticket management for this experiment"
+        className={cn(
+          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
+          "border-violet-300 bg-violet-100 text-violet-800",
+          "hover:bg-violet-200",
+          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
+          menuOpen && "ring-2 ring-offset-1 ring-violet-400/50",
+        )}
+      >
+        <span>Tickets</span>
+        <span aria-hidden className="text-violet-700/70 dark:text-violet-300/70">
+          ▾
+        </span>
+      </button>
+      {menuOpen ? (
+        <span className="absolute left-0 top-full mt-1 z-50 rounded border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
+          <TicketMenu
+            experimentId={numericExperimentId}
+            experimentLabel={String(experimentId)}
+            currentTicketId={Number.isFinite(ticketId) ? ticketId : null}
+            onClose={() => setMenuOpen(false)}
+          />
+        </span>
+      ) : null}
+    </span>
+  );
   // Outside-click + Escape dismissal — same pattern as SetChip.
   useEffect(() => {
     if (!open) return;
@@ -1965,7 +2032,13 @@ export function TicketContextChip({
     };
   }, [open]);
 
-  if (!ticket) return null;
+  if (!ticket) {
+    return (
+      <span className="relative inline-flex items-center gap-2 text-[11px]">
+        {managementMenu}
+      </span>
+    );
+  }
   // Walk the members in the order the curator saw them listed, not the
   // order the store happens to return targets in. The ticket page lists
   // them through ``ExperimentQueue`` under a server sort
@@ -2028,6 +2101,7 @@ export function TicketContextChip({
           "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
         )}
         title={`Back to ticket: ${ticket.title}`}
+        onClick={() => pushRecentTicketId(ticketId)}
       >
         <span aria-hidden>←</span>
         <span>Ticket</span>
@@ -2085,6 +2159,13 @@ export function TicketContextChip({
         ›
       </button>
       <TicketTargetStatusDot status={currentTarget?.status ?? null} />
+      {/* Management sits AFTER the walker: back-link, then which
+          member, then what to do about membership. Its own dropdown
+          rather than a section inside the member popover — that one is
+          navigation within a ticket and this is bookkeeping across
+          tickets, and merging them made a 200-member list scroll past
+          the actions. */}
+      {managementMenu}
       {open ? (
         <TicketNavigatorPopover
           ticketId={ticketId}

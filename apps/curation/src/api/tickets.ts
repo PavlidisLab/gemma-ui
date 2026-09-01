@@ -342,6 +342,22 @@ export interface Ticket {
   created_at: string;
   updated_at: string;
   external_issue_url: string | null;
+  /** Whether targets may be appended to this ticket AFTER creation —
+   *  `TICKET.ACCEPTS_TARGETS`, added 2026-08-31 (gembro `d674aa78df`,
+   *  migration V39).
+   *
+   *  🛑 **A server-side permission, not a UI hint.** `POST
+   *  /tickets/{id}/targets` 409s when it is false; this field exists so
+   *  the menu can grey the action instead of offering something that
+   *  will fail. Never treat a client-side check as the constraint.
+   *
+   *  Defaults false, including on tickets that predate it — a curated
+   *  worklist of exactly 500 datasets is a different object from a
+   *  scratchpad, and nothing should be able to grow a reference set by
+   *  a stray click. `undefined` on any host that has not deployed the
+   *  field yet, which reads the same as false and is the safe way
+   *  round. */
+  accepts_targets?: boolean;
   /** Curator-facing instructions for the ticket — the "what does
    *  the curator need to do" text the reporter writes when filing.
    *
@@ -453,6 +469,25 @@ export function ticketBaselineSource(
   } catch {
     return null;
   }
+}
+
+/** One ticket, as a plain query-options object.
+ *
+ *  Same key and fetch as `useTicket`, so the two share a cache entry —
+ *  but without its polling default, which exists for a ticket page
+ *  watching a runner flip targets. The recents menu resolves several
+ *  ids at once purely to check they still exist; polling six tickets
+ *  every 15 s behind a dropdown would be pure waste.
+ *
+ *  🛑 Intended for `useQueries`. An error here means the ticket is
+ *  gone, closed, or not visible to this curator, and the caller should
+ *  drop it rather than retry — pass `retry: false`. */
+export function ticketQueryOptions(id: number) {
+  return {
+    queryKey: ["ticket", id] as const,
+    queryFn: async () =>
+      await api.get<Ticket>(`${ticketsBase()}/tickets/${id}`),
+  };
 }
 
 /** Fetch a single ticket by id.
@@ -568,6 +603,13 @@ export interface TicketCreateBody {
     target_id: number;
     status?: "NOT_DONE" | "UNDERWAY" | "DONE";
   }>;
+  /** Whether targets may be appended after creation — see
+   *  `Ticket.accepts_targets`. Omitted rather than sent false when the
+   *  curator did not tick the box: the server default is false, and a
+   *  boxed Boolean there distinguishes "not specified" from an explicit
+   *  false, so an unrelated edit cannot silently close an open
+   *  scratchpad. */
+  accepts_targets?: boolean;
 }
 
 /** Store ticket types that are not Gemma's, and what to do with each.
@@ -740,6 +782,99 @@ export function useCreateTicketFromAccession() {
  *  long-running ticket action (PRELOAD runner, future agent
  *  passes) poll this to pick up per-target status changes that bump
  *  the ``IN_PROGRESS`` filter. */
+/** Add targets to an existing ticket —
+ *  `POST /tickets/{id}/targets` (gembro `d674aa78df`).
+ *
+ *  🛑 **Idempotent on `(targetType, targetId)`.** Re-adding is a no-op
+ *  reported as `alreadyPresent`, not a duplicate row and not a 409:
+ *  the menu may have been open for a minute, so the client cannot know
+ *  membership at click time, and a curator clicking twice must not
+ *  corrupt a 500-target ticket.
+ *
+ *  Takes an ARRAY because a bulk "add these twelve" from the dashboard
+ *  is the obvious next caller and should not need twelve round-trips.
+ *
+ *  Errors worth handling at the call site: **409** — the ticket is
+ *  RESOLVED / CANCELLED, or its `accepts_targets` is false; **404** —
+ *  no such ticket, or the route is not deployed on this host yet.
+ *  Those two 404s are indistinguishable from here, which is why the UI
+ *  says "could not add" rather than naming a cause. */
+export interface AddTargetsResult {
+  added: number[];
+  already_present: number[];
+  ticket: Ticket;
+}
+
+export function useAddTicketTargets(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      targets: Array<{ target_type?: TicketTargetType; target_id: number }>,
+    ) => {
+      // `targetType` is optional server-side and defaults to
+      // EXPRESSION_EXPERIMENT; sent explicitly anyway so the request
+      // says what it means.
+      return await api.post<AddTargetsResult>(
+        `${ticketsBase()}/tickets/${ticketId}/targets`,
+        {
+          targets: targets.map((t) => ({
+            target_type: t.target_type ?? "EXPRESSION_EXPERIMENT",
+            target_id: t.target_id,
+          })),
+        },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
+      qc.invalidateQueries({ queryKey: ["tickets"] });
+    },
+  });
+}
+
+/** Remove one target from a ticket —
+ *  `DELETE /tickets/{id}/targets/{targetType}/{targetId}`.
+ *
+ *  🛑 **This is the completion gesture on a scratchpad**, not a rare
+ *  correction: Paul's framing is a ticket kept open indefinitely where
+ *  finishing means removing the dataset rather than closing the ticket.
+ *  So it belongs in the menu at the same level as add, and must not sit
+ *  behind a confirm-heavy path.
+ *
+ *  Idempotent — removing a target the ticket does not have answers 204
+ *  rather than 404, for the same stale-menu reason as the add.
+ *
+ *  🛑 The response carries the removed row's `status`, which is what
+ *  says whether anything was lost. Removing a `DONE` row discards a
+ *  record of completed work and deserves a word to the curator;
+ *  removing a `NOT_DONE` row — every row on a scratchpad — is the
+ *  unremarkable case and must not prompt. */
+export interface RemoveTargetResult {
+  target_type: TicketTargetType;
+  target_id: number;
+  status: TicketTargetStatus | null;
+  ticket: Ticket;
+}
+
+export function useRemoveTicketTarget(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (target: {
+      target_type?: TicketTargetType;
+      target_id: number;
+    }) => {
+      const type = target.target_type ?? "EXPRESSION_EXPERIMENT";
+      // 204 unwraps to null — the ticket did not have this target.
+      return await api.delete<RemoveTargetResult | null>(
+        `${ticketsBase()}/tickets/${ticketId}/targets/${type}/${target.target_id}`,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
+      qc.invalidateQueries({ queryKey: ["tickets"] });
+    },
+  });
+}
+
 export function useMyTickets(
   options: {
     refetchInterval?: number | false;
