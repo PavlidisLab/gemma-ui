@@ -25,7 +25,8 @@ import type {
   StepStatus,
 } from "@/api/workflowTypes";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
-import { useTicket } from "@/api/tickets";
+import { useTicket, type Ticket, type TicketSearchHit } from "@/api/tickets";
+import { useDatasetTickets } from "@/api/datasetTickets";
 import { useAuditsForExperiments } from "@/api/audits";
 import { useProposalReviewsForExperiments } from "@/api/reviewProposals";
 import { reasonSlugLabel } from "@/features/audit/dispositionChips";
@@ -814,6 +815,15 @@ export function ExperimentQueue({
 
   const { data: statusMap = {} } = usePipelineStatusBulk(allRows.map((r) => r.id));
 
+  // 🛑 Ticket membership for the rows ON SCREEN, in one call. Before
+  // `POST /datasets/tickets` existed the row could only be told about a
+  // ticket the queue already held, so the `#` glyph was on every row
+  // inside a ticket and absent everywhere else. Keyed on presence: a
+  // dataset on no ticket has no key.
+  const { data: ticketsByDataset = {} } = useDatasetTickets(
+    allRows.map((r) => r.id),
+  );
+
   // Ticket-target-status lookup. In a ticket context, the ticket's
   // ``targets[i].status`` (NOT_DONE / UNDERWAY / DONE) is the truth
   // for what the CURATOR has done — independent of the dataset's
@@ -1160,7 +1170,27 @@ export function ExperimentQueue({
             // non-group / global queue view).
             navId={memberIdByNumericId.get(d.id) ?? String(d.id)}
             hasLocalDraft={dirtyDraftIds.has(String(d.id))}
-            tickets={ticket ? [ticket] : null}
+            // The queue's own ticket (for `nextTask`) plus whatever
+            // else holds this row. `PipelineStatusRow` drops the one in
+            // the URL's context from the glyph count, so the mark still
+            // means "a ticket you are not looking at".
+            tickets={[
+              ...(ticket ? [ticket] : []),
+              ...(ticketsByDataset[d.id] ?? []).map(
+                (t: TicketSearchHit) =>
+                  ({
+                    ...t,
+                    // The bulk route returns SUMMARIES — no targets, by
+                    // design, so fifty rows never hydrate a 500-member
+                    // ticket. The row only asks "does this hold me", so
+                    // the one target it needs is synthesised here rather
+                    // than fetched.
+                    targets: [
+                      { target_type: "EXPRESSION_EXPERIMENT", target_id: d.id },
+                    ],
+                  }) as unknown as Ticket,
+              ),
+            ]}
             groupType={group?.type}
             groupTaskKind={group?.task_kind ?? null}
             leadingBadge={leadingBadge}

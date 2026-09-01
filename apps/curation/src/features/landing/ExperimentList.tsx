@@ -82,11 +82,14 @@ export function ExperimentList({
 
   // 🛑 In remote mode a non-empty filter goes to the SERVER.
   //
-  // The catalogue here is a bounded prefix of Gemma's ~25,700
-  // (`REMOTE_CATALOGUE_CAP`), so filtering it client-side answers "not
-  // found" for anything past the cut. GSE107613 is real, sits at id
-  // 14164, and the box said nothing about it. `query=` searches the
-  // whole corpus by accession and title alike.
+  // The catalogue here is the experiments IN CURATION (712), not the
+  // corpus, so filtering it client-side would answer "not found" for
+  // every dataset that is not in curation yet — which is exactly the
+  // set a curator searches when they want to pull one onto a ticket.
+  // `query=` searches all of Gemma by accession and title alike. That
+  // was already true when the list held a bounded prefix (GSE107613 is
+  // real, sits at id 14164, and the box said nothing about it); scoping
+  // the list makes it matter more, not less.
   const search = useDatasetSearch(filter);
   // A search in flight with nothing yet is "still looking", not "no
   // matches" — those look identical to a curator and the wrong one
@@ -248,12 +251,12 @@ export function ExperimentList({
             <EmptyState filter={filter} statusFilter={statusFilter} />
           ) : (
             <>
-            {/* 🛑 Say when the catalogue is a prefix. Remote mode stops
-                after REMOTE_CATALOGUE_CAP rows because walking Gemma's
-                25,000+ at its 100-row page cap hangs the page. Without
-                this line a curator searching for an experiment that is
-                past the cut reads "not found" and concludes it is not in
-                Gemma — the wrong answer, given confidently. */}
+            {/* 🛑 Say when the catalogue is a prefix. Rare now — remote
+                mode asks Gemma for `inCuration = true` (712 datasets)
+                rather than walking 25,000+, so the cap is a guard
+                rather than the design. Kept because a silently
+                truncated list reads as "that experiment is not in
+                Gemma", which is the wrong answer given confidently. */}
             {truncated ? (
               <div className="px-3 py-1.5 text-[11px] text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
                 Up to {REMOTE_CATALOGUE_CAP} shown — search to reach the rest.

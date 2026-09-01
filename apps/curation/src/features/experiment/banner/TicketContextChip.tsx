@@ -342,8 +342,13 @@ function TicketNavigatorPopover({
   // filter on. Resolved here rather than papered over: a populated
   // label from the server still wins, and this fills in only where it
   // is absent. See `api/ticketMemberLabels.ts`.
+  // 🛑 Only when the server left a gap. Gemma populates `displayLabel`
+  // as of `16dfb28512ce`, so on a current host this asks for nothing;
+  // an older one still gets readable rows.
+  const missingLabels = targets.filter((t) => !t.display_label);
   const { data: labels } = useTicketMemberLabels(
-    targets.map((t) => t.target_id),
+    missingLabels.map((t) => t.target_id),
+    missingLabels.length > 0,
   );
   const labelled = useMemo(
     () =>

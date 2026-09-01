@@ -5,13 +5,13 @@ import { api, ApiError } from "./client";
 /**
  * Accession + title for a ticket's members.
  *
- * 🛑 **Gemma sends `displayLabel` and `displayName` as NULL on every
- * ticket target.** The fields are on the wire — measured on ticket 6,
- * all 500 rows — so the popover rendered "31491 (no title)" fifty times
- * over and its filter box had nothing to filter on. That is a backend
- * gap, not a render bug; asked of gembro. This resolves the ids itself
- * so the list is readable meanwhile, and costs nothing once the labels
- * arrive — a populated `displayLabel` wins and this never renders.
+ * 🛑 **A FALLBACK, and as of gemma2 `16dfb28512ce` a dormant one.**
+ * Gemma used to send `displayLabel`/`displayName` null on every ticket
+ * target, so the popover read "31491 (no title)" fifty rows deep. It
+ * now populates them — 500 of 500 on ticket 6 — so the caller must ask
+ * for this ONLY where a label is actually missing. Firing it anyway
+ * would spend five requests per popover to recompute what arrived in
+ * the ticket payload.
  *
  * 🛑 **`limit` caps at 100** (101 is a 400, not a clamp), so a
  * 500-member ticket is five requests. They are cached under the id list
