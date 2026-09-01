@@ -1287,19 +1287,6 @@ export async function getDatasetMeanVariance(
   }
 }
 
-// ─── Platform detail endpoints ────────────────────────────────────────────────
-
-export async function getPlatformAnnotations(
-  platformId: number | string,
-  signal?: AbortSignal,
-): Promise<AnnotationTerm[]> {
-  const r = await apiGet<PaginatedResponse<AnnotationTerm>>(
-    `${BASE}/platforms/${platformId}/annotations`,
-    { params: { limit: 500 }, signal },
-  );
-  return r.data ?? [];
-}
-
 // ─── Gene endpoints ───────────────────────────────────────────────────────────
 
 export interface Gene {

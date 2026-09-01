@@ -26,7 +26,6 @@ import {
   getDatasetsByPlatform,
   getElementGenes,
   getGenesByNcbiIds,
-  getPlatformAnnotations,
   getPlatformByShortName,
   getPlatformElementCount,
   getPlatformElements,
@@ -35,7 +34,6 @@ import type { PlatformElement } from "@/api/endpoints";
 import { encodeSearchSettings } from "@/features/browser/shareLink";
 import {
   emptySearchSettings,
-  type AnnotationTerm,
   type Dataset,
   type Platform,
   type SearchSettings,
@@ -86,7 +84,6 @@ export function PlatformDetailPage() {
         <Breadcrumbs name={p.shortName ?? name} />
         <Hero platform={p} />
         <DescriptionCard platform={p} />
-        <AnnotationsSection platform={p} />
         {/* Two-up tables — each in its own ~24rem scrolling viewport
          *  so we don't burn vertical screen space and the curator can
          *  compare Datasets + Elements side-by-side. */}
@@ -298,65 +295,6 @@ function Stat({
         </div>
       ) : null}
     </div>
-  );
-}
-
-function AnnotationsSection({ platform: p }: { platform: Platform }) {
-  const annQ = useQuery({
-    queryKey: ["platform", p.id, "annotations"],
-    queryFn: ({ signal }) => getPlatformAnnotations(p.id, signal),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  if (annQ.isLoading) {
-    return (
-      <section className="bg-white border border-gemma-grid rounded-md p-4 text-xs text-gemma-subtle italic">
-        Loading annotations…
-      </section>
-    );
-  }
-  if (annQ.isError) {
-    return (
-      <section className="bg-white border border-gemma-grid rounded-md p-4 text-xs text-rose-700">
-        Failed to load annotations.
-      </section>
-    );
-  }
-  const terms = annQ.data ?? [];
-  if (terms.length === 0) return null;
-
-  // Group by className (ontology category).
-  const groups = new Map<string, AnnotationTerm[]>();
-  for (const t of terms) {
-    const cat = t.className ?? "Other";
-    if (!groups.has(cat)) groups.set(cat, []);
-    groups.get(cat)!.push(t);
-  }
-
-  return (
-    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-3">
-      <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
-        Annotations
-      </div>
-      <div className="space-y-2">
-        {[...groups.entries()].map(([cat, tms]) => (
-          <div key={cat} className="flex flex-wrap items-baseline gap-1.5">
-            <span className="text-[10px] uppercase tracking-wide text-gemma-subtle mr-0.5 shrink-0">
-              {cat}
-            </span>
-            {tms.map((t) => (
-              <span
-                key={t.termUri ?? t.termName}
-                title={t.termUri ?? undefined}
-                className="text-[11px] px-1.5 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-sky-800"
-              >
-                {t.termName ?? t.termUri ?? "?"}
-              </span>
-            ))}
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 
