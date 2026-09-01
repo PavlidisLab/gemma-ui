@@ -30,6 +30,7 @@ vi.mock("@/api/client", () => ({
   api: { get: vi.fn() },
 }));
 vi.mock("@/api/design", () => ({
+  useInvalidateAfterDesignCommit: () => () => {},
   fetchPreboardSnapshot: vi.fn(),
 }));
 

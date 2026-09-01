@@ -9,7 +9,19 @@ import {
   type ReactNode,
 } from "react";
 import { commitConflictOf, type CommitConflict } from "@/api/commitConflict";
-import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
+import {
+  buildCurationDocument,
+  commitCuration,
+  preflightCuration,
+} from "@/api/curationCommit";
+import { removalsFromDiff } from "./removals";
+import { useGemmaMode } from "@/lib/gemmaMode";
+import {
+  useDesign,
+  useInvalidateAfterDesignCommit,
+  useUpdateDesign,
+  useUpdatePolished,
+} from "@/api/design";
 import { sendCurationEditLog } from "@/api/designEdits";
 import { diffDesign, type DesignDiff } from "./diff";
 import { buildEditLog, goldDataVersionOf, type EditBase } from "./editLog";
@@ -619,6 +631,18 @@ export function DesignDraftProvider({
       return r.slice(0, -1);
     });
   }, [updater.isPending]);
+  // 🛑 **Remote mode commits through the AGENT, not from here.** The
+  // whole-design `/design` PUT (`useUpdateDesign`) sends the STORE's
+  // design shape, which is not the shape Gemma's design route reads,
+  // so it refuses in remote mode and always will. The agent relay
+  // (`/curation-preflight` → `/curation-commit`) sends Gemma's
+  // `CurationDocument` instead, and is the sanctioned write path: the
+  // UI stays a read-only client of Gemma and the agent does the write.
+  const remoteMode = useGemmaMode().mode === "remote";
+  const invalidateAfterCommit = useInvalidateAfterDesignCommit(experimentId);
+  const [remoteCommitting, setRemoteCommitting] = useState(false);
+  const [remoteCommitError, setRemoteCommitError] = useState<Error | null>(null);
+
   const commit = useCallback((onSettled?: (result: CommitResult) => void) => {
     if (!draft) {
       onSettled?.({ ok: false, error: "No draft to commit" });
@@ -671,6 +695,59 @@ export function DesignDraftProvider({
       reviewer,
       diff,
     });
+    if (remoteMode) {
+      // Preflight first, and NOT as decoration: it is where the
+      // baseline token comes from. A draft save has no baseline to
+      // name (see `api/curationDraft.ts`), so the first commit of a
+      // session has nothing to thread, and preflight — a dry run that
+      // moves nothing — reports the current one.
+      //
+      // 🛑 A green preflight is NOT a green commit. It takes no lock
+      // and is exempt from the agent's write guard, so it means "the
+      // document is well formed, and here is what it would change" —
+      // never "this will work". Nothing here treats it as approval.
+      const removals = saved ? removalsFromDiff(diff, saved) : undefined;
+      setRemoteCommitting(true);
+      setRemoteCommitError(null);
+      void (async () => {
+        try {
+          const dryRun = buildCurationDocument(draft, { mode: "remote" }, removals);
+          const report = await preflightCuration(experimentId, dryRun, reviewer);
+          const baselineLastModified = report.newBaseline ?? undefined;
+          const doc = buildCurationDocument(
+            draft,
+            { mode: "remote", baselineLastModified },
+            removals,
+          );
+          await commitCuration(experimentId, doc, {
+            baselineLastModified,
+            onBehalfOf: reviewer,
+          });
+          // A 200 means EVERYTHING applied — there is no partial write
+          // to reconcile — so the draft is what Gemma now holds and is
+          // the honest checkpoint. `saved` refetches on the next
+          // invalidation and the ordinary background sync reconciles
+          // any canonicalization Gemma applied on the way in.
+          //
+          // 🛑 No `/polished` mirror and no store edit log on this
+          // path. Both write the curation store, which is not where
+          // this commit landed; mirroring there would leave a snapshot
+          // of a design the store does not own.
+          finalizeCheckpoint(draft);
+          // The same views go stale either way — the design itself, the
+          // audit events, and the audit / proposal cards whose text
+          // cites the design just changed. Shared with the local path
+          // rather than listed twice.
+          invalidateAfterCommit();
+        } catch (err) {
+          setRemoteCommitError(err as Error);
+          onSettled?.({ ok: false, error: (err as Error).message });
+        } finally {
+          setRemoteCommitting(false);
+        }
+      })();
+      return;
+    }
     updater.mutate(normalizeForCommit(draft), {
       onSuccess: (server) => {
         // Fired on the /design PUT, not on the full checkpoint: the
@@ -709,7 +786,7 @@ export function DesignDraftProvider({
         onSettled?.({ ok: false, error: (err as Error).message });
       },
     });
-  }, [draft, saved, diff, editBase, updater, polisher, reviewer, experimentId]);
+  }, [draft, saved, diff, editBase, updater, polisher, reviewer, experimentId, remoteMode, invalidateAfterCommit]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     setUndoStack([]);
@@ -790,7 +867,7 @@ export function DesignDraftProvider({
     canUndo: undoStack.length > 0,
     canRedo: redoStack.length > 0,
     reload,
-    saving: updater.isPending || polisher.isPending,
+    saving: updater.isPending || polisher.isPending || remoteCommitting,
     // A failed durable-mirror (/polished) write is surfaced through the
     // same channel as a /design save failure so CommitBar stays up and
     // the curator retries — a stale polished snapshot would otherwise
@@ -798,8 +875,18 @@ export function DesignDraftProvider({
     // Read from the error OBJECT, not from the message string it
     // flattens to — the reason is a sibling of `detail`, never inside
     // it.
-    saveConflict: updater.isError ? commitConflictOf(updater.error) : null,
-    saveError: updater.isError
+    // The agent relay answers the same structured 409 Gemma does, so a
+    // remote commit's conflict reads through the identical channel —
+    // `STALE_BASELINE` is the only one worth re-reading for, and
+    // `LOCK_REQUIRED` would retry forever if it were treated as one.
+    saveConflict: updater.isError
+      ? commitConflictOf(updater.error)
+      : remoteCommitError
+        ? commitConflictOf(remoteCommitError)
+        : null,
+    saveError: remoteCommitError
+      ? remoteCommitError.message
+      : updater.isError
       ? (updater.error as Error).message
       : polisher.isError
         ? "durable save to the export store failed — retry commit so " +

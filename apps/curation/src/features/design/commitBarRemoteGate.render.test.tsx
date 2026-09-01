@@ -1,21 +1,28 @@
 /**
  * @vitest-environment jsdom
  *
- * Remote mode blocks COMMIT, and says so before the click.
+ * Remote mode COMMITS, through the agent.
  *
- * Commit's write path is the older whole-design PUT. `/rest` is a
- * catch-all whose meaning changes with mode — the same relative path
- * reaches the curation store locally and a real Gemma remotely — and
- * the agent's write-target guard cannot cover it, because it never
- * reaches the agent.
+ * This file used to pin the opposite, and the reasoning it carried was
+ * sound for what existed then: commit's only write was the whole-design
+ * `/rest` PUT, a catch-all whose meaning changes with mode, which the
+ * agent's write-target guard cannot cover because it never reaches the
+ * agent. And the replacement chain could not take over while the design
+ * in hand was the STORE's, whose factors and values carry neither
+ * `gemmaId` nor `clientRef` — mapping that would have made Gemma CREATE
+ * everything and duplicate the design.
  *
- * The chain built to replace that endpoint (preflight → commit → sign)
- * cannot take over yet: the store's design carries neither `gemmaId`
- * nor `clientRef` for its factors and values, so mapping it today would
- * make Gemma CREATE everything and duplicate the design.
+ * Both premises are gone. In REMOTE mode the design is composed from
+ * Gemma and carries Gemma's own positive ids, with negatives minted only
+ * for agent-proposed rows, so the sign test names each item correctly —
+ * which is why `buildCurationDocument` still throws in local mode, where
+ * ids are small positive locals and the same rule would corrupt. And the
+ * relay (`/curation-preflight` → `/curation-commit`) is wired, so the
+ * write goes to the agent, which is Gemma's curation-write client.
  *
- * ⇒ Until that identity mapping exists, remote mode must write nothing.
- * Editing stays free, exactly as under someone else's lease.
+ * ⇒ The mode now decides WHICH write runs, not whether one may. What
+ * this file guards is that the bar never again tells a curator to switch
+ * modes to do something they can do where they are.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -50,7 +57,11 @@ const DIFF = {
 
 /** Drive the bar through the REAL mode resolver so a change to what
  *  counts as remote shows up here, not in a hand-set boolean. */
-function renderBar(mode: "local" | "remote", onCommit = vi.fn()) {
+function renderBar(
+  mode: "local" | "remote",
+  onCommit = vi.fn(),
+  extra: Record<string, unknown> = {},
+) {
   vi.mocked(useGemmaMode).mockReturnValue(
     resolveGemmaMode(
       mode === "remote"
@@ -66,6 +77,7 @@ function renderBar(mode: "local" | "remote", onCommit = vi.fn()) {
       onCommit={onCommit}
       onDiscard={vi.fn()}
       lockedBy={null}
+      {...extra}
     />,
   );
   return onCommit;
@@ -74,36 +86,52 @@ function renderBar(mode: "local" | "remote", onCommit = vi.fn()) {
 const commitBtn = () => screen.getByRole("button", { name: /^commit$/i });
 
 describe("commit in remote mode", () => {
-  it("🛑 blocks commit", () => {
+  it("🛑 does NOT block commit", () => {
     renderBar("remote");
-    expect(commitBtn()).toBeDisabled();
+    expect(commitBtn()).not.toBeDisabled();
   });
 
-  it("says why, rather than leaving a dead button", () => {
-    renderBar("remote");
-    expect(screen.getByText(/Remote mode/)).toBeTruthy();
-    // Asserts that a reason is given and where commits go — NOT the
-    // sentence it is given in. The old copy explained the store's
-    // design shape versus Gemma's design route across four sentences;
-    // pinning that wording made the test an obstacle to shortening it
-    // rather than a guard on the curator being told something.
-    expect(screen.getByText(/through the agent/i)).toBeTruthy();
+  it("🛑 commits — the click reaches the handler", () => {
+    const onCommit = renderBar("remote");
+    commitBtn().click();
+    expect(onCommit).toHaveBeenCalled();
   });
 
-  it("tells the curator their edits survive and what to do", () => {
+  it("🛑 does not tell the curator to switch modes", () => {
+    // The banner said commits could not happen from here and to switch
+    // to local mode. Both stopped being true; a red bar describing a
+    // block that no longer exists is worse than no bar.
     renderBar("remote");
     const body = document.body.textContent ?? "";
-    expect(body).toMatch(/edits are kept/i);
-    expect(body).toMatch(/switch to local mode/i);
+    expect(body).not.toMatch(/switch to local mode/i);
+    expect(body).not.toMatch(/edits are kept/i);
+    expect(screen.queryByText(/disabled in remote mode/i)).toBeNull();
   });
 
-  it("does not block in local mode — the ordinary case", () => {
+  it("says where the write goes, on the button itself", () => {
+    // Asserts that the destination is named — not the sentence naming
+    // it. Pinning wording is what made the previous copy hard to
+    // shorten.
+    renderBar("remote");
+    expect(commitBtn().getAttribute("title")).toMatch(/agent/i);
+  });
+
+  it("still blocks for the reasons that are still real", () => {
+    // Remote mode stopped being a blocker; someone else's lease did
+    // not. Guards against the gate having been removed wholesale
+    // rather than narrowed.
+    renderBar("remote", vi.fn(), { lockedBy: "someone else" });
+    expect(commitBtn()).toBeDisabled();
+  });
+});
+
+describe("commit in local mode — unchanged", () => {
+  it("does not block", () => {
     renderBar("local");
     expect(commitBtn()).not.toBeDisabled();
-    expect(screen.queryByText(/Remote mode/)).toBeNull();
   });
 
-  it("local mode still commits", () => {
+  it("commits", () => {
     const onCommit = renderBar("local");
     commitBtn().click();
     expect(onCommit).toHaveBeenCalled();

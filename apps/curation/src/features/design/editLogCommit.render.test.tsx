@@ -20,6 +20,7 @@ import type { Design } from "@/features/experiment/types";
 import type { CurationEditLog } from "./editLog";
 
 vi.mock("@/api/design", () => ({
+  useInvalidateAfterDesignCommit: () => () => {},
   useDesign: vi.fn(),
   useUpdateDesign: vi.fn(),
   useUpdatePolished: vi.fn(),

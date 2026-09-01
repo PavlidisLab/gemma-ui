@@ -1,3 +1,4 @@
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
 import { useGemmaMode } from "@/lib/gemmaMode";
@@ -540,6 +541,35 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       qc.setQueryData(KEY.byExperiment(experimentId), server);
     },
     onSettled: () => {
+      invalidateAfterDesignCommit(qc, experimentId);
+    },
+  });
+}
+
+/**
+ * Everything that goes stale when a design commits, in one place.
+ *
+ * 🛑 Exported because there are now TWO commit paths — the whole-design
+ * PUT below in local mode, and the agent relay in remote mode — and a
+ * list of keys maintained twice drifts. A curator whose commit reached
+ * Gemma but whose audit cards still cite the design they just fixed has
+ * the same complaint either way.
+ */
+export function useInvalidateAfterDesignCommit(
+  experimentId: number | string,
+): () => void {
+  const qc = useQueryClient();
+  return useCallback(
+    () => invalidateAfterDesignCommit(qc, experimentId),
+    [qc, experimentId],
+  );
+}
+
+export function invalidateAfterDesignCommit(
+  qc: ReturnType<typeof useQueryClient>,
+  experimentId: number | string,
+): void {
+  {
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
       qc.invalidateQueries({ queryKey: ["audit-events", experimentId] });
       // Audit + proposal lists also need to refetch — their findings'
@@ -564,8 +594,7 @@ export function useUpdateDesign(experimentId: number | string, reviewer = "") {
       // memory'd in the code comment at the time but never
       // invalidated.
       qc.invalidateQueries({ queryKey: ["curations", experimentId] });
-    },
-  });
+  }
 }
 
 /** Persist the curator's committed Design to the DURABLE per-curator

@@ -34,6 +34,7 @@ import type { Design } from "@/features/experiment/types";
 // Module mocks — hoisted above the provider import below.
 // ---------------------------------------------------------------------------
 vi.mock("@/api/design", () => ({
+  useInvalidateAfterDesignCommit: () => () => {},
   useDesign: vi.fn(),
   useUpdateDesign: vi.fn(),
   useUpdatePolished: vi.fn(),

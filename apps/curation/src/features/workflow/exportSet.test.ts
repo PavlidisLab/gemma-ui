@@ -22,6 +22,7 @@ import type { Design } from "@/features/experiment/types";
 import type { Group } from "@/api/workflowTypes";
 
 vi.mock("@/api/design", () => ({
+  useInvalidateAfterDesignCommit: () => () => {},
   fetchPolishedSnapshot: vi.fn(),
   fetchDesignSnapshot: vi.fn(),
 }));

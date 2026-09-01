@@ -463,6 +463,26 @@ export default defineConfig(({ mode }) => {
           target: PROPOSER_URL,
           changeOrigin: true,
         },
+        // The commit chain, same relay and the same reasoning as the
+        // draft/lock pair above: the agent is Gemma's curation-write
+        // client, so preflight/commit/sign forward to it. They are
+        // three separate entries rather than one `/curation-` prefix
+        // because that prefix would also swallow any future
+        // `/curation-*` route the moment someone adds one, and a
+        // path that silently acquires a target is exactly what the
+        // note above is about.
+        "/curation-preflight": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
+        "/curation-commit": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
+        "/curation-sign": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         "/find-term": {
           target: PROPOSER_URL,
           changeOrigin: true,

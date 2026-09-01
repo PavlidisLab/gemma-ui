@@ -181,8 +181,13 @@ export function CommitBar({
   // one place, the relay endpoint the UI hits (confirmed by call site,
   // cab 2026-08-26). Agent-side locking is unbuilt.
   const lockedOut = !!lockedBy;
+  // 🛑 `remoteMode` is NOT a block any more. It was, for as long as the
+  // only write here was the whole-design `/design` PUT, which sends the
+  // store's design shape and cannot reach Gemma. Remote commits now go
+  // through the agent relay (`DesignDraftContext.commit`), which sends
+  // Gemma's `CurationDocument` — so the mode changes which write runs,
+  // not whether one may.
   const blocked =
-    remoteMode ||
     lockedOut ||
     (hasBaselineProblem && !allOverridden) ||
     hasHardProblem;
@@ -292,7 +297,7 @@ export function CommitBar({
               disabled={saving || blocked}
               title={
                 remoteMode
-                  ? "Design commit is disabled in remote mode — this write sends the store's design shape, not Gemma's."
+                  ? "Commits to Gemma through the agent."
                   : lockedOut
                   ? `${lockedBy} holds the editing lease. Take over to commit — their draft is separate and survives.`
                   : hasHardProblem
@@ -306,19 +311,12 @@ export function CommitBar({
             </button>
           </div>
         </div>
-        {remoteMode ? (
-          // Two facts and no mechanism: the edits are safe, and there is
-          // one way to land them. The previous copy spent four sentences
-          // on why this write cannot reach a real Gemma — the store's
-          // design shape vs the shape Gemma's design route reads — which
-          // is true, still on the commit button's `title`, and not what
-          // anyone reads a red bar to find out.
-          <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200">
-            <span className="font-semibold">Remote mode</span> — commits go
-            through the agent, not from here. Your edits are kept; switch to
-            local mode to commit them.
-          </div>
-        ) : null}
+        {/* No remote-mode banner. It said commits could not happen from
+            here and told the curator to switch modes; both stopped being
+            true when the agent relay was wired. A red bar that describes
+            a block that no longer exists is worse than no bar — the
+            button's `title` carries the one fact that still matters,
+            which is where the write goes. */}
         {lockedOut ? (
           <div className="px-3 pb-2 text-[11px] text-rose-900/90 dark:text-rose-200 flex items-baseline gap-1.5">
             <span>
