@@ -35,7 +35,22 @@ import { ticketsBase } from "./tickets";
  *  `curationDetails.troubled` both work and agree. Anything added here
  *  must be probed the same way — an unknown property is a 400, so a
  *  typo fails loudly, but a property that exists and means something
- *  else fails silently. */
+ *  else fails silently.
+ *
+ *  🛑 **Every filter here names `curationDetails.troubled`, and that is
+ *  deliberate.** `AbstractCuratableDao.shouldHideTroubled` is
+ *  `!isUserAdmin() && !mentionsTroubled(filters)`, and `mentionsTroubled`
+ *  matches that full property path — so a session without `GROUP_ADMIN`
+ *  gets `curationDetails.troubled = false` ANDed onto any count that
+ *  does not name it. A "Troubled" row that reads 0 while four exist is
+ *  the worst answer this panel can give, and the panel exists because
+ *  its predecessor gave a confident wrong all-clear.
+ *
+ *  Whether the bare spelling `troubled` also satisfies `mentionsTroubled`
+ *  is unresolved — asked of gembro — so the rows use the long path,
+ *  which is the one the DAO is known to match. Counts are unchanged on
+ *  an admin session: needsAttention 211 either way, troubled 4 either
+ *  spelling, isPublic 2145 either way (gemma2 `16dfb28512ce`). */
 export interface CurationStatusCount {
   key: string;
   label: string;
@@ -49,19 +64,20 @@ export const CURATION_STATUS_COUNTS: CurationStatusCount[] = [
     key: "needsAttention",
     label: "Needs attention",
     hint: "A curator flagged this dataset as needing another look.",
-    filter: "curationDetails.needsAttention = true",
+    filter:
+      "curationDetails.needsAttention = true and curationDetails.troubled in (true, false)",
   },
   {
     key: "troubled",
     label: "Troubled",
     hint: "Flagged as having a data problem that blocks use.",
-    filter: "troubled = true",
+    filter: "curationDetails.troubled = true",
   },
   {
     key: "private",
     label: "Not yet public",
     hint: "Held back from the public site — still in curation, or deliberately private.",
-    filter: "isPublic = false",
+    filter: "isPublic = false and curationDetails.troubled in (true, false)",
   },
 ];
 

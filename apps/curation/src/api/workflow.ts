@@ -320,7 +320,33 @@ export function idScopeFilter(ids: string): string {
 }
 
 /** Exposed for test — the URL shape is the whole fix. */
-export const __test = { datasetListPath, idScopeFilter };
+/** Join a caller's `filter` with an id scope for Gemma's `filter=`.
+ *
+ *  🛑 **Gemma's filter grammar has no parentheses, and `or` binds
+ *  TIGHTER than `and`.** Both halves of that were measured against
+ *  gemma2 `16dfb28512ce`, and the code here used to assume the
+ *  opposite of each:
+ *
+ *    - `filter=(inCuration = true)` is a 400 — "not correctly formed".
+ *      A parenthesis is rejected on its own, not just around an `in`
+ *      list, so wrapping a clause to protect it cannot work.
+ *    - `id in (4071,4080,4738,25717) and inCuration = true or isPublic = false`
+ *      counts 2, not 2147. The disjunction binds first and the scope
+ *      applies to the whole of it, which is the grouping the wrapping
+ *      was trying to buy. Reversing the operands gives 2 as well.
+ *
+ *  So the clauses join bare. The grammar is conjunctions of
+ *  disjunctions, and a caller filter that is itself a disjunction is
+ *  already grouped the way a scope needs it to be.
+ */
+export function composeDatasetFilter(
+  caller: string | undefined,
+  scope: string | null,
+): string {
+  return [caller, scope].filter(Boolean).join(" and ");
+}
+
+export const __test = { datasetListPath, idScopeFilter, composeDatasetFilter };
 
 export function useDatasetsPaginated(params: DatasetListParams) {
   const mode = resolveGemmaMode().mode;
@@ -330,13 +356,10 @@ export function useDatasetsPaginated(params: DatasetListParams) {
   // with the scope expressed as a filter.
   const scopeAsFilter =
     mode === "remote" && !!params.ids && !!params.query;
-  // 🛑 Each side parenthesised. `and` binds tighter than `or`, so a
-  // caller filter of `a = 1 or b = 2` joined bare would scope only the
-  // second disjunct and return rows from outside the scope.
-  const clauses = [params.filter, scopeAsFilter ? idScopeFilter(params.ids!) : null]
-    .filter(Boolean)
-    .map((c) => `(${c})`);
-  const filter = clauses.length > 1 ? clauses.join(" and ") : (params.filter ?? (scopeAsFilter ? idScopeFilter(params.ids!) : ""));
+  const filter = composeDatasetFilter(
+    params.filter,
+    scopeAsFilter ? idScopeFilter(params.ids!) : null,
+  );
   if (params.query)  p.set("query",  params.query);
   if (filter)        p.set("filter", filter);
   if (params.sort)   p.set("sort",   params.sort);

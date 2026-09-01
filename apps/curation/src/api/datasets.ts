@@ -267,17 +267,35 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
       // server — because a curator has to be able to find a dataset
       // that is not in curation yet in order to put it on a ticket.
       //
-      // 🛑 **Do not add `curationDetails.troubled` to this filter.** A
-      // handoff warns that `AbstractCuratableDao` hides troubled rows
-      // unless a caller names that field, so the 4 troubled datasets
-      // would be missing here. Measured against gemma2 `16dfb28512ce`
-      // and it does not hold: `filter=id in (4071,4080,4738,25717)`
-      // names nothing about troubled and returns all four, and a walk
-      // of all eight pages of the query below finds 4071 and 25717
-      // among the 712. The other two have `needsAttention` false and no
-      // open ticket, so they are not in curation at all. Widening the
-      // filter would pull them in.
-      const scope = remote ? "&filter=" + encodeURIComponent("inCuration = true") : "";
+      // 🛑 **`curationDetails.troubled in (true, false)` is not a
+      // no-op — it is what keeps troubled datasets in the list.**
+      // `AbstractCuratableDao.shouldHideTroubled` is
+      // `!isUserAdmin() && !mentionsTroubled(filters)`: a session
+      // without `GROUP_ADMIN` gets `curationDetails.troubled = false`
+      // ANDed onto any dataset query that does not name the property,
+      // and `inCuration` does not name it (it expands to
+      // `needsAttention = true OR exists(open ticket)`). So on a
+      // non-admin curator's session the plain filter silently drops
+      // every troubled dataset that is in curation — 4071 and 25717
+      // today — from a list whose own status pill offers to filter to
+      // exactly those.
+      //
+      // Naming the property in a way that selects both values lifts the
+      // hiding without changing the set. Verified on gemma2
+      // `16dfb28512ce`: both filters count 712, and walking all eight
+      // pages of each gives the identical 712 ids. Probed as
+      // `administrator` (`GROUP_ADMIN`), which is the session where the
+      // hiding never engages — the equality is what is measured here,
+      // the lift is read from the DAO.
+      //
+      // `in (true, false)` rather than a parenthesised `or`: Gemma's
+      // grammar has no parentheses at all — see `composeDatasetFilter`.
+      const scope = remote
+        ? "&filter=" +
+          encodeURIComponent(
+            "inCuration = true and curationDetails.troubled in (true, false)",
+          )
+        : "";
       const maxRows = remote ? REMOTE_CATALOGUE_CAP : Infinity;
       const raw: WorkflowDatasetListResponse["data"] = [];
       for (let offset = 0; ; offset += PAGE) {
