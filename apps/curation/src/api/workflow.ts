@@ -338,6 +338,18 @@ export function idScopeFilter(ids: string): string {
  *  So the clauses join bare. The grammar is conjunctions of
  *  disjunctions, and a caller filter that is itself a disjunction is
  *  already grouped the way a scope needs it to be.
+ *
+ *  Confirmed from `FilterArg.g4` (gembro, 2026-09-01): `clause` collects
+ *  the disjunction and `filter` joins clauses with `and`, so every
+ *  filter parses as CNF and there is no way to write anything else. `(`
+ *  is reachable in exactly two places — an `in` list and after a
+ *  quantifier — so there is no parenthesised sub-expression to reach
+ *  for.
+ *
+ *  🛑 And `,` is a second spelling of `or`, not a list separator:
+ *  `a = 1, b = 2` means `a = 1 OR b = 2`. A caller filter that uses
+ *  commas is a disjunction and is grouped like one; joining it here
+ *  with `and` is still correct, but do not read a comma as "and also".
  */
 export function composeDatasetFilter(
   caller: string | undefined,

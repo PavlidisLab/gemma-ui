@@ -46,11 +46,22 @@ import { ticketsBase } from "./tickets";
  *  the worst answer this panel can give, and the panel exists because
  *  its predecessor gave a confident wrong all-clear.
  *
- *  Whether the bare spelling `troubled` also satisfies `mentionsTroubled`
- *  is unresolved — asked of gembro — so the rows use the long path,
- *  which is the one the DAO is known to match. Counts are unchanged on
- *  an admin session: needsAttention 211 either way, troubled 4 either
- *  spelling, isPublic 2145 either way (gemma2 `16dfb28512ce`). */
+ *  🛑 **The bare spelling `troubled` does NOT satisfy the check** —
+ *  read from `AbstractCuratableDao` by gembro, 2026-09-01. It resolves
+ *  to the joined `CurationDetails` alias (`s.troubled`), while the
+ *  hiding clause is added at the object alias
+ *  (`ee.curationDetails.troubled`), and `mentionsTroubled` compares the
+ *  pair. So for a non-admin `filter=troubled = true` became
+ *  `s.troubled = true and ee.curationDetails.troubled = false` — the
+ *  same single-valued association reached two ways, a contradiction:
+ *  **0 rows against 4.** This row was showing that. The OpenAPI
+ *  metadata describes the short form as "alias for
+ *  curationDetails.troubled", so the two look interchangeable from
+ *  outside and are, for every purpose except this one.
+ *
+ *  Counts are unchanged on an admin session, where the hiding never
+ *  engages: needsAttention 211 either way, troubled 4 either spelling,
+ *  isPublic 2145 either way (gemma2 `16dfb28512ce`). */
 export interface CurationStatusCount {
   key: string;
   label: string;
