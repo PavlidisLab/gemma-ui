@@ -1,48 +1,35 @@
 /**
- * Recover the (subject, predicate/object pairs) structure of a
- * statement-shaped dataset annotation from `GET
- * /rest/v2/datasets/{id}/annotations`.
+ * The (subject, predicate/object pairs) structure of a statement-shaped
+ * dataset annotation from `GET /rest/v2/datasets/{id}/annotations`.
  *
- * Post-b5c6747f68 (merged, not yet deployed — prod is currently
- * 5328441870), this is direct: Gemma's `value` field is always the
- * bare subject term, never a composed sentence, so the subject is
- * just `a.value` and the predicate/object pairs come straight off
- * `predicate`/`object`/`secondPredicate`/`secondObject` — no string
- * surgery. `a.value` is only present when the server sent it (see
- * `withDatasetAnnotationCompat` in api/endpoints.ts), so its presence
- * is also how this module tells a post-rename row from a pre-rename
- * one.
+ * 🛑 **`value` IS the subject.** Gemma's `731ecfa1d0` did not add a
+ * field called `subject` — it gave `value` that meaning, with the
+ * predicate and object staying in their own fields, and the VO's
+ * javadoc pins it: *"On a Statement row this is the subject's label …
+ * this field never carries a composed sentence."* Verified live on
+ * gemma2 `e9dd6b7f7b`:
  *
- * Pre-rename, that endpoint doesn't expose a separate subject-LABEL
- * field for a statement row: `termUri` is the subject's own URI, but
- * `termName` is a server-composed natural-language string, and its
- * composition isn't one fixed format. Verified against
- * gemma2.msl.ubc.ca 2026-08-30 — three shapes seen on real rows:
+ *     value "hypochlorous acid" · predicate "delivered at dose" · object "0.4 mM"
+ *     value "Prkaa2 [mouse] …"  · predicate "has_genotype"      · object "Homozygous negative"
  *
- *   - object(s) + subject, double-space joined, predicate dropped:
- *     `"Homozygous negative  Il10 [mouse] interleukin 10"`
- *     (subject "Il10 [mouse] interleukin 10", predicate
- *     "has_genotype", object "Homozygous negative")
- *   - subject + predicate + object, single-space, predicate spelled
- *     out: `"brain has role reference subject role"`
- *   - subject + paraphrased predicate + object:
- *     `"astrocytic tumor with grade II"` (predicate "has modifier"
- *     rendered as "with")
+ * So there is nothing to parse. This module reads three fields.
  *
- * Only the first shape is mechanically reversible: subtracting the
- * known object (and secondObject) text from the FRONT of `termName`
- * leaves exactly the subject behind. The other two aren't — there's
- * no reliable way to tell "has role" was dropped vs. paraphrased vs.
- * kept without matching against a vocabulary this module doesn't
- * have. So this only returns a structured statement when the
- * subtraction round-trips exactly; otherwise it returns `null` and
- * the caller keeps rendering `termName` verbatim (today's behaviour,
- * never worse — only better where it's provably right).
+ * 🛑 **Do not go looking for a field named `subject`** — that probe is
+ * what cost a day here. A field list cannot show a change that put new
+ * meaning into an existing field, and eid 38390, the obvious dataset to
+ * sample, has sixteen annotations and ZERO statement rows.
  *
- * @deprecated everything below the `a.value` branch is pre-rename-only
- * string surgery — delete it, and this whole comment down to the
- * `a.value` branch, once every Gemma this app talks to serves
- * b5c6747f68.
+ * **What used to be here.** ~90 lines recovering the subject by
+ * subtracting the object text out of `termName`, because the wire
+ * carried no subject label. It handled two of the three ways Gemma
+ * composed that string and refused the third — 13 of 23 statement rows
+ * across a 15-dataset sample. Deleted 2026-09-01 now that `value`
+ * carries the subject on every row measured (0 of 14 statement rows
+ * across four datasets lacked it).
+ *
+ * A row from a server that never sends `value` returns null and the
+ * caller renders `termName` verbatim — today's behaviour for anything
+ * unparseable, so an older host degrades rather than breaks.
  */
 import type { DatasetAnnotation } from "./types";
 import type { StatementPair } from "@/components/OntologyTermChip";
@@ -53,105 +40,22 @@ export interface AnnotationStatement {
   pairs: StatementPair[];
 }
 
-/** The three predicates Gemma strips from `termName` entirely — clause
- *  and all — so a tag list reads as terms rather than protocol detail
- *  (`ExpressionExperimentReadServiceImpl`'s `ignoredPredicates`).
- *
- *  🛑 **The object is still on the wire.** `AnnotationValueObject`'s
- *  constructor populates `predicate` / `object` straight from the
- *  Statement, unconditionally; `ignoredPredicates` touches only the
- *  composed string. So `dexamethasone delivered at dose 10 µM` arrives
- *  as `termName: "dexamethasone"` with `object: "10 µM"` intact.
- *
- *  That makes these rows the EASY case, not the hard one: because the
- *  clause was removed rather than paraphrased, `termName` is already
- *  the bare subject label and needs no recovery. Measured across 15
- *  datasets, they are 8 of 23 statement rows — and they carry exactly
- *  the quantitative detail that distinguishes otherwise-identical
- *  experiments. Two rows both reading `prime adult stage` are 6-month
- *  mice and 20-31-year-old humans; without the object the page cannot
- *  tell them apart.
- *
- *  @deprecated pre-rename-only: post-b5c6747f68 EVERY row's `value` is
- *  already the bare subject, not just these three predicates' rows, so
- *  this set stops mattering — the `a.value` branch above handles all
- *  of them the same way, dose/duration/stage included, via `pairsOf`.
- *  Delete this set and `isStripped` together with the rest of the
- *  pre-rename branch below. */
-const CLAUSE_STRIPPED_PREDICATES = new Set([
-  "http://gemma.msl.ubc.ca/ont/TGEMO_00166", // delivered at dose
-  "http://gemma.msl.ubc.ca/ont/TGEMO_00167", // delivered for duration
-  "http://gemma.msl.ubc.ca/ont/TGEMO_00168", // has developmental stage
-]);
-
-const isStripped = (uri: string | null | undefined) =>
-  CLAUSE_STRIPPED_PREDICATES.has((uri ?? "").trim());
-
 export function parseAnnotationStatement(
   a: DatasetAnnotation,
 ): AnnotationStatement | null {
+  // No pair means it is a plain characteristic, not a statement.
   const hasFirstPair = !!(a.predicate || a.predicateUri || a.object || a.objectUri);
   if (!hasFirstPair) return null;
-
-  // Post-b5c6747f68, `value` is always the bare subject term — no
-  // sentence was ever composed, so there's nothing to subtract.
-  // `a.value` is populated only when the server actually sent it
-  // (`withDatasetAnnotationCompat`, api/endpoints.ts), which happens
-  // only post-rename, so its presence doubles as the signal that this
-  // row needs none of the string surgery below. The predicate/object
-  // pairs — dose, duration, developmental stage — still come from
-  // `pairsOf`, same as every other branch.
-  if (a.value) {
-    return { subject: a.value, subjectUri: a.valueUri ?? a.termUri ?? null, pairs: pairsOf(a) };
-  }
-
-  // --- everything below is pre-rename-only string surgery: `a.value`
-  // was absent above, so this row came from a server still on the old
-  // field names. Delete once every Gemma this app talks to serves
-  // b5c6747f68 — `a.value` will always be set then, and the branch
-  // above always fires instead. ---
-
-  // Every clause on this row was stripped, so `termName` is the subject
-  // verbatim. Requiring ALL of them — a row mixing a stripped clause
-  // with a composed one still has the composed one inside `termName`,
-  // and using it as the subject would print that clause twice.
-  const hasSecond = !!(
-    a.secondPredicate ||
-    a.secondPredicateUri ||
-    a.secondObject ||
-    a.secondObjectUri
-  );
-  if (
-    isStripped(a.predicateUri) &&
-    (!hasSecond || isStripped(a.secondPredicateUri))
-  ) {
-    const subject = (a.termName ?? "").trim();
-    if (subject) return { subject, subjectUri: a.termUri ?? null, pairs: pairsOf(a) };
-  }
-
-  const expectedPrefix = [a.object, a.secondObject]
-    .map((s) => (s ?? "").trim())
-    .filter(Boolean);
-  // Nothing concrete to anchor the split on (a predicate with no
-  // object text at all) — can't tell subject apart from termName with
-  // any confidence.
-  if (expectedPrefix.length === 0) return null;
-
-  const segments = (a.termName ?? "").trim().split(/ {2,}/).map((s) => s.trim());
-  const prefixMatches =
-    segments.length === expectedPrefix.length + 1 &&
-    expectedPrefix.every((seg, i) => segments[i] === seg);
-  if (!prefixMatches) return null;
-
-  const subject = segments[segments.length - 1];
-  if (!subject) return null;
-
-  const pairs = pairsOf(a);
-
-  return { subject, subjectUri: a.termUri ?? null, pairs };
+  // Absent only on a server predating the rename; the caller falls
+  // back to rendering `termName`.
+  if (!a.value) return null;
+  return {
+    subject: a.value,
+    subjectUri: a.valueUri ?? a.termUri ?? null,
+    pairs: pairsOf(a),
+  };
 }
 
-/** The one or two predicate/object pairs a row carries. */
 function pairsOf(a: DatasetAnnotation): StatementPair[] {
   const pairs: StatementPair[] = [
     {
