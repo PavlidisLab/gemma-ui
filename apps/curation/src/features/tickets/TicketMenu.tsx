@@ -406,6 +406,19 @@ function SearchResults({
       </p>
     );
   }
+  // 🛑 A FAILURE is not an empty result. Without this the menu prints
+  // "No open ticket matches" for a route that errored — the exact
+  // silent-wrong-answer this app forbids of a search elsewhere
+  // (`workflow.ts`: `filter=name like %…%` is rejected for the same
+  // reason). Local mode is the loud case today (the store answers 422),
+  // but any 500 or dropped connection lands here too.
+  if (search.isError) {
+    return (
+      <p className="px-3 py-1.5 text-amber-700 dark:text-amber-300">
+        Could not search tickets. Recent ones above still work.
+      </p>
+    );
+  }
   const hits = (search.data ?? []).filter((h) => !excludeIds.has(h.id));
   if (hits.length === 0) {
     return (

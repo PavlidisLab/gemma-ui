@@ -1,6 +1,7 @@
 import { useQueries } from "@tanstack/react-query";
 
 import { api, ApiError } from "./client";
+import { ticketsBase } from "./tickets";
 
 /**
  * Corpus-wide curation counts for the dashboard's "Under curation"
@@ -110,7 +111,7 @@ export function useCurationCounts() {
         queryKey: ["tickets", "summary"] as const,
         queryFn: async (): Promise<TicketSummary | null> => {
           try {
-            return await api.get<TicketSummary>("/rest/v2/tickets/summary");
+            return await api.get<TicketSummary>(`${ticketsBase()}/tickets/summary`);
           } catch (e) {
             if (e instanceof ApiError) return null;
             throw e;

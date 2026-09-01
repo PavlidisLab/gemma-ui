@@ -423,11 +423,21 @@ function StatusGlyph({
       "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:ring-emerald-800",
     // No fill and no ring — the quietest a glyph can be while still
     // being there. For a state that is true of most rows.
-    muted: "text-slate-400 dark:text-slate-600 ring-transparent",
+    // 🛑 slate-500 both ways. slate-400 on white (~2.8:1) and
+    // slate-600 on the dark ground (~2.6:1) are both under the 3:1
+    // floor for a graphical mark — "subtle" had become "not shown".
+    // This clears it while still reading as background texture.
+    muted: "text-slate-500 dark:text-slate-400 ring-transparent",
   }[tone];
   return (
     <span
       title={label}
+      // 🛑 `role="img"` is what makes the aria-label count. On a bare
+      // span (role=generic) it is ignored, so the word→glyph change
+      // would have exposed only "T" / "A" / "p" to a screen reader —
+      // a regression on the chips it replaced, which carried the word
+      // as text.
+      role="img"
       aria-label={label}
       className={cn(
         "inline-flex items-center justify-center w-4 h-4 rounded text-[10px] font-semibold font-mono ring-1 ring-inset shrink-0",

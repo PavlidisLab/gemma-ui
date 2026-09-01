@@ -770,8 +770,22 @@ export function ExperimentQueue({
   // brand-new empty scratchpad (ticket 7, 0 targets) and found it full
   // of experiments. "No filter" and "a filter that matches nothing"
   // must never render the same way; the second has to show nothing.
+  //
+  // 🛑 **The group half of this was still open.** The first fix guarded
+  // the ticket path only (`&& !groupId`), so a set whose `member_ids`
+  // is empty joined to `""`, which is falsy, which dropped the scope
+  // and listed the corpus again — and EVERY set page did it
+  // transiently, because `group` is undefined while `useGroup` is in
+  // flight and `placeholderData` then keeps those corpus rows on screen
+  // through the corrected refetch. A caller that NAMED a scope is
+  // scoped, whether the scope arrived as ids or as a group.
+  const scopeRequested = Array.isArray(experimentIds) || !!groupId;
   const scopedToNothing =
-    Array.isArray(experimentIds) && experimentIds.length === 0 && !groupId;
+    scopeRequested &&
+    (experimentIds ?? []).length === 0 &&
+    // A group whose members have not arrived yet is not empty, it is
+    // unknown — so it waits rather than showing everything.
+    (!groupId || !group || group.member_ids.length === 0);
 
   // Scope ids: ``experimentIds`` wins (ticket targets); otherwise
   // fall back to the group's member_ids when a groupId is set.
