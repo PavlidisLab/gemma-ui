@@ -91,7 +91,16 @@ export function usePipelineStatusBulk(experimentIds: number[]) {
     queryFn: async () => {
       const raw = await api.post<Record<string, unknown>>(
         `/rest/v2/datasets/pipeline-status`,
-        { dataset_ids: experimentIds },
+        // 🛑 REQUEST bodies are NOT case-normalized — `client.ts`
+        // snakeifies the RESPONSE only, so whatever spelling is written
+        // here is what goes on the wire. Gemma's
+        // `PipelineStatusBulkRequest` knows one property, `datasetIds`,
+        // and answers the snake spelling with a 400 ("Unrecognized
+        // field \"dataset_ids\" ... one known property: \"datasetIds\"")
+        // — every row on a remote-mode queue lost its pipeline status.
+        // The store takes either spelling, so camel is correct in both
+        // modes.
+        { datasetIds: experimentIds },
       );
       const out: Record<string, ExperimentPipelineStatus> = {};
       for (const [k, v] of Object.entries(raw ?? {})) {

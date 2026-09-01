@@ -1176,7 +1176,16 @@ export function ExperimentQueue({
             // means "a ticket you are not looking at".
             tickets={[
               ...(ticket ? [ticket] : []),
-              ...(ticketsByDataset[d.id] ?? []).map(
+              ...(ticketsByDataset[d.id] ?? [])
+                // 🛑 Never let the summary duplicate the ticket already
+                // here in full. The synthesised target below carries no
+                // `status`, so a second copy of THIS ticket walks
+                // straight past the `status !== "DONE"` guard in
+                // `deriveNextTask` — on ticket 6 (398 of 500 targets
+                // DONE) that re-badged every finished row with work it
+                // had already done.
+                .filter((t: TicketSearchHit) => t.id !== ticket?.id)
+                .map(
                 (t: TicketSearchHit) =>
                   ({
                     ...t,

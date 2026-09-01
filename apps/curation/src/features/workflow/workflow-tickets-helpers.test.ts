@@ -550,3 +550,61 @@ describe("deriveNextTask — ticket tone by priority and state", () => {
     expect(task!.tone).toBe("todo");
   });
 });
+
+// ---------------------------------------------------------------------------
+// deriveNextTask — SUMMARY tickets (bulk /datasets/tickets route)
+// ---------------------------------------------------------------------------
+//
+// The queue hands `deriveNextTask` two shapes: full tickets from
+// `useTicket`, and summary rows from `POST /rest/v2/datasets/tickets`
+// that the caller casts to `Ticket`. A summary carries id / title /
+// state / type / targetCount only — no `priority`, and its single
+// target is synthesised, so no `status` either. Both absences reached
+// production on /tickets/6 (2026-09-01) and threw
+// `Cannot read properties of undefined (reading 'toLowerCase')`,
+// unmounting the whole queue.
+
+/** A summary row exactly as the bulk route serves it, cast the way
+ *  `ExperimentQueue` casts it. Deliberately NOT built on `mkTicket` —
+ *  the point is the fields that are missing. */
+function mkSummaryTicket(id: number, datasetId: number): Ticket {
+  return {
+    id,
+    title: "Reference 500 — ongoing curation review",
+    state: "OPEN",
+    type: "CURATION",
+    targets: [{ target_type: "EXPRESSION_EXPERIMENT", target_id: datasetId }],
+  } as unknown as Ticket;
+}
+
+describe("deriveNextTask — a summary ticket has no priority", () => {
+  it("does not throw when priority is absent", () => {
+    expect(() =>
+      deriveNextTask(4242, undefined, [mkSummaryTicket(6, 4242)]),
+    ).not.toThrow();
+  });
+
+  it("renders the ticket task with no priority qualifier", () => {
+    const task = deriveNextTask(4242, undefined, [mkSummaryTicket(6, 4242)]);
+    expect(task).not.toBeNull();
+    expect(task!.source).toBe("ticket");
+    expect(task!.tooltip).toBe(
+      "Ticket: Reference 500 — ongoing curation review",
+    );
+    // Unknown priority must not be guessed as urgent/attention.
+    expect(task!.tone).toBe("todo");
+  });
+
+  it("still appends the qualifier when the priority IS known", () => {
+    const ticket = mkTicket({
+      id: 7,
+      title: "Realign me",
+      priority: "HIGH",
+      targets: [
+        { target_id: 4242, target_type: "EXPRESSION_EXPERIMENT", status: "NOT_DONE" },
+      ],
+    });
+    const task = deriveNextTask(4242, undefined, [ticket]);
+    expect(task!.tooltip).toBe("Ticket: Realign me (high)");
+  });
+});

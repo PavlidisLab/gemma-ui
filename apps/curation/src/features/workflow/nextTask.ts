@@ -179,9 +179,18 @@ export function deriveNextTask(
       ),
   );
   if (ticketHit) {
+    // 🛑 `tickets` can hold a SUMMARY row, not a full ticket. The bulk
+    // `POST /datasets/tickets` route returns id / title / state / type
+    // / targetCount and nothing else — no `priority` — and the queue
+    // passes those rows through a cast (`as unknown as Ticket`), so the
+    // compiler does not catch the gap. Reading `.toLowerCase()` off the
+    // absent field threw for every row on /tickets/6 and took the whole
+    // queue down with it. Unknown priority renders no qualifier rather
+    // than a guessed one; `ticketTone` already tolerates the absence.
+    const priority = ticketHit.priority as typeof ticketHit.priority | undefined;
     return {
       label: ticketVerb(ticketHit),
-      tooltip: `Ticket: ${ticketHit.title}${ticketHit.priority !== "NORMAL" ? ` (${ticketHit.priority.toLowerCase()})` : ""}`,
+      tooltip: `Ticket: ${ticketHit.title}${priority && priority !== "NORMAL" ? ` (${priority.toLowerCase()})` : ""}`,
       tone: ticketTone(ticketHit),
       source: "ticket",
     };
