@@ -216,7 +216,7 @@ export function reasonToSend(
   return null;
 }
 
-import { api } from "@/api/client";
+import { api, ApiError } from "@/api/client";
 
 export type TicketType =
   | "BATCH_INFO_NEEDED"
@@ -225,6 +225,7 @@ export type TicketType =
   | "PRELOAD"
   | "CURATION"
   | "SCREENING"
+  | "SCRATCHPAD"
   | "REVIEW"
   | "GENERIC";
 
@@ -875,6 +876,70 @@ export function useRemoveTicketTarget(ticketId: number) {
   });
 }
 
+/** This curator's scratchpad — `GET /tickets/scratchpad`.
+ *
+ *  Paul, 2026-08-31: *"each curator would automatically get a
+ *  scratchpad that is pinned first on their dashboard"*. A scratchpad
+ *  is a ticket kept open indefinitely where **finishing means removing
+ *  the dataset**, not closing the ticket — which is why
+ *  `useRemoveTicketTarget` matters as much as the add, and why a
+ *  scratchpad should not count as outstanding work.
+ *
+ *  🛑 **The GET provisions on first access** — that is gembro's
+ *  contract, not a side effect this hook invents. It is called from the
+ *  dashboard because that is where "first access" naturally happens.
+ *
+ *  🛑 **Not deployed yet** (gembro, in flight). A 404 is the ordinary
+ *  answer today and means "no scratchpad", never an error: the pinning
+ *  simply has nothing to pin and the dashboard renders as it did
+ *  before. Same for a host that never grows the route. */
+export function useMyScratchpad() {
+  return useQuery<Ticket | null>({
+    queryKey: ["ticket", "scratchpad"],
+    queryFn: async () => {
+      try {
+        return await api.get<Ticket>(`${ticketsBase()}/tickets/scratchpad`);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** The dashboard order, with the scratchpad hoisted to the front.
+ *
+ *  🛑 **Pinning is the CLIENT's job** — gembro makes the scratchpad
+ *  findable, not ordered — so it is applied AFTER the curator's chosen
+ *  sort rather than folded into the comparator. A curator who sorts by
+ *  priority still gets their scratchpad first; the pin is a property of
+ *  the dashboard, not of the sort.
+ *
+ *  Deduped on id, so a scratchpad that also appears in the fetched list
+ *  is hoisted rather than doubled. Any ticket typed `SCRATCHPAD` is
+ *  pinned even when the route did not return one, which is what makes
+ *  this work before the route deploys.
+ *
+ *  Exported for test. */
+export function pinScratchpadFirst(
+  tickets: Ticket[],
+  scratchpad?: Ticket | null,
+): Ticket[] {
+  const pinnedIds = new Set<number>();
+  const pinned: Ticket[] = [];
+  const push = (t: Ticket | null | undefined) => {
+    if (!t || pinnedIds.has(t.id)) return;
+    pinnedIds.add(t.id);
+    pinned.push(t);
+  };
+  push(scratchpad);
+  for (const t of tickets) if (t.type === "SCRATCHPAD") push(t);
+  if (pinned.length === 0) return tickets;
+  return [...pinned, ...tickets.filter((t) => !pinnedIds.has(t.id))];
+}
+
 export function useMyTickets(
   options: {
     refetchInterval?: number | false;
@@ -1007,6 +1072,8 @@ export function ticketTypeLabel(t: TicketType): string {
       return "Curation";
     case "SCREENING":
       return "Screening";
+    case "SCRATCHPAD":
+      return "Scratchpad";
     case "REVIEW":
       return "Review";
     case "GENERIC":

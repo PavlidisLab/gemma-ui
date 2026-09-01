@@ -18,7 +18,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { markdownToPlainText } from "@/lib/markdown";
 import {
+  useMyScratchpad,
   useMyTickets,
+  pinScratchpadFirst,
   usePatchTicket,
   ticketTypeLabel,
   ticketPriorityRank,
@@ -296,15 +298,35 @@ export function CuratorDashboard({
     includeClosed,
     light: true,
   });
+  // 🛑 This GET provisions the scratchpad on first access — gembro's
+  // contract, and the dashboard is where "first access" happens. It is
+  // not deployed yet, so today it answers 404 and the pin has nothing
+  // to pin, which renders exactly as the dashboard did before.
+  const scratchpad = useMyScratchpad();
 
   // Apply the chip filter, then sort by the curator's chosen order
   // (default: newest filed first).
   const filteredTickets = (tickets ?? []).filter((t) =>
     ticketMatchesFilter(t, filter),
   );
-  const sortedTickets = filteredTickets
-    .slice()
-    .sort((a, b) => compareTickets(a, b, sort));
+  // 🛑 The scratchpad is pinned AFTER the curator's sort, not folded
+  // into the comparator (Paul: "each curator would automatically get a
+  // scratchpad that is pinned first on their dashboard"; gembro makes
+  // it findable, the ordering is ours). Sorting by priority still puts
+  // the scratchpad first — the pin is a property of this dashboard, not
+  // of the sort.
+  //
+  // Filtered first, so a scratchpad excluded by the chip filter stays
+  // excluded. Pinning past the filter would make "Resolved" show an
+  // open ticket.
+  const sortedTickets = pinScratchpadFirst(
+    filteredTickets.slice().sort((a, b) => compareTickets(a, b, sort)),
+    // Only pin the fetched scratchpad when it survives the same filter
+    // the list did, for the same reason.
+    scratchpad.data && ticketMatchesFilter(scratchpad.data, filter)
+      ? scratchpad.data
+      : null,
+  );
 
   // Per-filter counts for the chip labels. Computed over the full
   // fetched list (``includeClosed`` is always on above), so every chip
