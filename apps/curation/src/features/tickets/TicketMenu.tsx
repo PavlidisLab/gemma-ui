@@ -6,7 +6,9 @@ import {
   ticketQueryOptions,
   useAddTicketTargets,
   useRemoveTicketTarget,
+  useTicketSearch,
   type Ticket,
+  type TicketSearchHit,
 } from "@/api/tickets";
 import { cn } from "@/lib/cn";
 import { CreateTicketForExperimentModal } from "./CreateTicketForExperimentModal";
@@ -42,9 +44,10 @@ import {
  * misclick silently moves the frame of reference the comparison chips
  * and the ‹ › walker are anchored to.
  *
- * 🛑 **Typing to find an unvisited ticket is not here yet.** It needs
- * `GET /tickets/search` (spec §3), which gembro has in flight. The add
- * and remove routes themselves ARE live (gemma2 `41f45962c5`). The menu
+ * Typing finds a ticket the curator has never opened — `GET
+ * /tickets/search`, live since gemma2 `96605f3cee3f`. Recents stay
+ * above it: "the one I was just in" should never require typing, and a
+ * scratchpad is by definition the ticket just used. The menu
  * degrades honestly without it — recents plus current membership covers
  * the scratchpad workflow completely — and the search box will be an
  * addition rather than a rework, because "the one I was just in" should
@@ -64,6 +67,7 @@ export function TicketMenu({
   onClose: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const [busyTicketId, setBusyTicketId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -137,9 +141,29 @@ export function TicketMenu({
         </>
       )}
 
-      {recents.length > 0 ? (
+      <SectionLabel>Add to another ticket</SectionLabel>
+      <div className="px-2 pb-1">
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Ticket number or title…"
+          className="w-full px-2 py-1 text-xs border border-slate-300 rounded outline-none focus:border-blue-500 dark:bg-slate-800 dark:border-slate-600 dark:text-slate-100 dark:placeholder-slate-500"
+        />
+      </div>
+      <SearchResults
+        query={query}
+        experimentId={experimentId}
+        excludeIds={memberIds}
+        busyTicketId={busyTicketId}
+        onBusy={setBusyTicketId}
+        onError={setError}
+        onDone={() => membership.refetch()}
+      />
+
+      {query.trim().length < 2 && recents.length > 0 ? (
         <>
-          <SectionLabel>Add to a recent ticket</SectionLabel>
+          <SectionLabel>Recent</SectionLabel>
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {recents.map((t) => (
               <AddRow
@@ -168,12 +192,6 @@ export function TicketMenu({
         >
           + New ticket from this experiment…
         </button>
-        {/* Named rather than hidden: the curator should be able to see
-            that finding an unvisited ticket is coming, not wonder why
-            the menu only offers the ones they happen to have opened. */}
-        <p className="px-2 pb-1 pt-0.5 text-[10px] text-slate-400 dark:text-slate-500">
-          Searching all tickets by name or number is not wired up yet.
-        </p>
       </div>
 
       <CreateTicketForExperimentModal
@@ -346,6 +364,131 @@ function AddRow({
         <span className="block text-[10px] text-slate-500 dark:text-slate-400">
           #{ticket.id} · {ticket.state}
           {canAdd ? "" : " · fixed worklist"}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+/** Hits for a typed query, offered as add targets.
+ *
+ *  🛑 Silent below two characters — one character matches most of the
+ *  corpus and teaches nothing, and the recents list is what serves the
+ *  no-typing case. Rendering nothing there is deliberate, not a
+ *  loading state.
+ *
+ *  A hit already on the ticket is dropped: it is listed above under
+ *  membership, where it carries a Remove rather than an Add. */
+function SearchResults({
+  query,
+  experimentId,
+  excludeIds,
+  busyTicketId,
+  onBusy,
+  onError,
+  onDone,
+}: {
+  query: string;
+  experimentId: number;
+  excludeIds: Set<number>;
+  busyTicketId: number | null;
+  onBusy: (id: number | null) => void;
+  onError: (msg: string | null) => void;
+  onDone: () => void;
+}) {
+  const search = useTicketSearch(query);
+  const q = query.trim();
+  if (q.length < 2) return null;
+  if (search.isLoading) {
+    return (
+      <p className="px-3 py-1.5 text-slate-500 dark:text-slate-400 italic">
+        Searching…
+      </p>
+    );
+  }
+  const hits = (search.data ?? []).filter((h) => !excludeIds.has(h.id));
+  if (hits.length === 0) {
+    return (
+      <p className="px-3 py-1.5 text-slate-500 dark:text-slate-400 italic">
+        No open ticket matches "{q}".
+      </p>
+    );
+  }
+  return (
+    <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+      {hits.map((h) => (
+        <SearchRow
+          key={h.id}
+          hit={h}
+          experimentId={experimentId}
+          busy={busyTicketId === h.id}
+          onBusy={onBusy}
+          onError={onError}
+          onDone={onDone}
+        />
+      ))}
+    </ul>
+  );
+}
+
+/** One search hit. Mirrors `AddRow`, but a hit carries `target_count`
+ *  rather than a full ticket — the search route deliberately never
+ *  hydrates targets, so this cannot reuse `AddRow`'s `Ticket`. */
+function SearchRow({
+  hit,
+  experimentId,
+  busy,
+  onBusy,
+  onError,
+  onDone,
+}: {
+  hit: TicketSearchHit;
+  experimentId: number;
+  busy: boolean;
+  onBusy: (id: number | null) => void;
+  onError: (msg: string | null) => void;
+  onDone: () => void;
+}) {
+  const add = useAddTicketTargets(hit.id);
+  return (
+    <li>
+      <button
+        type="button"
+        disabled={busy}
+        title={`Add this experiment to "${hit.title}"`}
+        onClick={() => {
+          onError(null);
+          onBusy(hit.id);
+          add.mutate([{ target_id: experimentId }], {
+            onSuccess: () => {
+              onBusy(null);
+              pushRecentTicketId(hit.id);
+              onDone();
+            },
+            onError: (e) => {
+              onBusy(null);
+              // 🛑 A 409 here is `acceptsTargets: false` or a closed
+              // ticket, and the search does not carry that flag — so
+              // the row cannot be greyed in advance and the message has
+              // to carry the reason instead.
+              onError(
+                e instanceof Error
+                  ? `Could not add: ${e.message}`
+                  : "Could not add it to this ticket.",
+              );
+            },
+          });
+        }}
+        className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50"
+      >
+        <span className="block truncate text-slate-800 dark:text-slate-100">
+          {busy ? "Adding…" : hit.title}
+        </span>
+        <span className="block text-[10px] text-slate-500 dark:text-slate-400">
+          #{hit.id} · {hit.state}
+          {typeof hit.target_count === "number"
+            ? ` · ${hit.target_count} target${hit.target_count === 1 ? "" : "s"}`
+            : ""}
         </span>
       </button>
     </li>

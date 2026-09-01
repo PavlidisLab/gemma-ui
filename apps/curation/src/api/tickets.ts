@@ -880,6 +880,61 @@ export function useRemoveTicketTarget(ticketId: number) {
   });
 }
 
+/** One hit from `GET /tickets/search`, post-`snakeify`.
+ *
+ *  🛑 **`target_count`, not `targets`.** It comes from a scalar SQL
+ *  count, so drawing twenty rows never hydrates a ticket or touches its
+ *  targets — ticket 6 reports 500 without loading 500 rows. That is the
+ *  whole reason this is a separate route rather than `GET /tickets`. */
+export interface TicketSearchHit {
+  id: number;
+  title: string;
+  state: TicketState;
+  type: TicketType;
+  target_count?: number | null;
+  updated_at?: string | null;
+}
+
+/** Find a ticket by number or title (gembro `96605f3cee3f`, live).
+ *
+ *  Paul's constraint: there can be a lot of tickets, so the picker is a
+ *  typed query rather than a list of everything.
+ *
+ *  🛑 **"Verbatim id" means DIGITS ONLY.** `6` is ticket 6 and sorts
+ *  first; `#6`, `6 samples` and `-6` are treated as title text. A
+ *  lenient parse would float an unrelated ticket to the top whenever
+ *  someone typed a number followed by a word. Wildcards are escaped
+ *  server-side, so `50%` searches for a literal "50%".
+ *
+ *  🛑 **A scratchpad is offered to its own reporter and nobody else —
+ *  that is RELEVANCE, not access control.** It stays readable through
+ *  `GET /tickets/{id}`. Never build a permission assumption on its
+ *  absence from these results.
+ *
+ *  `limit` above the server's cap is a 400, not a silent clamp. */
+export function useTicketSearch(query: string, enabled = true) {
+  const q = query.trim();
+  return useQuery<TicketSearchHit[]>({
+    queryKey: ["tickets", "search", q],
+    // One character matches most of the corpus and teaches nothing;
+    // the menu already lists recents for the no-typing case.
+    enabled: enabled && q.length >= 2,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        query: q,
+        openOnly: "true",
+        limit: "20",
+      });
+      const rows = await api.get<TicketSearchHit[] | null>(
+        `${ticketsBase()}/tickets/search?${params.toString()}`,
+      );
+      return Array.isArray(rows) ? rows : [];
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
 /** This curator's scratchpad — `GET /tickets/scratchpad`.
  *
  *  Paul, 2026-08-31: *"each curator would automatically get a
