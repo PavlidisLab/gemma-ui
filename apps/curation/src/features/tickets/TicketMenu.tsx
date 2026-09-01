@@ -43,7 +43,8 @@ import {
  * and the ‹ › walker are anchored to.
  *
  * 🛑 **Typing to find an unvisited ticket is not here yet.** It needs
- * `GET /tickets/search` (spec §3), which gembro has in flight. The menu
+ * `GET /tickets/search` (spec §3), which gembro has in flight. The add
+ * and remove routes themselves ARE live (gemma2 `41f45962c5`). The menu
  * degrades honestly without it — recents plus current membership covers
  * the scratchpad workflow completely — and the search box will be an
  * addition rather than a rework, because "the one I was just in" should

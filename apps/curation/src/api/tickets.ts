@@ -797,9 +797,13 @@ export function useCreateTicketFromAccession() {
  *
  *  Errors worth handling at the call site: **409** — the ticket is
  *  RESOLVED / CANCELLED, or its `accepts_targets` is false; **404** —
- *  no such ticket, or the route is not deployed on this host yet.
- *  Those two 404s are indistinguishable from here, which is why the UI
- *  says "could not add" rather than naming a cause. */
+ *  no such ticket, or a host that does not carry the route. Those two
+ *  404s are indistinguishable from here, which is why the UI says
+ *  "could not add" rather than naming a cause.
+ *
+ *  Live on gemma2 since `41f45962c5` (2026-09-01). Ticket 6 answers a
+ *  real add with 409 because its `acceptsTargets` is false — that is
+ *  the flag working, not a fault. */
 export interface AddTargetsResult {
   added: number[];
   already_present: number[];
