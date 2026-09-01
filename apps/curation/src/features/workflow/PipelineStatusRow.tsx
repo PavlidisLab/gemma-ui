@@ -172,12 +172,22 @@ export function PipelineStatusRow({
   // `POST /datasets/pipeline-status`, which is the same shape. So a
   // missing `#` here means "not known", never "not on a ticket", and
   // the glyph is therefore only ever shown, never negated.
-  const onTicketCount = (tickets ?? []).filter((t) =>
-    (t.targets ?? []).some(
-      (x) =>
-        x.target_type === "EXPRESSION_EXPERIMENT" &&
-        x.target_id === dataset.id,
-    ),
+  //
+  // 🛑 The ticket the curator is ALREADY looking at does not count.
+  // Inside a ticket queue every row is one of its targets by
+  // definition, so counting it put a `#` on all fifty — the wall of
+  // identical marks the private glyph below is careful to avoid, and
+  // it said nothing the page title did not (Paul, 2026-09-01: "hide
+  // the '#' in the ticket queue"). What is worth a mark is membership
+  // of a ticket you are NOT in.
+  const onTicketCount = (tickets ?? []).filter(
+    (t) =>
+      String(t.id) !== String(ticketContext ?? "") &&
+      (t.targets ?? []).some(
+        (x) =>
+          x.target_type === "EXPRESSION_EXPERIMENT" &&
+          x.target_id === dataset.id,
+      ),
   ).length;
 
   const nextTask = deriveNextTask(
