@@ -29,6 +29,7 @@ import {
   getPlatformByShortName,
   getPlatformElementCount,
   getPlatformElements,
+  platformAnnotationsDownloadUrl,
 } from "@/api/endpoints";
 import type { PlatformElement } from "@/api/endpoints";
 import { encodeSearchSettings } from "@/features/browser/shareLink";
@@ -45,7 +46,10 @@ import {
   ProbeSequence,
 } from "./probeDetail";
 import { PageMask } from "@gemma/ui";
-import { platformRouteParam } from "@/lib/platformConstants";
+import {
+  platformHasAnnotationFile,
+  platformRouteParam,
+} from "@/lib/platformConstants";
 
 const ELEMENTS_PAGE = 50;
 const DATASETS_PAGE = 25;
@@ -84,6 +88,7 @@ export function PlatformDetailPage() {
         <Breadcrumbs name={p.shortName ?? name} />
         <Hero platform={p} />
         <DescriptionCard platform={p} />
+        <AnnotationFileCard platform={p} />
         {/* Two-up tables — each in its own ~24rem scrolling viewport
          *  so we don't burn vertical screen space and the curator can
          *  compare Datasets + Elements side-by-side. */}
@@ -295,6 +300,59 @@ function Stat({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The platform's annotation file, offered as a download.
+ *
+ * This is NOT the ontology-annotation idea the dataset page shows —
+ * platforms don't carry those (Paul, 2026-09-01). It is the element →
+ * gene mapping: one row per probe/element with gene symbols, GO terms
+ * and NCBI ids. A section that tried to render it as annotation chips
+ * lived here until `0e36b02`; a link is what the route actually
+ * supports, and what the file is useful as.
+ *
+ * Hidden for SEQUENCING platforms, which have no element set and so no
+ * file — the URL 404s for them. See `platformAnnotationsDownloadUrl`
+ * for the per-technology-type measurements behind that.
+ */
+function AnnotationFileCard({ platform: p }: { platform: Platform }) {
+  if (!platformHasAnnotationFile(p.technologyType)) return null;
+  const id = p.shortName ?? p.id;
+  return (
+    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-2">
+      <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
+        Annotation file
+      </div>
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+        {/* Served with `Content-Disposition: attachment`, so a plain
+            anchor saves the file — no JS, and the big generic
+            platforms never pass through memory. */}
+        <a
+          className="text-gemma-accent hover:underline"
+          href={platformAnnotationsDownloadUrl(id)}
+        >
+          Download annotations (TSV)
+        </a>
+        <span className="text-[11px] text-gemma-subtle">or</span>
+        <a
+          className="text-[11px] text-gemma-accent hover:underline"
+          href={platformAnnotationsDownloadUrl(id, { gzip: true })}
+        >
+          gzipped
+        </a>
+      </div>
+      <div className="text-[11px] text-gemma-subtle">
+        One row per element: <span className="font-mono">ElementName</span>,{" "}
+        <span className="font-mono">GeneSymbols</span>,{" "}
+        <span className="font-mono">GOTerms</span>,{" "}
+        <span className="font-mono">GemmaIDs</span>,{" "}
+        <span className="font-mono">NCBIids</span>. Older files say{" "}
+        <span className="font-mono">ProbeName</span> for{" "}
+        <span className="font-mono">ElementName</span>.
+      </div>
+    </section>
   );
 }
 

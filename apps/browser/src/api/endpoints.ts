@@ -1111,6 +1111,46 @@ export function datasetDataDownloadUrl(
 }
 
 /**
+ * URL for a platform's annotation file — the element → gene mapping
+ * Gemma publishes per platform. Columns: `ElementName`, `GeneSymbols`,
+ * `GOTerms`, `GemmaIDs`, `NCBIids` (older files say `ProbeName` for
+ * `ElementName`).
+ *
+ * A plain `<a href>` is all this needs, and unlike `/resultSets/{id}`
+ * there is no content-negotiation trap to dodge: the route produces
+ * ONLY `text/tab-separated-values`, so the `Accept` header a browser
+ * sends on an anchor click — which ranks HTML first and reaches the
+ * wildcard only at `q=0.8` — still gets the TSV (verified against
+ * 2.9.4), and the server sends `Content-Disposition: attachment;
+ * filename="GPL96.an.txt"` so the click saves a properly-named file.
+ *
+ * `gzip: true` maps to the route's `download` parameter, which serves
+ * the `.an.txt.gz` as `application/octet-stream`. Worth offering
+ * because the generic gene-list pseudoplatforms are big.
+ *
+ * 🛑 **`SEQUENCING` platforms have no annotation file** and this URL
+ * 404s for them — they carry no element set to map (`numberOfElements`
+ * is null). Measured across every populated technology type on 2.9.4:
+ * ONECOLOR (GPL96, GPL1355), TWOCOLOR (GPL890), DUALMODE (GPL1310) and
+ * GENELIST (Generic_human_ncbiIds) all serve it; SEQUENCING (GPL16791,
+ * GPL11154) does not. Callers should gate on the type rather than offer
+ * a link that fails — see `AnnotationFileCard`.
+ *
+ * 🛑 Do NOT add a `limit` (or any other) parameter. The route accepts
+ * `download` and `force` and rejects everything else with a 400 — which
+ * is exactly how the old `getPlatformAnnotations` was broken from the
+ * day it landed: it sent `limit=500`, so the platform page's annotation
+ * section never once rendered (`1797aea` → removed in `0e36b02`).
+ */
+export function platformAnnotationsDownloadUrl(
+  idOrShortName: number | string,
+  opts?: { gzip?: boolean },
+): string {
+  const path = `${BASE}/platforms/${idOrShortName}/annotations`;
+  return opts?.gzip ? `${path}?download=true` : path;
+}
+
+/**
  * Fetch a result-set as TSV and trigger a browser download.
  *
  * Why JS-driven instead of a plain `<a href>`: the
