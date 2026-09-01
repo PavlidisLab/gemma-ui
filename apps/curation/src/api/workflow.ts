@@ -330,9 +330,13 @@ export function useDatasetsPaginated(params: DatasetListParams) {
   // with the scope expressed as a filter.
   const scopeAsFilter =
     mode === "remote" && !!params.ids && !!params.query;
-  const filter = [params.filter, scopeAsFilter ? idScopeFilter(params.ids!) : null]
+  // 🛑 Each side parenthesised. `and` binds tighter than `or`, so a
+  // caller filter of `a = 1 or b = 2` joined bare would scope only the
+  // second disjunct and return rows from outside the scope.
+  const clauses = [params.filter, scopeAsFilter ? idScopeFilter(params.ids!) : null]
     .filter(Boolean)
-    .join(" and ");
+    .map((c) => `(${c})`);
+  const filter = clauses.length > 1 ? clauses.join(" and ") : (params.filter ?? (scopeAsFilter ? idScopeFilter(params.ids!) : ""));
   if (params.query)  p.set("query",  params.query);
   if (filter)        p.set("filter", filter);
   if (params.sort)   p.set("sort",   params.sort);

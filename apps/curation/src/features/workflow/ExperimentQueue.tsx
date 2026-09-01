@@ -25,7 +25,8 @@ import type {
   StepStatus,
 } from "@/api/workflowTypes";
 import { readDirtyExperimentIds } from "@/features/design/draftCache";
-import { useTicket } from "@/api/tickets";
+import { useTicket, type Ticket, type TicketSearchHit } from "@/api/tickets";
+import { useDatasetTickets } from "@/api/datasetTickets";
 import { useAuditsForExperiments } from "@/api/audits";
 import { useProposalReviewsForExperiments } from "@/api/reviewProposals";
 import { reasonSlugLabel } from "@/features/audit/dispositionChips";
@@ -770,8 +771,22 @@ export function ExperimentQueue({
   // brand-new empty scratchpad (ticket 7, 0 targets) and found it full
   // of experiments. "No filter" and "a filter that matches nothing"
   // must never render the same way; the second has to show nothing.
+  //
+  // 🛑 **The group half of this was still open.** The first fix guarded
+  // the ticket path only (`&& !groupId`), so a set whose `member_ids`
+  // is empty joined to `""`, which is falsy, which dropped the scope
+  // and listed the corpus again — and EVERY set page did it
+  // transiently, because `group` is undefined while `useGroup` is in
+  // flight and `placeholderData` then keeps those corpus rows on screen
+  // through the corrected refetch. A caller that NAMED a scope is
+  // scoped, whether the scope arrived as ids or as a group.
+  const scopeRequested = Array.isArray(experimentIds) || !!groupId;
   const scopedToNothing =
-    Array.isArray(experimentIds) && experimentIds.length === 0 && !groupId;
+    scopeRequested &&
+    (experimentIds ?? []).length === 0 &&
+    // A group whose members have not arrived yet is not empty, it is
+    // unknown — so it waits rather than showing everything.
+    (!groupId || !group || group.member_ids.length === 0);
 
   // Scope ids: ``experimentIds`` wins (ticket targets); otherwise
   // fall back to the group's member_ids when a groupId is set.
@@ -799,6 +814,15 @@ export function ExperimentQueue({
   const total = scopedToNothing ? 0 : (page?.total_elements ?? 0);
 
   const { data: statusMap = {} } = usePipelineStatusBulk(allRows.map((r) => r.id));
+
+  // 🛑 Ticket membership for the rows ON SCREEN, in one call. Before
+  // `POST /datasets/tickets` existed the row could only be told about a
+  // ticket the queue already held, so the `#` glyph was on every row
+  // inside a ticket and absent everywhere else. Keyed on presence: a
+  // dataset on no ticket has no key.
+  const { data: ticketsByDataset = {} } = useDatasetTickets(
+    allRows.map((r) => r.id),
+  );
 
   // Ticket-target-status lookup. In a ticket context, the ticket's
   // ``targets[i].status`` (NOT_DONE / UNDERWAY / DONE) is the truth
@@ -1146,7 +1170,27 @@ export function ExperimentQueue({
             // non-group / global queue view).
             navId={memberIdByNumericId.get(d.id) ?? String(d.id)}
             hasLocalDraft={dirtyDraftIds.has(String(d.id))}
-            tickets={ticket ? [ticket] : null}
+            // The queue's own ticket (for `nextTask`) plus whatever
+            // else holds this row. `PipelineStatusRow` drops the one in
+            // the URL's context from the glyph count, so the mark still
+            // means "a ticket you are not looking at".
+            tickets={[
+              ...(ticket ? [ticket] : []),
+              ...(ticketsByDataset[d.id] ?? []).map(
+                (t: TicketSearchHit) =>
+                  ({
+                    ...t,
+                    // The bulk route returns SUMMARIES — no targets, by
+                    // design, so fifty rows never hydrate a 500-member
+                    // ticket. The row only asks "does this hold me", so
+                    // the one target it needs is synthesised here rather
+                    // than fetched.
+                    targets: [
+                      { target_type: "EXPRESSION_EXPERIMENT", target_id: d.id },
+                    ],
+                  }) as unknown as Ticket,
+              ),
+            ]}
             groupType={group?.type}
             groupTaskKind={group?.task_kind ?? null}
             leadingBadge={leadingBadge}

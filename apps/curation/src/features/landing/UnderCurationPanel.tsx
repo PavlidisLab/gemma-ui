@@ -207,7 +207,16 @@ function CurationCounts() {
                   Open tickets
                 </dt>
                 <dd className="text-lg font-semibold text-slate-800 dark:text-slate-100 tabular-nums">
-                  {(summary.total_open ?? 0).toLocaleString()}
+                  {/* 🛑 A dash, not a zero — the same rule the status
+                      tiles obey. A summary that came back without
+                      `totalOpen` has not told us there are none. */}
+                  {typeof summary.total_open === "number" ? (
+                    summary.total_open.toLocaleString()
+                  ) : (
+                    <span className="text-slate-400" title="Could not ask.">
+                      —
+                    </span>
+                  )}
                   {summary.scratchpad_open ? (
                     <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
                       + {summary.scratchpad_open} scratchpad

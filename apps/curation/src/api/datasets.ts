@@ -119,15 +119,20 @@ export function datasetMatchesQuery(r: DatasetSummary, query: string): boolean {
 
 /** How many catalogue rows remote mode will pull before stopping.
  *
- *  Five pages at Gemma's 100-row cap. Enough for the list to be useful
- *  on arrival, far short of the 25,695 rows a full walk would need — and
- *  a walk that long does not load, it hangs.
+ *  🛑 **Raised from 500 to 2,000 on 2026-09-01, and it stopped being
+ *  the design.** The list now asks Gemma for `inCuration = true` rather
+ *  than the corpus — 712 datasets, eight pages, not 257 — so this is a
+ *  guard against that number growing, not a deliberate truncation of a
+ *  corpus we cannot walk. At 500 it would have hidden 212 of the 712
+ *  silently, which is the failure the note below is about, introduced
+ *  by the fix for it.
  *
- *  🛑 Consumers showing a list built from `useDatasets` MUST say when
- *  they are at this cap. A silently truncated catalogue reads as "that
- *  experiment is not in Gemma", which is the wrong answer to give a
- *  curator about a corpus of 25,000. */
-export const REMOTE_CATALOGUE_CAP = 500;
+ *  🛑 Consumers showing a list built from `useDatasets` MUST still say
+ *  when they are at this cap. A silently truncated catalogue reads as
+ *  "that experiment is not in Gemma", which is the wrong answer to give
+ *  a curator — and search reaches the rest, including everything not in
+ *  curation at all. */
+export const REMOTE_CATALOGUE_CAP = 2000;
 
 /** One catalogue row, from either producer.
  *
@@ -143,7 +148,8 @@ export const REMOTE_SEARCH_LIMIT = 100;
  * Search the WHOLE catalogue, server-side.
  *
  * 🛑 The client-side filter cannot answer this in remote mode. The list
- * holds a bounded prefix (`REMOTE_CATALOGUE_CAP`, 500) of Gemma's
+ * holds the experiments in curation (`inCuration`), bounded by
+ * `REMOTE_CATALOGUE_CAP`, rather than a prefix of Gemma's
  * ~25,700, so anything past the cut reads as "not in Gemma" — a
  * confident wrong answer. GSE107613 is real, sits at id 14164, and the
  * box said nothing.
@@ -241,16 +247,42 @@ export function useDatasets(options: { refetchInterval?: number | false } = {}) 
       // 100-row cap is 257 SEQUENTIAL requests, which hangs the page
       // rather than loading it. Measured on gemma2, 2026-08-28.
       //
-      // So remote mode takes a bounded prefix and says so. The honest
-      // fix is server-side search — the client should ask Gemma to
-      // filter rather than pulling the corpus over to filter it here —
-      // but a partial list that admits it beats a page that never
-      // finishes.
+      // 🛑 **Remote mode asks for the experiments IN CURATION, not the
+      // corpus.** This page is titled "Experiments staged for curation"
+      // and the dashboard links to it as "Browse all experiments in
+      // curation"; against Gemma it was listing all 25,695, because the
+      // store's contents used to BE the curation set and remote mode
+      // silently turned the same query into everything (Paul,
+      // 2026-09-01: "it should only show experiments that are in
+      // curation, like it says on the dashboard").
+      //
+      // `inCuration` is Gemma's own flag, filterable since
+      // `16dfb28512ce` — 712 datasets, which is eight pages rather than
+      // 257, so the bounded prefix that admitted defeat is no longer
+      // needed. The cap stays as a guard against the day that number
+      // grows, not as the design.
+      //
+      // 🛑 This scopes the DEFAULT LIST only. Search still reaches any
+      // experiment in Gemma — `useDatasetSearch` sends `query=` to the
+      // server — because a curator has to be able to find a dataset
+      // that is not in curation yet in order to put it on a ticket.
+      //
+      // 🛑 **Do not add `curationDetails.troubled` to this filter.** A
+      // handoff warns that `AbstractCuratableDao` hides troubled rows
+      // unless a caller names that field, so the 4 troubled datasets
+      // would be missing here. Measured against gemma2 `16dfb28512ce`
+      // and it does not hold: `filter=id in (4071,4080,4738,25717)`
+      // names nothing about troubled and returns all four, and a walk
+      // of all eight pages of the query below finds 4071 and 25717
+      // among the 712. The other two have `needsAttention` false and no
+      // open ticket, so they are not in curation at all. Widening the
+      // filter would pull them in.
+      const scope = remote ? "&filter=" + encodeURIComponent("inCuration = true") : "";
       const maxRows = remote ? REMOTE_CATALOGUE_CAP : Infinity;
       const raw: WorkflowDatasetListResponse["data"] = [];
       for (let offset = 0; ; offset += PAGE) {
         const resp = await api.get<WorkflowDatasetListResponse>(
-          `/rest/v2/datasets?limit=${PAGE}&offset=${offset}`,
+          `/rest/v2/datasets?limit=${PAGE}&offset=${offset}${scope}`,
         );
         raw.push(...resp.data);
         // Stop when the server returned a short (final) page or we've

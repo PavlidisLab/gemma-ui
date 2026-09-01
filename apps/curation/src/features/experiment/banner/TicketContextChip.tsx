@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { useTicket } from "@/api/tickets";
+import { useTicketMemberLabels } from "@/api/ticketMemberLabels";
 import { cn } from "@/lib/cn";
 import { StatusDisc } from "@/components/ui/StatusDisc";
 import { navigate, siblingExperimentRoute } from "@/routes";
@@ -336,6 +337,31 @@ function TicketNavigatorPopover({
     );
   }, [anchorRef]);
 
+  // 🛑 Gemma sends `displayLabel`/`displayName` null on every target, so
+  // the rows read "31491 (no title)" and the filter box had nothing to
+  // filter on. Resolved here rather than papered over: a populated
+  // label from the server still wins, and this fills in only where it
+  // is absent. See `api/ticketMemberLabels.ts`.
+  // 🛑 Only when the server left a gap. Gemma populates `displayLabel`
+  // as of `16dfb28512ce`, so on a current host this asks for nothing;
+  // an older one still gets readable rows.
+  const missingLabels = targets.filter((t) => !t.display_label);
+  const { data: labels } = useTicketMemberLabels(
+    missingLabels.map((t) => t.target_id),
+    missingLabels.length > 0,
+  );
+  const labelled = useMemo(
+    () =>
+      targets.map((t) => ({
+        ...t,
+        display_label:
+          t.display_label ?? labels?.[t.target_id]?.short_name ?? undefined,
+        display_name:
+          t.display_name ?? labels?.[t.target_id]?.name ?? undefined,
+      })),
+    [targets, labels],
+  );
+
   const currentIdx = targets.findIndex(
     (t) => t.target_id === currentExperimentId,
   );
@@ -389,13 +415,17 @@ function TicketNavigatorPopover({
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return targets;
-    return targets.filter(
+    if (!q) return labelled;
+    return labelled.filter(
       (t) =>
         (t.display_label ?? "").toLowerCase().includes(q) ||
-        (t.display_name ?? "").toLowerCase().includes(q),
+        (t.display_name ?? "").toLowerCase().includes(q) ||
+        // The id is what the row shows until a label resolves, so it
+        // has to be searchable too — otherwise a filter typed before
+        // the labels land matches nothing.
+        String(t.target_id).includes(q),
     );
-  }, [targets, query]);
+  }, [labelled, query]);
 
   return (
     <div

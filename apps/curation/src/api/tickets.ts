@@ -55,7 +55,7 @@ export function asTicketList(raw: unknown): Ticket[] {
   return [];
 }
 
-function ticketsBase(): string {
+export function ticketsBase(): string {
   return resolveGemmaMode().mode === "remote" ? "/rest/v2" : "/curation/v1";
 }
 

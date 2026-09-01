@@ -172,12 +172,22 @@ export function PipelineStatusRow({
   // `POST /datasets/pipeline-status`, which is the same shape. So a
   // missing `#` here means "not known", never "not on a ticket", and
   // the glyph is therefore only ever shown, never negated.
-  const onTicketCount = (tickets ?? []).filter((t) =>
-    (t.targets ?? []).some(
-      (x) =>
-        x.target_type === "EXPRESSION_EXPERIMENT" &&
-        x.target_id === dataset.id,
-    ),
+  //
+  // 🛑 The ticket the curator is ALREADY looking at does not count.
+  // Inside a ticket queue every row is one of its targets by
+  // definition, so counting it put a `#` on all fifty — the wall of
+  // identical marks the private glyph below is careful to avoid, and
+  // it said nothing the page title did not (Paul, 2026-09-01: "hide
+  // the '#' in the ticket queue"). What is worth a mark is membership
+  // of a ticket you are NOT in.
+  const onTicketCount = (tickets ?? []).filter(
+    (t) =>
+      String(t.id) !== String(ticketContext ?? "") &&
+      (t.targets ?? []).some(
+        (x) =>
+          x.target_type === "EXPRESSION_EXPERIMENT" &&
+          x.target_id === dataset.id,
+      ),
   ).length;
 
   const nextTask = deriveNextTask(
@@ -423,11 +433,21 @@ function StatusGlyph({
       "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:ring-emerald-800",
     // No fill and no ring — the quietest a glyph can be while still
     // being there. For a state that is true of most rows.
-    muted: "text-slate-400 dark:text-slate-600 ring-transparent",
+    // 🛑 slate-500 both ways. slate-400 on white (~2.8:1) and
+    // slate-600 on the dark ground (~2.6:1) are both under the 3:1
+    // floor for a graphical mark — "subtle" had become "not shown".
+    // This clears it while still reading as background texture.
+    muted: "text-slate-500 dark:text-slate-400 ring-transparent",
   }[tone];
   return (
     <span
       title={label}
+      // 🛑 `role="img"` is what makes the aria-label count. On a bare
+      // span (role=generic) it is ignored, so the word→glyph change
+      // would have exposed only "T" / "A" / "p" to a screen reader —
+      // a regression on the chips it replaced, which carried the word
+      // as text.
+      role="img"
       aria-label={label}
       className={cn(
         "inline-flex items-center justify-center w-4 h-4 rounded text-[10px] font-semibold font-mono ring-1 ring-inset shrink-0",
