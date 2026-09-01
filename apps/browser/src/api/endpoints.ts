@@ -9,6 +9,7 @@ import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
   AnnotationSearchResult,
   AnnotationTerm,
+  Category,
   CategoryWithChildren,
   Dataset,
   DatasetAnnotation,
@@ -77,6 +78,82 @@ const DISALLOWED_CATEGORY_FILTER_PREFIXES = [
  *  they leaked into the facet query unnoticed. */
 export const unquantify = (sc: string) => sc.replace(/^(?:any|none|all)\(/i, "");
 
+/* ------------- the four renamed annotation fields -------------
+ *
+ * 🛑 **Four fields were renamed with no aliases** — a hard rename,
+ * because the thing removed was itself a compatibility shim (gembro,
+ * `b5c6747f68`):
+ *
+ *     className -> category      termName -> value
+ *     classUri  -> categoryUri   termUri  -> valueUri
+ *
+ * gemma2 serves the new names and none of the old ones. Confirmed
+ * against 2.9.4 (2026-08-31): `classUri` and `termName` do not appear
+ * anywhere in `/rest/v2/openapi.json`, and the schemas the three
+ * routes below declare carry only the new spelling.
+ *
+ * 🛑 **THREE routes serve these fields, and every one of them needs
+ * the adapter.** The first pass at this (`21420e9`) fixed only the
+ * third and reported its blast radius as "four consumers" — the
+ * census was `DatasetAnnotation`-typed, and the facet routes deal in
+ * `Category` / `AnnotationTerm`, sibling types with the same four
+ * field names fed by different endpoints. The two facet routes then
+ * silently degraded for a day: `getCategoriesWithChildren` derives
+ * `catId` from `classUri || className`, got `""` for every row, and
+ * returned an EMPTY panel — indistinguishable from a filter that
+ * legitimately matched nothing.
+ *
+ *   GET /datasets/categories            CategoryWithUsageStatisticsValueObject
+ *   GET /datasets/annotations           AnnotationWithUsageStatisticsValueObject
+ *   GET /datasets/{id}/annotations      AnnotationValueObject
+ *
+ * Coalescing (rather than renaming `Category` / `AnnotationTerm`) is
+ * what keeps this correct against an older Gemma as well as a current
+ * one, which matters while the dev proxy and production can be on
+ * different builds. It is a bounded transition: once every Gemma this
+ * app talks to serves `b5c6747f68` or later, delete the three `Wire*`
+ * interfaces and their normalizers and read the new names directly.
+ *
+ * Not every annotation route needs this. `/annotations/search`
+ * (`AnnotationSearchResultValueObject`) was born with `category` /
+ * `value` and never had the old spelling, so `searchAnnotations` and
+ * its caller read the wire directly — correctly.
+ * ------------------------------------------------------------- */
+
+/** A category facet row as `/datasets/categories` serves it. */
+interface WireCategory extends Partial<Category> {
+  category?: string | null;
+  categoryUri?: string | null;
+}
+
+/** Exported for test. */
+export function normalizeCategory(c: WireCategory): Category {
+  return {
+    className: c.category ?? c.className ?? null,
+    classUri: c.categoryUri ?? c.classUri ?? null,
+    numberOfExpressionExperiments: c.numberOfExpressionExperiments,
+  };
+}
+
+/** A term facet row as `/datasets/annotations` serves it. */
+interface WireAnnotationTerm extends Partial<AnnotationTerm> {
+  category?: string | null;
+  categoryUri?: string | null;
+  value?: string | null;
+  valueUri?: string | null;
+}
+
+/** Exported for test. */
+export function normalizeAnnotationTerm(t: WireAnnotationTerm): AnnotationTerm {
+  return {
+    className: t.category ?? t.className ?? null,
+    classUri: t.categoryUri ?? t.classUri ?? null,
+    termName: t.value ?? t.termName ?? null,
+    termUri: t.valueUri ?? t.termUri ?? null,
+    numberOfExpressionExperiments: t.numberOfExpressionExperiments,
+  };
+}
+
 export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) {
   // Strip annotation-style sub-clauses from the filter — we don't want
   // selecting a value to hide the category it belongs to.
@@ -104,11 +181,15 @@ export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) 
     params.excludeUncategorizedTerms = "true";
     params.excludedTerms = await compressArg(excludedTerms.join(","));
   }
-  return apiGet<PaginatedResponse<{
-    classUri: string | null;
-    className: string | null;
-    numberOfExpressionExperiments?: number;
-  }>>(`${BASE}/datasets/categories`, { params, signal });
+  // Renamed fields coalesced HERE, at the one adapter for this route.
+  const r = await apiGet<PaginatedResponse<WireCategory>>(
+    `${BASE}/datasets/categories`,
+    { params, signal },
+  );
+  return {
+    ...r,
+    data: (r.data ?? []).map(normalizeCategory),
+  } as PaginatedResponse<Category>;
 }
 
 export interface AnnotationsByCategoryArgs {
@@ -136,7 +217,15 @@ export async function getAnnotationsByCategory(args: AnnotationsByCategoryArgs, 
     params.excludedTerms = await compressArg(excludedTerms.join(","));
     if (args.excludeFreeText) params.excludeFreeTextTerms = "true";
   }
-  return apiGet<PaginatedResponse<AnnotationTerm>>(`${BASE}/datasets/annotations`, { params, signal });
+  // Renamed fields coalesced HERE, at the one adapter for this route.
+  const r = await apiGet<PaginatedResponse<WireAnnotationTerm>>(
+    `${BASE}/datasets/annotations`,
+    { params, signal },
+  );
+  return {
+    ...r,
+    data: (r.data ?? []).map(normalizeAnnotationTerm),
+  } as PaginatedResponse<AnnotationTerm>;
 }
 
 export interface PlatformsArgs {
@@ -701,17 +790,10 @@ export async function getMyself(signal?: AbortSignal): Promise<User | null> {
   }
 }
 
-/** One annotation row as Gemma serves it today, before this adapter
- *  puts it back into `DatasetAnnotation`'s vocabulary.
- *
- *  🛑 **Four fields were renamed with no aliases** — a hard rename,
- *  because the thing removed was itself a compatibility shim (gembro,
- *  `b5c6747f68`):
- *
- *      className -> category      termName -> value
- *      classUri  -> categoryUri   termUri  -> valueUri
- *
- *  gemma2 `0293d82c47` serves the new names and none of the old ones. */
+/** One annotation row as `/datasets/{id}/annotations` serves it, before
+ *  this adapter puts it back into `DatasetAnnotation`'s vocabulary. The
+ *  rename, and why all three routes coalesce rather than re-type, is
+ *  documented once at "the four renamed annotation fields" above. */
 interface WireDatasetAnnotation extends Partial<DatasetAnnotation> {
   category?: string | null;
   categoryUri?: string | null;
@@ -722,26 +804,25 @@ interface WireDatasetAnnotation extends Partial<DatasetAnnotation> {
 /**
  * A dataset's annotations — every one of them.
  *
- * 🛑 **`includeFreeText=true` is required, and it is the only parameter
- * this route accepts.** Without it Gemma omits every UNGROUNDED
- * annotation, and an omitted row is indistinguishable from an absent
- * one. Measured on eid 38390: 4 rows by default, 5 with the flag, the
- * fifth a `strain` stored since the original load with a null
- * `valueUri`. A curator hunted that tag on two Gemma sites and
- * concluded it had been invented. Ungrounded terms are real annotations
- * and belong on the page (Paul, 2026-08-31); they simply are not
- * clickable filters, which `isSelectable` already handles by requiring
- * the term to be in the available-annotation tree.
+ * 🛑 **`includeFreeText=true` is sent deliberately, and it is the only
+ * parameter this route accepts.** On an older Gemma, omitting it drops
+ * every UNGROUNDED annotation, and an omitted row is indistinguishable
+ * from an absent one: measured on eid 38390, 4 rows by default and 5
+ * with the flag, the fifth a `strain` stored since the original load
+ * with a null `valueUri`. A curator hunted that tag on two Gemma sites
+ * and concluded it had been invented.
  *
- * 🛑 **Both field spellings are read, HERE, at the one adapter** rather
- * than at each of the four consumers — the same shape of fix
- * `apps/curation` made in `e7dae4e`. Coalescing (rather than renaming
- * the type) is what keeps this correct against an older Gemma as well
- * as a current one, which matters while the dev proxy and production
- * can be on different builds. It is a bounded transition: once every
- * Gemma this app talks to serves `b5c6747f68` or later, delete
- * `WireDatasetAnnotation` and the mapping and read the new names
- * directly.
+ * 2.9.4 no longer needs asking — the same eid returns all 16 rows,
+ * ungrounded `strain` included, flag or no flag (measured 2026-08-31).
+ * The parameter is still declared on the route, so keep sending it:
+ * it is what makes the response correct against the older builds the
+ * dev proxy can still be pointed at, and it is a no-op against a
+ * current one.
+ *
+ * Ungrounded terms are real annotations and belong on the page (Paul,
+ * 2026-08-31); they simply are not clickable filters, which
+ * `isSelectable` already handles by requiring the term to be in the
+ * available-annotation tree.
  */
 export async function getDatasetAnnotations(datasetId: number, signal?: AbortSignal) {
   const r = await apiGet<PaginatedResponse<WireDatasetAnnotation>>(

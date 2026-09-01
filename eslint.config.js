@@ -137,9 +137,18 @@ export default tseslint.config(
       "react-refresh/only-export-components": "off",
     },
   },
-  // Vite / config / Node-context files.
+  // Vite / config / Node-context files. `**/scripts/**` covers the
+  // stand-alone maintenance scripts each app keeps (contract probes,
+  // fixture emitters) — they run under Node, not in a browser, so
+  // `process` / `console` / `fetch` are all legitimately global.
   {
-    files: ["**/vite.config.ts", "**/eslint.config.{js,ts}", "**/postcss.config.{js,cjs}", "**/tailwind.config.{js,ts}"],
+    files: [
+      "**/vite.config.ts",
+      "**/eslint.config.{js,ts}",
+      "**/postcss.config.{js,cjs}",
+      "**/tailwind.config.{js,ts}",
+      "**/scripts/**/*.{js,mjs,cjs,ts}",
+    ],
     languageOptions: {
       globals: {
         ...globals.node,
