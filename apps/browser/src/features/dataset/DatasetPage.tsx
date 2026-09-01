@@ -10,6 +10,11 @@ import { useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 import {
+  groupStatementsBySubject,
+  statementHasPair,
+  type StatementGroup,
+} from "@/lib/statementGroups";
+import {
   getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
@@ -58,7 +63,6 @@ import type {
   BioMaterialFactorValueAssignment,
   ExperimentalFactorEntry,
   FactorValueBasic,
-  FactorValueStatement,
   Publication,
   PipelineStatus,
   DiffExAnalysis,
@@ -1291,8 +1295,12 @@ function FactorValueRow({
       ) : null}
       {visibleStmts.length > 0 ? (
         <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-          {visibleStmts.map((s, i) => (
-            <StatementLine key={s.id ?? i} statement={s} />
+          {/* One line per SUBJECT, not per statement. Gemma stores the
+              pairs flat and repeats the subject on each, so a value
+              carrying "delivered for duration 2 d" and "delivered at
+              dose 1 µM" printed GSK2879552 and its CURIE twice. */}
+          {groupStatementsBySubject(visibleStmts).map((g, i) => (
+            <StatementLine key={g.statements[0]?.id ?? i} group={g} />
           ))}
         </div>
       ) : !value.isMeasurement && visibleChars.length > 0 ? (
@@ -1326,34 +1334,47 @@ function FactorValueRow({
   );
 }
 
-/** One S-P-O statement line — subject [predicate] object, with the
- *  curation conventions: ontology-resolved terms in emerald chips,
- *  free-text in muted italic, predicate in slate. Missing parts are
- *  omitted so a subject-only statement reads as just the subject. */
-function StatementLine({ statement }: { statement: FactorValueStatement }) {
-  const hasSubject = !!(statement.subject || statement.subjectUri);
-  const hasPredicate = !!(statement.predicate || statement.predicateUri);
-  const hasObject = !!(statement.object || statement.objectUri);
+/** One SUBJECT and everything said about it — subject chip once,
+ *  followed by each [predicate] object pair.
+ *
+ *  Ontology-resolved terms in emerald chips, predicate in slate, and
+ *  missing parts omitted so a subject-only statement reads as just the
+ *  subject. Same shape the curation editor uses for a multi-pair
+ *  subject, so the two surfaces describe one value the same way. */
+function StatementLine({ group }: { group: StatementGroup }) {
+  const hasSubject = !!(group.subject || group.subjectUri);
+  const pairs = group.statements.filter(statementHasPair);
   return (
     <div className="flex items-baseline gap-1 flex-wrap text-[12px]">
       {hasSubject ? (
-        <OntologyTermChip uri={statement.subjectUri ?? null}>
-          {statement.subject ?? ""}
+        <OntologyTermChip uri={group.subjectUri ?? null}>
+          {group.subject ?? ""}
         </OntologyTermChip>
       ) : null}
-      {hasPredicate ? (
-        <OntologyTermChip
-          uri={statement.predicateUri ?? null}
-          variant="predicate"
-        >
-          {statement.predicate ?? ""}
-        </OntologyTermChip>
-      ) : null}
-      {hasObject ? (
-        <OntologyTermChip uri={statement.objectUri ?? null}>
-          {statement.object ?? ""}
-        </OntologyTermChip>
-      ) : null}
+      {pairs.map((s, i) => {
+        const hasPredicate = !!(s.predicate || s.predicateUri);
+        const hasObject = !!(s.object || s.objectUri);
+        return (
+          <span
+            key={s.id ?? i}
+            className="inline-flex items-baseline gap-1 flex-wrap"
+          >
+            {hasPredicate ? (
+              <OntologyTermChip
+                uri={s.predicateUri ?? null}
+                variant="predicate"
+              >
+                {s.predicate ?? ""}
+              </OntologyTermChip>
+            ) : null}
+            {hasObject ? (
+              <OntologyTermChip uri={s.objectUri ?? null}>
+                {s.object ?? ""}
+              </OntologyTermChip>
+            ) : null}
+          </span>
+        );
+      })}
     </div>
   );
 }
