@@ -24,7 +24,6 @@ import { Pencil as PencilIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/Spinner";
 import { platformPageUrl } from "@/lib/gemmaUrls";
 import { TicketMenu } from "@/features/tickets/TicketMenu";
-import { pushRecentTicketId } from "@/features/tickets/recentTickets";
 import { useExperimentSetsFor } from "@/api/experimentSets";
 import {
   inferModality,
@@ -1987,7 +1986,11 @@ export function TicketContextChip({
         type="button"
         aria-expanded={menuOpen}
         onClick={() => setMenuOpen((v) => !v)}
-        title="Ticket management for this experiment"
+        title={
+          Number.isFinite(ticketId)
+            ? "Back to the ticket, and ticket management for this experiment"
+            : "Ticket management for this experiment"
+        }
         className={cn(
           "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer",
           "border-violet-300 bg-violet-100 text-violet-800",
@@ -1996,7 +1999,12 @@ export function TicketContextChip({
           menuOpen && "ring-2 ring-offset-1 ring-violet-400/50",
         )}
       >
-        <span>Tickets</span>
+        {/* The ← is kept when there is somewhere to go back TO. Going
+            back is now the first row of the menu rather than a second
+            button, so the arrow is a hint about what is inside, not a
+            second affordance. */}
+        {Number.isFinite(ticketId) ? <span aria-hidden>←</span> : null}
+        <span>{Number.isFinite(ticketId) ? "Ticket" : "Tickets"}</span>
         <span aria-hidden className="text-violet-700/70 dark:text-violet-300/70">
           ▾
         </span>
@@ -2092,20 +2100,12 @@ export function TicketContextChip({
   // popover member list per-row.
   return (
     <span ref={wrapRef} className="relative inline-flex items-center gap-2 text-[11px]">
-      <a
-        href={`#/tickets/${ticketId}`}
-        className={cn(
-          "inline-flex items-center gap-1 px-1.5 py-0.5 rounded border cursor-pointer no-underline",
-          "border-violet-300 bg-violet-100 text-violet-800",
-          "hover:bg-violet-200 hover:no-underline",
-          "dark:border-violet-700 dark:bg-violet-900/40 dark:text-violet-200 dark:hover:bg-violet-900/60",
-        )}
-        title={`Back to ticket: ${ticket.title}`}
-        onClick={() => pushRecentTicketId(ticketId)}
-      >
-        <span aria-hidden>←</span>
-        <span>Ticket</span>
-      </a>
+      {/* 🛑 One ticket button, not two (Paul, 2026-09-01: "having two
+          buttons for tickets is awkward"). The standalone `← Ticket`
+          back-link is gone; the management dropdown below carries the
+          arrow and lists the current ticket first, marked "you came
+          from here", so going back is one click either way. */}
+      {managementMenu}
       <button
         type="button"
         aria-expanded={open}
@@ -2159,13 +2159,6 @@ export function TicketContextChip({
         ›
       </button>
       <TicketTargetStatusDot status={currentTarget?.status ?? null} />
-      {/* Management sits AFTER the walker: back-link, then which
-          member, then what to do about membership. Its own dropdown
-          rather than a section inside the member popover — that one is
-          navigation within a ticket and this is bookkeeping across
-          tickets, and merging them made a 200-member list scroll past
-          the actions. */}
-      {managementMenu}
       {open ? (
         <TicketNavigatorPopover
           ticketId={ticketId}
