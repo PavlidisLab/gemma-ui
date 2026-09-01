@@ -196,7 +196,7 @@ describe("termValidation — summary", () => {
 // `disease` tag category as "not checked". EFO_0000408 is
 // `obsolete_disease` in current EFO, so the index cannot name it —
 // while Gemma goes on using it as the disease category and publishes
-// `disease` as its name on /rest/v2/categories. Suppressing the row
+// `disease` as its name on /rest/v2/annotations/categories. Suppressing the row
 // would only have hidden the symptom; consulting the category list
 // answers it.
 describe("termValidation — Gemma's category list outranks the index", () => {

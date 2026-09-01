@@ -101,7 +101,8 @@ function normLabel(s: string | null | undefined): string {
  * root it doesn't ingest, `biological process` / `GO_0008150`. Both
  * came back `unknown` while being exactly right, because Gemma keeps
  * using those URIs as categories and publishes its own name for them
- * on `/rest/v2/categories`. That list is the carve-out; consult it
+ * on `/rest/v2/annotations/categories`. That list is the carve-out;
+ * consult it
  * rather than describing the phenomenon in prose.
  *
  * Only fills GAPS. A pair the index DID name keeps the index's
@@ -116,7 +117,8 @@ function normLabel(s: string | null | undefined): string {
  * excludes published categories itself as of 2026-08-16
  * (`CAB_TO_UIB_2026_08_16_OBSOLETE_VERDICT_LANDED.md`); this stays as
  * the client-side half, because that exclusion is keyed on a static
- * table that can lag what `/rest/v2/categories` actually publishes.
+ * table that can lag what `/rest/v2/annotations/categories` actually
+ * publishes.
  * Any future "we couldn't judge this" status belongs in this guard too.
  *
  * Returns `null` when there is nothing to say.
