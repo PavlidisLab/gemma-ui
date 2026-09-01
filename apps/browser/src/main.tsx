@@ -9,6 +9,7 @@ import {
 import "./index.css";
 import { routeTree } from "./routeTree";
 import { ApiError } from "./api/client";
+import { initAnalytics } from "./lib/analytics";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -70,6 +71,11 @@ declare module "@tanstack/react-router" {
     router: typeof router;
   }
 }
+
+// Google Analytics. Called once, outside the React tree: StrictMode
+// double-invokes effects in development, and this must not load the tag
+// twice. It self-gates to a public origin — see lib/analytics.ts.
+initAnalytics(router);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

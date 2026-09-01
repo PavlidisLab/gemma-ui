@@ -237,12 +237,17 @@ function Banner({
   const me = useMe();
   const curateHref = me.data ? curationUrl(`/#/experiments/${dataset.id}`) : null;
 
+  // Pipeline state is operator information — which analyses have run on
+  // this dataset, and which failed. Admin-only, and gated on the FETCH
+  // rather than just the render so a non-admin's dataset page does not
+  // issue the request at all.
   const pipeline = useQuery({
     queryKey: ["pipelineStatus", dataset.id],
     queryFn: ({ signal }) => getDatasetPipelineStatus(dataset.id, signal),
     staleTime: 5 * 60_000,
+    enabled: isAdmin,
   });
-  const ps = pipeline.data ?? null;
+  const ps = isAdmin ? (pipeline.data ?? null) : null;
 
   return (
     <section className="sticky top-0 z-10 bg-white border-b border-slate-200">
@@ -387,7 +392,7 @@ function Banner({
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
         {SHOW_GEEQ && geeq && <GeeqChip geeq={geeq} />}
-        {ps?.troubled && (
+        {ps?.isTroubled && (
           <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 shrink-0"
             title={ps.troubleDetails ?? undefined}>
             troubled
@@ -418,19 +423,19 @@ const STEP_LABELS: Record<string, string> = {
 
 function PipelineStatusRow({ ps }: { ps: PipelineStatus }) {
   const shown = ps.steps.filter(
-    (s) => s.state !== "notApplicable" && s.step in STEP_LABELS,
+    (s) => s.status !== "notApplicable" && s.step in STEP_LABELS,
   );
   if (!shown.length) return null;
   return (
     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
       {shown.map((s) => (
         <span key={s.step}
-          title={s.lastRun ? `${s.step}: ${s.state} — ${s.lastRun}` : `${s.step}: ${s.state}`}
+          title={s.lastRun ? `${s.step}: ${s.status} — ${s.lastRun}` : `${s.step}: ${s.status}`}
           className={
             "text-[10px] px-1.5 py-0.5 rounded border font-mono " +
-            (s.state === "ok"     ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-             s.state === "failed" ? "bg-red-50 text-red-700 border-red-200" :
-                                    "bg-slate-100 text-slate-500 border-slate-200")
+            (s.status === "ok"     ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+             s.status === "failed" ? "bg-red-50 text-red-700 border-red-200" :
+                                     "bg-slate-100 text-slate-500 border-slate-200")
           }>
           {STEP_LABELS[s.step]}
         </span>
