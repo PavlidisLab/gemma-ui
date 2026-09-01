@@ -132,9 +132,17 @@ export interface AgentProposalDesign {
 export interface AgentProposalPayload {
   gse: string;
   run_id: string;
-  tags: AgentProposalTag[];
-  design: AgentProposalDesign;
-  notes: unknown[];
+  /** 🛑 **Optional, because a proposal is monolithic and its SCOPE
+   *  varies** (Paul, 2026-09-01: *"a proposal can contain any number of
+   *  things at once … the scope might be limited to factors or tags or
+   *  the entire experiment, either way that's a proposal"*). One agent
+   *  run is one proposal, so a `design_proposer` run proposes no tags
+   *  and the key is simply absent — annotation set 4 on dataset 27438
+   *  is exactly that, and it is valid. Declaring these required made
+   *  every consumer's `.map` a crash on a real payload. */
+  tags?: AgentProposalTag[];
+  design?: AgentProposalDesign;
+  notes?: unknown[];
   /** Proposal-wide subtask decisions (target_id = "" or referencing
    *  a specific element). Populated today across all 50 GSEs. */
   subtask_decisions?: SubtaskDecision[];

@@ -111,8 +111,8 @@ export function agentProposalToApplyArgs(payload: AgentProposalPayload): {
   factors: ApplyFactorArg[];
 } {
   return {
-    tags: payload.tags.map(tagToArg),
-    factors: payload.design.proposed_factors.map(factorToArg),
+    tags: (payload.tags ?? []).map(tagToArg),
+    factors: (payload.design?.proposed_factors ?? []).map(factorToArg),
   };
 }
 
@@ -249,8 +249,8 @@ export function agentProposalToLegacyProposal(
     // the model id.
     agent_version: agentProposal.agent_version,
     status: "pending",
-    tags: payload.tags.map(tagFromAgent),
-    factors: payload.design.proposed_factors.map(factorFromAgent),
+    tags: (payload.tags ?? []).map(tagFromAgent),
+    factors: (payload.design?.proposed_factors ?? []).map(factorFromAgent),
     evidence: {
       preboarding_excerpt: "",
       paper_source: null,
