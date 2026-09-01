@@ -27,7 +27,7 @@ import {
 } from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
-import { gemmaMarkAmber, ubcLogo } from "@gemma/assets";
+import { gemmaMarkAmber } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge, Panel } from "../panels";
@@ -661,8 +661,7 @@ function Masthead() {
     <div className="border-b border-stone-950 bg-stone-100">
       {/* One shared baseline across the wordmark, the tagline and the
           right-side controls — `last baseline` on this row, resolved by the
-          browser from the face that actually rendered. The UBC logo opts out
-          with `self-end` so it still pins to the masthead rule. */}
+          browser from the face that actually rendered. */}
       <div className="flex gap-3 flex-wrap" style={LAST_BASELINE}>
         {/* Mark + typed wordmark. There is no wordmark-only cut of the mark,
             so the word is set in the UI face. Both are inline boxes on one
@@ -736,23 +735,6 @@ function Masthead() {
             )}
           </div>
         </div>
-
-        {/* UBC logo — pinned to the masthead rule. A replaced box has no
-            text baseline to share, so it opts out of the row's baseline
-            alignment and bottom-aligns instead. */}
-        <a
-          href="https://www.ubc.ca/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="self-end"
-        >
-          <img
-            src={ubcLogo}
-            alt="University of British Columbia"
-            style={{ height: 40 }}
-            className="block w-auto"
-          />
-        </a>
       </div>
       <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />

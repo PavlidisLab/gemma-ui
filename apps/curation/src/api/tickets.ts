@@ -216,7 +216,7 @@ export function reasonToSend(
   return null;
 }
 
-import { api } from "@/api/client";
+import { api, ApiError } from "@/api/client";
 
 export type TicketType =
   | "BATCH_INFO_NEEDED"
@@ -225,6 +225,7 @@ export type TicketType =
   | "PRELOAD"
   | "CURATION"
   | "SCREENING"
+  | "SCRATCHPAD"
   | "REVIEW"
   | "GENERIC";
 
@@ -342,6 +343,22 @@ export interface Ticket {
   created_at: string;
   updated_at: string;
   external_issue_url: string | null;
+  /** Whether targets may be appended to this ticket AFTER creation —
+   *  `TICKET.ACCEPTS_TARGETS`, added 2026-08-31 (gembro `d674aa78df`,
+   *  migration V39).
+   *
+   *  🛑 **A server-side permission, not a UI hint.** `POST
+   *  /tickets/{id}/targets` 409s when it is false; this field exists so
+   *  the menu can grey the action instead of offering something that
+   *  will fail. Never treat a client-side check as the constraint.
+   *
+   *  Defaults false, including on tickets that predate it — a curated
+   *  worklist of exactly 500 datasets is a different object from a
+   *  scratchpad, and nothing should be able to grow a reference set by
+   *  a stray click. `undefined` on any host that has not deployed the
+   *  field yet, which reads the same as false and is the safe way
+   *  round. */
+  accepts_targets?: boolean;
   /** Curator-facing instructions for the ticket — the "what does
    *  the curator need to do" text the reporter writes when filing.
    *
@@ -453,6 +470,25 @@ export function ticketBaselineSource(
   } catch {
     return null;
   }
+}
+
+/** One ticket, as a plain query-options object.
+ *
+ *  Same key and fetch as `useTicket`, so the two share a cache entry —
+ *  but without its polling default, which exists for a ticket page
+ *  watching a runner flip targets. The recents menu resolves several
+ *  ids at once purely to check they still exist; polling six tickets
+ *  every 15 s behind a dropdown would be pure waste.
+ *
+ *  🛑 Intended for `useQueries`. An error here means the ticket is
+ *  gone, closed, or not visible to this curator, and the caller should
+ *  drop it rather than retry — pass `retry: false`. */
+export function ticketQueryOptions(id: number) {
+  return {
+    queryKey: ["ticket", id] as const,
+    queryFn: async () =>
+      await api.get<Ticket>(`${ticketsBase()}/tickets/${id}`),
+  };
 }
 
 /** Fetch a single ticket by id.
@@ -568,6 +604,13 @@ export interface TicketCreateBody {
     target_id: number;
     status?: "NOT_DONE" | "UNDERWAY" | "DONE";
   }>;
+  /** Whether targets may be appended after creation — see
+   *  `Ticket.accepts_targets`. Omitted rather than sent false when the
+   *  curator did not tick the box: the server default is false, and a
+   *  boxed Boolean there distinguishes "not specified" from an explicit
+   *  false, so an unrelated edit cannot silently close an open
+   *  scratchpad. */
+  accepts_targets?: boolean;
 }
 
 /** Store ticket types that are not Gemma's, and what to do with each.
@@ -740,6 +783,249 @@ export function useCreateTicketFromAccession() {
  *  long-running ticket action (PRELOAD runner, future agent
  *  passes) poll this to pick up per-target status changes that bump
  *  the ``IN_PROGRESS`` filter. */
+/** Add targets to an existing ticket —
+ *  `POST /tickets/{id}/targets` (gembro `d674aa78df`).
+ *
+ *  🛑 **Idempotent on `(targetType, targetId)`.** Re-adding is a no-op
+ *  reported as `alreadyPresent`, not a duplicate row and not a 409:
+ *  the menu may have been open for a minute, so the client cannot know
+ *  membership at click time, and a curator clicking twice must not
+ *  corrupt a 500-target ticket.
+ *
+ *  Takes an ARRAY because a bulk "add these twelve" from the dashboard
+ *  is the obvious next caller and should not need twelve round-trips.
+ *
+ *  Errors worth handling at the call site: **409** — the ticket is
+ *  RESOLVED / CANCELLED, or its `accepts_targets` is false; **404** —
+ *  no such ticket, or a host that does not carry the route. Those two
+ *  404s are indistinguishable from here, which is why the UI says
+ *  "could not add" rather than naming a cause.
+ *
+ *  Live on gemma2 since `41f45962c5` (2026-09-01). Ticket 6 answers a
+ *  real add with 409 because its `acceptsTargets` is false — that is
+ *  the flag working, not a fault. */
+export interface AddTargetsResult {
+  added: number[];
+  already_present: number[];
+  ticket: Ticket;
+}
+
+export function useAddTicketTargets(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      targets: Array<{ target_type?: TicketTargetType; target_id: number }>,
+    ) => {
+      // `targetType` is optional server-side and defaults to
+      // EXPRESSION_EXPERIMENT; sent explicitly anyway so the request
+      // says what it means.
+      return await api.post<AddTargetsResult>(
+        `${ticketsBase()}/tickets/${ticketId}/targets`,
+        {
+          targets: targets.map((t) => ({
+            target_type: t.target_type ?? "EXPRESSION_EXPERIMENT",
+            target_id: t.target_id,
+          })),
+        },
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
+      qc.invalidateQueries({ queryKey: ["tickets"] });
+    },
+  });
+}
+
+/** Remove one target from a ticket —
+ *  `DELETE /tickets/{id}/targets/{targetType}/{targetId}`.
+ *
+ *  🛑 **This is the completion gesture on a scratchpad**, not a rare
+ *  correction: Paul's framing is a ticket kept open indefinitely where
+ *  finishing means removing the dataset rather than closing the ticket.
+ *  So it belongs in the menu at the same level as add, and must not sit
+ *  behind a confirm-heavy path.
+ *
+ *  Idempotent — removing a target the ticket does not have answers 204
+ *  rather than 404, for the same stale-menu reason as the add.
+ *
+ *  🛑 The response carries the removed row's `status`, which is what
+ *  says whether anything was lost. Removing a `DONE` row discards a
+ *  record of completed work and deserves a word to the curator;
+ *  removing a `NOT_DONE` row — every row on a scratchpad — is the
+ *  unremarkable case and must not prompt. */
+export interface RemoveTargetResult {
+  target_type: TicketTargetType;
+  target_id: number;
+  status: TicketTargetStatus | null;
+  ticket: Ticket;
+}
+
+export function useRemoveTicketTarget(ticketId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (target: {
+      target_type?: TicketTargetType;
+      target_id: number;
+    }) => {
+      const type = target.target_type ?? "EXPRESSION_EXPERIMENT";
+      // 204 unwraps to null — the ticket did not have this target.
+      return await api.delete<RemoveTargetResult | null>(
+        `${ticketsBase()}/tickets/${ticketId}/targets/${type}/${target.target_id}`,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
+      qc.invalidateQueries({ queryKey: ["tickets"] });
+    },
+  });
+}
+
+/** One hit from `GET /tickets/search`, post-`snakeify`.
+ *
+ *  🛑 **`target_count`, not `targets`.** It comes from a scalar SQL
+ *  count, so drawing twenty rows never hydrates a ticket or touches its
+ *  targets — ticket 6 reports 500 without loading 500 rows. That is the
+ *  whole reason this is a separate route rather than `GET /tickets`. */
+export interface TicketSearchHit {
+  id: number;
+  title: string;
+  state: TicketState;
+  type: TicketType;
+  target_count?: number | null;
+  updated_at?: string | null;
+}
+
+/** Find a ticket by number or title (gembro `96605f3cee3f`, live).
+ *
+ *  Paul's constraint: there can be a lot of tickets, so the picker is a
+ *  typed query rather than a list of everything.
+ *
+ *  🛑 **"Verbatim id" means DIGITS ONLY.** `6` is ticket 6 and sorts
+ *  first; `#6`, `6 samples` and `-6` are treated as title text. A
+ *  lenient parse would float an unrelated ticket to the top whenever
+ *  someone typed a number followed by a word. Wildcards are escaped
+ *  server-side, so `50%` searches for a literal "50%".
+ *
+ *  🛑 **A scratchpad is offered to its own reporter and nobody else —
+ *  that is RELEVANCE, not access control.** It stays readable through
+ *  `GET /tickets/{id}`. Never build a permission assumption on its
+ *  absence from these results.
+ *
+ *  `limit` above the server's cap is a 400, not a silent clamp. */
+export function useTicketSearch(query: string, enabled = true) {
+  const q = query.trim();
+  return useQuery<TicketSearchHit[]>({
+    queryKey: ["tickets", "search", q],
+    // One character matches most of the corpus and teaches nothing;
+    // the menu already lists recents for the no-typing case.
+    enabled: enabled && q.length >= 2,
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        query: q,
+        openOnly: "true",
+        limit: "20",
+      });
+      const rows = await api.get<TicketSearchHit[] | null>(
+        `${ticketsBase()}/tickets/search?${params.toString()}`,
+      );
+      return Array.isArray(rows) ? rows : [];
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+}
+
+/** This curator's scratchpad — `GET /tickets/scratchpad`.
+ *
+ *  Paul, 2026-08-31: *"each curator would automatically get a
+ *  scratchpad that is pinned first on their dashboard"*. A scratchpad
+ *  is a ticket kept open indefinitely where **finishing means removing
+ *  the dataset**, not closing the ticket — which is why
+ *  `useRemoveTicketTarget` matters as much as the add, and why a
+ *  scratchpad should not count as outstanding work.
+ *
+ *  🛑 **The GET provisions on first access** — that is gembro's
+ *  contract, not a side effect this hook invents. It is called from the
+ *  dashboard because that is where "first access" naturally happens.
+ *
+ *  🛑 **Not deployed yet** (gembro, in flight). A 404 is the ordinary
+ *  answer today and means "no scratchpad", never an error: the pinning
+ *  simply has nothing to pin and the dashboard renders as it did
+ *  before. Same for a host that never grows the route. */
+export function useMyScratchpad() {
+  return useQuery<Ticket | null>({
+    queryKey: ["ticket", "scratchpad"],
+    queryFn: async () => {
+      try {
+        return await api.get<Ticket>(`${ticketsBase()}/tickets/scratchpad`);
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return null;
+        throw e;
+      }
+    },
+    staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** The dashboard order, with the scratchpad hoisted to the front.
+ *
+ *  🛑 **Pinning is the CLIENT's job** — gembro makes the scratchpad
+ *  findable, not ordered — so it is applied AFTER the curator's chosen
+ *  sort rather than folded into the comparator. A curator who sorts by
+ *  priority still gets their scratchpad first; the pin is a property of
+ *  the dashboard, not of the sort.
+ *
+ *  Deduped on id, so a scratchpad that also appears in the fetched list
+ *  is hoisted rather than doubled. Any ticket typed `SCRATCHPAD` is
+ *  pinned even when the route did not return one, which is what makes
+ *  this work before the route deploys.
+ *
+ *  Exported for test. */
+/** Can this ticket be closed at all?
+ *
+ *  🛑 **A scratchpad is permanent** (Paul, 2026-09-01: "we shouldn't be
+ *  allowed to close the scratchpad"). Finishing with a dataset means
+ *  REMOVING it from the ticket, not resolving the ticket — the pile
+ *  itself is the curator's workspace, and one who closed theirs would
+ *  have nowhere to put the next thing and no obvious way back.
+ *
+ *  🛑 **ONE gate, used by every close affordance.** There are four:
+ *  `NextActionBar` and `TicketActionsBar` on the detail page, the
+ *  dashboard row's Close, and the audit sidebar's offer-to-close. The
+ *  first pass gated them one at a time and missed the second — Paul
+ *  found it next to Export within the hour. Anything that can set
+ *  `state: RESOLVED` asks this, and a new close button that forgets to
+ *  is the bug this exists to prevent. */
+export function canCloseTicket(ticket: Pick<Ticket, "type">): boolean {
+  return ticket.type !== "SCRATCHPAD";
+}
+
+/** Why the close is unavailable, for the disabled control's tooltip.
+ *  Empty when it IS available — a curator should never see a reason
+ *  for something that is not blocked. */
+export function closeBlockedReason(ticket: Pick<Ticket, "type">): string {
+  if (canCloseTicket(ticket)) return "";
+  return "A scratchpad stays open. Finish with a dataset by removing it from the ticket, not by closing the ticket.";
+}
+
+export function pinScratchpadFirst(
+  tickets: Ticket[],
+  scratchpad?: Ticket | null,
+): Ticket[] {
+  const pinnedIds = new Set<number>();
+  const pinned: Ticket[] = [];
+  const push = (t: Ticket | null | undefined) => {
+    if (!t || pinnedIds.has(t.id)) return;
+    pinnedIds.add(t.id);
+    pinned.push(t);
+  };
+  push(scratchpad);
+  for (const t of tickets) if (t.type === "SCRATCHPAD") push(t);
+  if (pinned.length === 0) return tickets;
+  return [...pinned, ...tickets.filter((t) => !pinnedIds.has(t.id))];
+}
+
 export function useMyTickets(
   options: {
     refetchInterval?: number | false;
@@ -872,6 +1158,8 @@ export function ticketTypeLabel(t: TicketType): string {
       return "Curation";
     case "SCREENING":
       return "Screening";
+    case "SCRATCHPAD":
+      return "Scratchpad";
     case "REVIEW":
       return "Review";
     case "GENERIC":

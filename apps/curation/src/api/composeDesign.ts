@@ -109,6 +109,18 @@ interface LegacyBiomaterial {
     string,
     { category_uri?: string | null; value_uri?: string | null }
   >;
+  /** Per-value URIs behind a joined ``characteristics`` entry. Only
+   *  `sampleBiomaterials` (the `/samples` path) emits it; the local
+   *  API's projection does not, and readers fall back to the joined
+   *  string there. */
+  characteristic_value_uris?: Record<
+    string,
+    Array<{
+      value: string;
+      category_uri?: string | null;
+      value_uri?: string | null;
+    }>
+  >;
   bio_assays?: Array<{
     short_name?: string;
     name?: string | null;
@@ -411,6 +423,7 @@ export function composeCurationDesign(
         name: legacy?.name ?? bma.bio_material_name ?? "",
         characteristics: legacy?.characteristics ?? {},
         characteristic_uris: legacy?.characteristic_uris,
+        characteristic_value_uris: legacy?.characteristic_value_uris,
         bio_assays: legacy?.bio_assays
           ?.filter((a): a is { short_name: string; name?: string | null } =>
             typeof a.short_name === "string" && a.short_name.length > 0,

@@ -15,6 +15,8 @@ import { AppHeader } from "@/components/ui/AppHeader";
 import { MarkdownText } from "@/components/ui/MarkdownText";
 import { navigate } from "@/routes";
 import {
+  canCloseTicket,
+  closeBlockedReason,
   useCreateTicket,
   usePatchTicket,
   useRunTicketAction,
@@ -356,6 +358,7 @@ function NextActionBar({
   const patch = usePatchTicket(ticketId);
   const create = useCreateTicket();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const closable = canCloseTicket(ticket);
   const action = nextActionFor(ticket);
   // No action defined for this ticket type — nothing to render. The
   // header still shows targets + progress; the curator drives work
@@ -373,12 +376,22 @@ function NextActionBar({
           <div className="text-xs text-emerald-700 dark:text-emerald-400">
             {action.doneNote}
           </div>
+          {/* 🛑 A scratchpad is never closed (Paul, 2026-09-01: "we
+              shouldn't be allowed to close the scratchpad"). Finishing
+              with a dataset means REMOVING it, not resolving the
+              ticket — the pile itself is permanent, and a curator who
+              closed theirs would have nowhere to put the next thing.
+              Greyed with the reason rather than hidden, so the absence
+              reads as deliberate. */}
           <button
             type="button"
             onClick={() => setConfirmOpen(true)}
-            disabled={patch.isPending || create.isPending}
+            disabled={!closable || patch.isPending || create.isPending}
             className="btn text-xs"
-            title="Resolve this ticket. The targets stay in the system; only the ticket closes."
+            title={
+              closeBlockedReason(ticket) ||
+              "Resolve this ticket. The targets stay in the system; only the ticket closes."
+            }
           >
             {patch.isPending || create.isPending
               ? "closing…"
@@ -721,8 +734,13 @@ function TicketActionsBar({
               setPreparingClose(false);
             }
           }}
-          disabled={patch.isPending || preparingClose}
-          title="Resolve this ticket. The targets stay in the system; only the ticket closes. The dashboard hides resolved tickets by default."
+          disabled={
+            !canCloseTicket(ticket) || patch.isPending || preparingClose
+          }
+          title={
+            closeBlockedReason(ticket) ||
+            "Resolve this ticket. The targets stay in the system; only the ticket closes. The dashboard hides resolved tickets by default."
+          }
           className="shrink-0 text-xs font-medium px-3 py-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {preparingClose ? "Checking…" : patch.isPending ? "Closing…" : "Close ticket"}

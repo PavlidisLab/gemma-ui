@@ -47,6 +47,10 @@ import {
   setTagValue,
 } from "@/features/design/mutations";
 import { buildConstancyIndex, isVariableInferredTag } from "./constantAnnotations";
+import {
+  buildCharUriLookup,
+  characteristicValues,
+} from "@/features/experiment/characteristicValues";
 import { hiddenFreeTextValueCount, visibleTagValues } from "./tagFreeTextFilter";
 import { experimentTarget, factorTarget, tagTarget } from "@/features/audit/targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
@@ -465,14 +469,16 @@ export function TagBar({
     [diff.tags.added],
   );
 
-  // Build a (category-label, value-label) → URI lookup from
-  // ``biomaterial.characteristic_uris``. Used to recover the URI
-  // on a tag value that came in as part of a comma-joined synth
-  // (Gemma sometimes returns ``biological sex: "female, male"``
-  // as one tag with URI null; the underlying per-sample
-  // characteristic still has PATO terms attached). When the
-  // split value matches a biomaterial characteristic, the URI
-  // flows through and the value renders ontology-resolved.
+  // Build a (category-label, value-label) → URI lookup from the
+  // biomaterials' characteristics. Used to recover the URI on a tag
+  // value that came in as part of a comma-joined synth (Gemma
+  // sometimes returns ``biological sex: "female, male"`` as one tag
+  // with URI null; the underlying per-sample characteristic still has
+  // PATO terms attached). When the split value matches a biomaterial
+  // characteristic, the URI flows through and the value renders
+  // ontology-resolved — and only that value: the key is per
+  // characteristic, so a value with no URI stays free text rather than
+  // taking the one belonging to a category-mate.
   const charUriLookup = useMemo(() => buildCharUriLookup(biomaterials), [
     biomaterials,
   ]);
@@ -568,12 +574,13 @@ export function TagBar({
     if (bms.length === 0) return new Set<string>();
     const counts = new Map<string, number>();
     for (const bm of bms) {
-      const uris = bm.characteristic_uris ?? {};
       const seen = new Set<string>();
-      for (const cat of Object.keys(bm.characteristics ?? {})) {
-        const vu = uris[cat]?.value_uri;
-        if (!vu) continue;
-        seen.add(`${(cat || "").trim().toLowerCase()}|${vu.trim()}`);
+      // Per value: a category holding two characteristics grounds each
+      // of them separately, and only the first one's URI used to be
+      // counted here.
+      for (const v of characteristicValues(bm)) {
+        if (!v.value_uri) continue;
+        seen.add(`${v.category.toLowerCase()}|${v.value_uri.trim()}`);
       }
       for (const k of seen) counts.set(k, (counts.get(k) ?? 0) + 1);
     }
@@ -1133,27 +1140,10 @@ interface TagValue {
   key: string;
 }
 
-/** Build a ``(category-label, value-label)`` → URI lookup from
- *  every biomaterial's ``characteristic_uris`` map. Both keys are
- *  lower-cased + trimmed so the lookup tolerates Gemma's
- *  capitalisation drift. Used by ``splitTagValues`` to recover the
- *  URI on a tag value that came in as part of a comma-joined
- *  synth.
- */
-function buildCharUriLookup(biomaterials: Biomaterial[]): Map<string, string> {
-  const map = new Map<string, string>();
-  for (const bm of biomaterials) {
-    const chars = bm.characteristics ?? {};
-    const uris = bm.characteristic_uris ?? {};
-    for (const [cat, value] of Object.entries(chars)) {
-      const valUri = uris[cat]?.value_uri;
-      if (!valUri) continue;
-      const k = `${cat.trim().toLowerCase()}|${(value || "").trim().toLowerCase()}`;
-      if (!map.has(k)) map.set(k, valUri);
-    }
-  }
-  return map;
-}
+// ``buildCharUriLookup`` moved to
+// ``@/features/experiment/characteristicValues`` — it and the synth
+// augmenter have to agree on how many values a characteristic holds, so
+// they read one enumerator instead of two copies of the same walk.
 
 function splitTagValues(
   tags: Tag[],

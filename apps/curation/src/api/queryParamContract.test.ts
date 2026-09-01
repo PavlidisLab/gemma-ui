@@ -46,6 +46,7 @@ vi.mock("@/api/client", async (orig) => {
 });
 
 import { experimentTicketsQueryOptions } from "./tickets";
+import { fetchExperimentTags } from "./designFromGemma";
 
 /** Names `/tickets` actually declares, off the live spec. */
 const TICKET_PARAMS = new Set([
@@ -87,5 +88,18 @@ describe("query-parameter contract", () => {
     await experimentTicketsQueryOptions(27103).queryFn();
     expect(urls.seen[0]).toContain("target_id=27103");
     expect(urls.seen[0]).toContain("/curation/v1/tickets");
+  });
+
+  /** The inverse of every other case here: this parameter is required,
+   *  and dropping it loses rows silently. `/annotations` omits every
+   *  ungrounded annotation by default — 4 EE tags instead of 5 on eid
+   *  38390, the missing one a stored `strain` with a null `valueUri`.
+   *  There is no way to tell the short list from the complete one by
+   *  inspecting it, which is why it is pinned rather than reviewed. */
+  it("🛑 annotations asks for free text — the default hides ungrounded tags", async () => {
+    await fetchExperimentTags(38390);
+    expect(urls.seen[0]).toBe(
+      "/rest/v2/datasets/38390/annotations?includeFreeText=true",
+    );
   });
 });

@@ -26,16 +26,15 @@ import {
   getDatasetsByPlatform,
   getElementGenes,
   getGenesByNcbiIds,
-  getPlatformAnnotations,
   getPlatformByShortName,
   getPlatformElementCount,
   getPlatformElements,
+  platformAnnotationsDownloadUrl,
 } from "@/api/endpoints";
 import type { PlatformElement } from "@/api/endpoints";
 import { encodeSearchSettings } from "@/features/browser/shareLink";
 import {
   emptySearchSettings,
-  type AnnotationTerm,
   type Dataset,
   type Platform,
   type SearchSettings,
@@ -47,7 +46,10 @@ import {
   ProbeSequence,
 } from "./probeDetail";
 import { PageMask } from "@gemma/ui";
-import { platformRouteParam } from "@/lib/platformConstants";
+import {
+  platformHasAnnotationFile,
+  platformRouteParam,
+} from "@/lib/platformConstants";
 
 const ELEMENTS_PAGE = 50;
 const DATASETS_PAGE = 25;
@@ -86,7 +88,7 @@ export function PlatformDetailPage() {
         <Breadcrumbs name={p.shortName ?? name} />
         <Hero platform={p} />
         <DescriptionCard platform={p} />
-        <AnnotationsSection platform={p} />
+        <AnnotationFileCard platform={p} />
         {/* Two-up tables — each in its own ~24rem scrolling viewport
          *  so we don't burn vertical screen space and the curator can
          *  compare Datasets + Elements side-by-side. */}
@@ -301,60 +303,50 @@ function Stat({
   );
 }
 
-function AnnotationsSection({ platform: p }: { platform: Platform }) {
-  const annQ = useQuery({
-    queryKey: ["platform", p.id, "annotations"],
-    queryFn: ({ signal }) => getPlatformAnnotations(p.id, signal),
-    staleTime: 5 * 60 * 1000,
-  });
-
-  if (annQ.isLoading) {
-    return (
-      <section className="bg-white border border-gemma-grid rounded-md p-4 text-xs text-gemma-subtle italic">
-        Loading annotations…
-      </section>
-    );
-  }
-  if (annQ.isError) {
-    return (
-      <section className="bg-white border border-gemma-grid rounded-md p-4 text-xs text-rose-700">
-        Failed to load annotations.
-      </section>
-    );
-  }
-  const terms = annQ.data ?? [];
-  if (terms.length === 0) return null;
-
-  // Group by className (ontology category).
-  const groups = new Map<string, AnnotationTerm[]>();
-  for (const t of terms) {
-    const cat = t.className ?? "Other";
-    if (!groups.has(cat)) groups.set(cat, []);
-    groups.get(cat)!.push(t);
-  }
-
+/**
+ * The platform's annotation file, offered as a download.
+ *
+ * This is NOT the ontology-annotation idea the dataset page shows —
+ * platforms don't carry those (Paul, 2026-09-01). It is the element →
+ * gene mapping: one row per probe/element with gene symbols, GO terms
+ * and NCBI ids. A section that tried to render it as annotation chips
+ * lived here until `0e36b02`; a link is what the route actually
+ * supports, and what the file is useful as.
+ *
+ * Hidden for SEQUENCING platforms, which have no element set and so no
+ * file — the URL 404s for them. See `platformAnnotationsDownloadUrl`
+ * for the per-technology-type measurements behind that.
+ */
+function AnnotationFileCard({ platform: p }: { platform: Platform }) {
+  if (!platformHasAnnotationFile(p.technologyType)) return null;
+  const id = p.shortName ?? p.id;
   return (
-    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-3">
+    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-2">
       <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
-        Annotations
+        Annotation file
       </div>
-      <div className="space-y-2">
-        {[...groups.entries()].map(([cat, tms]) => (
-          <div key={cat} className="flex flex-wrap items-baseline gap-1.5">
-            <span className="text-[10px] uppercase tracking-wide text-gemma-subtle mr-0.5 shrink-0">
-              {cat}
-            </span>
-            {tms.map((t) => (
-              <span
-                key={t.termUri ?? t.termName}
-                title={t.termUri ?? undefined}
-                className="text-[11px] px-1.5 py-0.5 rounded-full bg-sky-50 border border-sky-200 text-sky-800"
-              >
-                {t.termName ?? t.termUri ?? "?"}
-              </span>
-            ))}
-          </div>
-        ))}
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+        {/* Served with `Content-Disposition: attachment`, so a plain
+            anchor saves the file — no JS, and the big generic
+            platforms never pass through memory. One link, because the
+            route's `download=true` variant transfers the identical
+            gzip bytes and only differs in handing over a `.gz` to
+            unzip; see `platformAnnotationsDownloadUrl`. */}
+        <a
+          className="text-gemma-accent hover:underline"
+          href={platformAnnotationsDownloadUrl(id)}
+        >
+          Download annotations (TSV)
+        </a>
+      </div>
+      <div className="text-[11px] text-gemma-subtle">
+        One row per element: <span className="font-mono">ElementName</span>,{" "}
+        <span className="font-mono">GeneSymbols</span>,{" "}
+        <span className="font-mono">GeneNames</span>,{" "}
+        <span className="font-mono">GOTerms</span>,{" "}
+        <span className="font-mono">GemmaIDs</span>,{" "}
+        <span className="font-mono">NCBIids</span>,{" "}
+        <span className="font-mono">EnsemblIds</span>.
       </div>
     </section>
   );

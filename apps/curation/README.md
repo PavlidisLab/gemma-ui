@@ -120,7 +120,7 @@ running an audit. Streaming progress reuses the existing
 
 ## Pickers
 
-- **CategoryPicker** — fixed-list typeahead over `/rest/v2/categories`
+- **CategoryPicker** — fixed-list typeahead over `/rest/v2/annotations/categories`
   (28 EFCs from `EFO.factor.categories.txt`). Used for Factor.category,
   Statement.category, Tag.category.
 - **OntologyTermPicker** — debounced typeahead over

@@ -29,7 +29,8 @@ export function SampleCorrelationCard({
 }: {
   experimentId: number | string;
 }) {
-  const { data, isLoading, error } = useSampleCorrelation(experimentId);
+  const { data: result, isLoading, error } = useSampleCorrelation(experimentId);
+  const data = result?.matrix ?? null;
 
   // Adapt curation's snake_case wire to the camelCase shape the shared
   // helpers consume. The fields carry the same semantics.
@@ -61,7 +62,15 @@ export function SampleCorrelationCard({
     body = <PanelError message={(error as Error).message} />;
   } else if (!data || !built) {
     body = (
-      <PanelEmpty reason="No sample-correlation matrix returned (HTTP 404). Either this dataset hasn't been preprocessed, or /datasets/{id}/sample-correlation isn't deployed on the current Gemma build." />
+      <PanelEmpty
+        reason={
+          // Gemma's own sentence when it gave one — it distinguishes a
+          // single-cell refusal from an uncomputed matrix, which the
+          // fixed text below cannot.
+          result?.reason ||
+          "No sample-correlation matrix returned (HTTP 404). Either this dataset hasn't been preprocessed, or /datasets/{id}/sample-correlation isn't deployed on the current Gemma build."
+        }
+      />
     );
   } else {
     body = (

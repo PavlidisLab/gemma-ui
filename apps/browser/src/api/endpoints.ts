@@ -30,15 +30,22 @@ import type { HeatmapRowGene } from "@gemma/heatmap";
 // (merged, not yet deployed — prod is currently 5328441870). There is no
 // server-side alias: a server on either side of the deploy sends exactly one
 // spelling per field. These three functions are the one place each wire
-// shape enters the app (getCategories, getAnnotationsByCategory,
-// getDatasetAnnotations, getPlatformAnnotations below all pass their
-// response through one of them), so everything downstream keeps reading the
-// old field names unchanged.
+// shape enters the app (getCategories, getAnnotationsByCategory and
+// getDatasetAnnotations below all pass their response through one of
+// them), so everything downstream keeps reading the old field names
+// unchanged. `getPlatformAnnotations` was a fourth call site until
+// `0e36b02` deleted it: platforms carry no ontology annotations, and that
+// route serves a TSV file — see `platformAnnotationsDownloadUrl`.
+//
+// Input is `Partial<T>`, not `T`: a post-rename server OMITS the old
+// fields rather than sending them as null, and the fixtures that pin this
+// have to be able to say so. Output is the complete type — every field
+// these functions read is defaulted below.
 //
 // @deprecated delete this whole block, the old-named fields it populates
 // (see the `@deprecated` tags in lib/types.ts), and the call sites below,
 // once every Gemma this app talks to serves b5c6747f68.
-export function withCategoryCompat(raw: Category): Category {
+export function withCategoryCompat(raw: Partial<Category>): Category {
   return {
     ...raw,
     className: raw.category ?? raw.className ?? null,
@@ -46,7 +53,7 @@ export function withCategoryCompat(raw: Category): Category {
   };
 }
 
-export function withAnnotationTermCompat(raw: AnnotationTerm): AnnotationTerm {
+export function withAnnotationTermCompat(raw: Partial<AnnotationTerm>): AnnotationTerm {
   return {
     ...raw,
     className: raw.category ?? raw.className ?? null,
@@ -57,9 +64,14 @@ export function withAnnotationTermCompat(raw: AnnotationTerm): AnnotationTerm {
   };
 }
 
-export function withDatasetAnnotationCompat(raw: DatasetAnnotation): DatasetAnnotation {
+export function withDatasetAnnotationCompat(raw: Partial<DatasetAnnotation>): DatasetAnnotation {
   return {
     ...raw,
+    // `objectClass` is typed non-optional and drives the chip colour and
+    // sort order, so default it rather than letting `undefined` through
+    // — carried over from main's `normalizeDatasetAnnotation` (`a83ab6c`),
+    // which guaranteed it.
+    objectClass: raw.objectClass ?? "",
     className: raw.category ?? raw.className ?? "",
     classUri: raw.categoryUri ?? raw.classUri ?? null,
     termName: raw.value ?? raw.termName ?? "",
@@ -121,6 +133,54 @@ const DISALLOWED_CATEGORY_FILTER_PREFIXES = [
  *  property and matched directly, and `none(...)` exclusions did not —
  *  they leaked into the facet query unnoticed. */
 export const unquantify = (sc: string) => sc.replace(/^(?:any|none|all)\(/i, "");
+
+/* ------------- the four renamed annotation fields -------------
+ *
+ * The coalescing itself lives in `withCategoryCompat` /
+ * `withAnnotationTermCompat` / `withDatasetAnnotationCompat` at the top
+ * of this file. What follows is why every route below calls one of them,
+ * because that is the part that was got wrong once already.
+ *
+ *     className -> category      termName -> value
+ *     classUri  -> categoryUri   termUri  -> valueUri
+ *
+ * 🛑 **THREE routes serve these fields, and every one of them needs the
+ * adapter.** The first pass (`21420e9`) fixed only the third and
+ * reported its blast radius as "four consumers" — that census was
+ * `DatasetAnnotation`-typed, and the facet routes deal in `Category` /
+ * `AnnotationTerm`: sibling types with the same four field names, fed by
+ * different endpoints. So the two facet routes silently degraded for a
+ * day. `getCategoriesWithChildren` derives `catId` from
+ * `classUri || className`, got `""` for every row, and returned an EMPTY
+ * panel — indistinguishable from a filter that legitimately matched
+ * nothing (fixed on main in `a83ab6c`, folded into the compat block
+ * here).
+ *
+ *   GET /datasets/categories        CategoryWithUsageStatisticsValueObject
+ *   GET /datasets/annotations       AnnotationWithUsageStatisticsValueObject
+ *   GET /datasets/{id}/annotations  AnnotationValueObject
+ *
+ * 🛑 **Both spellings are live at once, on two hosts we point at.**
+ * Measured 2026-09-01, same version string on both:
+ *
+ *   gemma2.msl.ubc.ca  2.9.4  category/categoryUri  (new only)
+ *   gemma.msl.ubc.ca   2.9.4  className/classUri    (old only)
+ *
+ * `gemma2` is what `apps/browser/.env` points the dev proxy at, so the
+ * rename IS deployed there while production still serves the old names.
+ * That is exactly why this coalesces rather than re-typing, and why the
+ * old-name branches cannot be deleted yet: `classUri` / `termName` are
+ * absent from `gemma2`'s `/rest/v2/openapi.json` entirely, and are the
+ * only thing production sends.
+ *
+ * Not every annotation route needs this. `/annotations/search`
+ * (`AnnotationSearchResultValueObject`) was born with `category` /
+ * `value` and never had the old spelling, so `searchAnnotations` and its
+ * caller read the wire directly — correctly.
+ *
+ * `npm run check:annotations` re-checks all three routes against a live
+ * server when you want to know whether the fixtures still hold.
+ * ------------------------------------------------------------- */
 
 export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) {
   // Strip annotation-style sub-clauses from the filter — we don't want
@@ -744,10 +804,33 @@ export async function getMyself(signal?: AbortSignal): Promise<User | null> {
   }
 }
 
+/**
+ * A dataset's annotations — every one of them.
+ *
+ * 🛑 **`includeFreeText=true` is sent deliberately, and it is the only
+ * parameter this route accepts.** On an older Gemma, omitting it drops
+ * every UNGROUNDED annotation, and an omitted row is indistinguishable
+ * from an absent one: measured on eid 38390, 4 rows by default and 5
+ * with the flag, the fifth a `strain` stored since the original load
+ * with a null `valueUri`. A curator hunted that tag on two Gemma sites
+ * and concluded it had been invented.
+ *
+ * 2.9.4 no longer needs asking — the same eid returns all 16 rows,
+ * ungrounded `strain` included, flag or no flag (measured 2026-08-31).
+ * The parameter is still declared on the route, so keep sending it:
+ * it is what makes the response correct against the older builds the
+ * dev proxy can still be pointed at, and it is a no-op against a
+ * current one.
+ *
+ * Ungrounded terms are real annotations and belong on the page (Paul,
+ * 2026-08-31); they simply are not clickable filters, which
+ * `isSelectable` already handles by requiring the term to be in the
+ * available-annotation tree.
+ */
 export async function getDatasetAnnotations(datasetId: number, signal?: AbortSignal) {
   const r = await apiGet<PaginatedResponse<DatasetAnnotation>>(
     `${BASE}/datasets/${datasetId}/annotations`,
-    { signal },
+    { params: { includeFreeText: true }, signal },
   );
   return { ...r, data: (r.data ?? []).map(withDatasetAnnotationCompat) };
 }
@@ -1012,6 +1095,71 @@ export function datasetDataDownloadUrl(
 }
 
 /**
+ * URL for a platform's annotation file — the element → gene mapping
+ * Gemma publishes per platform.
+ *
+ * Columns, read off the files themselves (GPL96, GPL890,
+ * Generic_human_ncbiIds — identical header on all three, 2026-09-01):
+ *
+ *     ElementName  GeneSymbols  GeneNames  GOTerms  GemmaIDs
+ *     NCBIids      EnsemblIds
+ *
+ * 🛑 **The OpenAPI description of this route is stale** — it lists five
+ * of those seven, omitting `GeneNames` and `EnsemblIds`, and adds "older
+ * files might still use ProbeName instead of ElementName". Every file
+ * checked says `ElementName`; `ProbeName` was not observed anywhere, so
+ * it is the spec's claim and not a measurement. Repeating the spec's
+ * list in the card was how a wrong column set and an unverified caveat
+ * reached the UI (`88e4877`, fixed here). If the column set needs
+ * confirming again, read a file — not the description.
+ *
+ * The files are generated on demand: two of the platforms probed on
+ * 2026-09-01 came back stamped with that minute's timestamp, having
+ * previously 404'd, so a first request builds the file. Which also means
+ * the SEQUENCING 404 below is a real "cannot", not a "not yet".
+ *
+ * A plain `<a href>` is all this needs, and unlike `/resultSets/{id}`
+ * there is no content-negotiation trap to dodge: the route produces
+ * ONLY `text/tab-separated-values`, so the `Accept` header a browser
+ * sends on an anchor click — which ranks HTML first and reaches the
+ * wildcard only at `q=0.8` — still gets the TSV (verified against
+ * 2.9.4), and the server sends `Content-Disposition: attachment;
+ * filename="GPL96.an.txt"` so the click saves a properly-named file.
+ *
+ * 🛑 **Already gzipped, so there is no compressed variant worth
+ * offering.** The route's `download=true` parameter serves the SAME
+ * bytes — measured on GPL96, both forms put 19673 identical gzip bytes
+ * (`1f 8b …`) on the wire. The only difference is the headers: plain
+ * declares `Content-Encoding: gzip` with
+ * `Content-Type: text/tab-separated-values`, so the browser
+ * decompresses transparently and the curator ends up with a usable
+ * `GPL96.an.txt`; `download=true` omits the encoding header, calls it
+ * `application/octet-stream` and names it `GPL96.an.txt.gz`, so the
+ * curator ends up with a file to unzip. Same transfer either way, worse
+ * result — a second link earned nothing and this one shipped briefly
+ * (`88e4877`) on the wrong assumption that plain meant uncompressed.
+ *
+ * 🛑 **`SEQUENCING` platforms have no annotation file** and this URL
+ * 404s for them — they carry no element set to map (`numberOfElements`
+ * is null). Measured across every populated technology type on 2.9.4:
+ * ONECOLOR (GPL96, GPL1355), TWOCOLOR (GPL890), DUALMODE (GPL1310) and
+ * GENELIST (Generic_human_ncbiIds) all serve it; SEQUENCING (GPL16791,
+ * GPL11154) does not. Callers should gate on the type rather than offer
+ * a link that fails — see `AnnotationFileCard`.
+ *
+ * 🛑 Do NOT add a `limit` (or any other) parameter. The route accepts
+ * `download` and `force` and rejects everything else with a 400 — which
+ * is exactly how the old `getPlatformAnnotations` was broken from the
+ * day it landed: it sent `limit=500`, so the platform page's annotation
+ * section never once rendered (`1797aea` → removed in `0e36b02`).
+ */
+export function platformAnnotationsDownloadUrl(
+  idOrShortName: number | string,
+): string {
+  return `${BASE}/platforms/${idOrShortName}/annotations`;
+}
+
+/**
  * Fetch a result-set as TSV and trigger a browser download.
  *
  * Why JS-driven instead of a plain `<a href>`: the
@@ -1090,7 +1238,7 @@ export async function getTopDiffExpressedGenes(
 
 /**
  * Binned p-value histogram for a DE result set.
- * `GET /rest/v2/resultSets/{id}/pvalueDistribution?bins=20&column=corrected`
+ * `GET /rest/v2/resultSets/{id}/pvalueDistribution?bins=20&column=raw`
  *
  * Returns ``null`` on 204 (result set has no p-values in the chosen
  * column) so callers can render an "—" empty state without an error.
@@ -1186,19 +1334,6 @@ export async function getDatasetMeanVariance(
     }
     throw e;
   }
-}
-
-// ─── Platform detail endpoints ────────────────────────────────────────────────
-
-export async function getPlatformAnnotations(
-  platformId: number | string,
-  signal?: AbortSignal,
-): Promise<AnnotationTerm[]> {
-  const r = await apiGet<PaginatedResponse<AnnotationTerm>>(
-    `${BASE}/platforms/${platformId}/annotations`,
-    { params: { limit: 500 }, signal },
-  );
-  return (r.data ?? []).map(withAnnotationTermCompat);
 }
 
 // ─── Gene endpoints ───────────────────────────────────────────────────────────

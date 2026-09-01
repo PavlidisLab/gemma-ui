@@ -48,7 +48,7 @@ import { api } from "./client";
  * good annotations, and `EFO_0000408` is deprecated AND Gemma's live
  * disease category at the same time. The agents side now excludes
  * every published category URI itself, and `buildRun` holds the same
- * exclusion client-side against `/rest/v2/categories`
+ * exclusion client-side against `/rest/v2/annotations/categories`
  * (`useCategories()`) for categories Gemma publishes that the static
  * table may lag on. Keyed on URI, never on label — the EFO label is
  * the obsolete one.

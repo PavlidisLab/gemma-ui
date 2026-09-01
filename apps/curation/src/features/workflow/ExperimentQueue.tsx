@@ -764,6 +764,15 @@ export function ExperimentQueue({
     includeSummaries: true,
   });
 
+  // 🛑 **An EMPTY scope is not an absent scope.** A ticket with no
+  // targets passed `experimentIds: []`, which fell through to
+  // `ids: undefined` and listed the ENTIRE corpus — Paul opened his
+  // brand-new empty scratchpad (ticket 7, 0 targets) and found it full
+  // of experiments. "No filter" and "a filter that matches nothing"
+  // must never render the same way; the second has to show nothing.
+  const scopedToNothing =
+    Array.isArray(experimentIds) && experimentIds.length === 0 && !groupId;
+
   // Scope ids: ``experimentIds`` wins (ticket targets); otherwise
   // fall back to the group's member_ids when a groupId is set.
   const scopeIds = useMemo(() => {
@@ -780,10 +789,14 @@ export function ExperimentQueue({
     limit: pageSize,
     offset,
     ids: scopeIds,
+    // Not merely filtered to nothing — not asked at all. A corpus-wide
+    // page for a scope that matches nothing is wasted either way, and
+    // fetching it is what made the bug above look like real data.
+    enabled: !scopedToNothing,
   });
 
-  const allRows = page?.data ?? [];
-  const total = page?.total_elements ?? 0;
+  const allRows = scopedToNothing ? [] : (page?.data ?? []);
+  const total = scopedToNothing ? 0 : (page?.total_elements ?? 0);
 
   const { data: statusMap = {} } = usePipelineStatusBulk(allRows.map((r) => r.id));
 

@@ -1,3 +1,4 @@
+import { characteristicValues } from "@/features/experiment/characteristicValues";
 import type { Biomaterial, Tag } from "@/features/experiment/types";
 
 /** Inferred-tag augmenter: synthesises one chip per category from
@@ -42,13 +43,13 @@ export function augmentInferredFromBiomaterials(
   const valuesByCat = new Map<string, Map<string, string>>();
   const catLabels = new Map<string, string>();
   for (const bm of biomaterials) {
-    const chars = bm.characteristics ?? {};
-    for (const [catLabel, valLabel] of Object.entries(chars)) {
-      const cat = (catLabel || "").trim();
-      const val = (valLabel || "").trim();
-      if (!cat || !val) continue;
-      const key = cat.toLowerCase();
-      if (!catLabels.has(key)) catLabels.set(key, cat);
+    // Per characteristic, not per category: a category carrying two
+    // characteristics is two values, and the joined ``A; B`` string is
+    // neither of them. ``characteristicValues`` reads the fold's own
+    // decomposition — see ``characteristicValues.ts``.
+    for (const { category, label: val } of characteristicValues(bm)) {
+      const key = category.toLowerCase();
+      if (!catLabels.has(key)) catLabels.set(key, category);
       const byValue = valuesByCat.get(key) ?? new Map<string, string>();
       const vk = valueKey(val);
       if (!byValue.has(vk)) byValue.set(vk, val);

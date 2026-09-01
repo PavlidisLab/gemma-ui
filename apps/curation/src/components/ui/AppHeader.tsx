@@ -135,11 +135,17 @@ export function AppHeader({
           one-click escape that's labelled by intent. Hidden on the
           dashboard itself so it doesn't loop back on itself. */}
       <BackToDashboardLink />
-      {ticketContext != null && experimentId != null ? (
+      {/* 🛑 Gated on the EXPERIMENT, not on the ticket context. The
+          chip used to mount only when the curator had arrived from a
+          ticket, which meant "new ticket from this experiment" was
+          reachable only when they were already in one — exactly
+          backwards. With no context it renders as the management
+          button alone. */}
+      {experimentId != null ? (
         <span className="ml-1">
           <TicketContextChip
             experimentId={experimentId}
-            ticketContext={String(ticketContext)}
+            ticketContext={ticketContext == null ? null : String(ticketContext)}
           />
         </span>
       ) : null}

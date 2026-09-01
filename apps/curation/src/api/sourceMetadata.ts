@@ -215,9 +215,31 @@ export function constantGeoFields(
   return out;
 }
 
-/** `growth_protocol` → `growth (GEO)`. The suffix says whose words these
- *  are: verbatim submitter text, not something we curated. */
-export function geoFieldLabel(key: string): string {
+/** `growth_protocol` → `growth (GEO)`. The suffix says whose words
+ *  these are: verbatim submitter text, not something we curated.
+ *
+ *  🛑 **The provider is a parameter, not the literal "GEO".** Gemma
+ *  already models the origin as an `ExternalSource {database,
+ *  accession, uri}`, and datasets arrive from more than one — CELLxGENE
+ *  among them (Paul, 2026-08-31: *"we might have different fields from
+ *  different providers; retain some flexibility"*). A row labelled
+ *  `molecule (GEO)` on a CELLxGENE dataset is a false attribution of
+ *  whose words those are, which is the one thing this suffix exists to
+ *  say.
+ *
+ *  Falls back to `GEO` when the caller has no source, because that is
+ *  what the corpus is overwhelmingly made of and an unlabelled row says
+ *  less than a defaulted one. The field KEYS are still GEO's own
+ *  spelling (`growth_protocol`); renaming those per provider is a
+ *  separate job and belongs wherever the other provider's metadata is
+ *  adapted. */
+export function sourceFieldLabel(key: string, provider = "GEO"): string {
   const bare = key.replace(/_/g, " ").replace(/\bprotocol\b/, "").trim();
-  return `${bare || key} (GEO)`;
+  return `${bare || key} (${provider})`;
+}
+
+/** @deprecated Pass the provider — see {@link sourceFieldLabel}. Kept
+ *  so a caller that genuinely knows it is GEO reads as deliberate. */
+export function geoFieldLabel(key: string): string {
+  return sourceFieldLabel(key);
 }

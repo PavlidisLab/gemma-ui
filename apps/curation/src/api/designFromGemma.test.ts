@@ -128,6 +128,82 @@ describe("toSampleBiomaterials — real gemma2 bytes", () => {
   });
 });
 
+describe("two characteristics sharing one category — GSE43526.2 (8959)", () => {
+  // Both `molecular entity` rows are on every sample: `polyA RNA
+  // extract` is grounded, the treatment beside it is not. The join and
+  // its first-URI-wins map are kept for the consumers that read them;
+  // the decomposition is what lets a chip know which value the term
+  // belongs to.
+  const OBI_POLYA = "http://purl.obolibrary.org/obo/OBI_0000869";
+  const rows = toSampleBiomaterials([
+    {
+      id: 1,
+      name: "assay",
+      accession: { accession: "GSM1064721" },
+      sample: {
+        id: 9,
+        name: "GSE43526_bioMaterial_1|GSM1064721",
+        characteristics: [
+          {
+            category: "molecular entity",
+            category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+            value: "polyA RNA extract",
+            value_uri: OBI_POLYA,
+          },
+          {
+            category: "molecular entity",
+            category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+            value: "Topotecan",
+            value_uri: null,
+          },
+        ],
+      },
+    },
+  ]);
+
+  it("still joins the two into one characteristics slot", () => {
+    expect(rows[0].characteristics["molecular entity"]).toBe(
+      "polyA RNA extract; Topotecan",
+    );
+  });
+
+  it("still keeps the first URI on the category map", () => {
+    expect(rows[0].characteristic_uris["molecular entity"].value_uri).toBe(
+      OBI_POLYA,
+    );
+  });
+
+  it("carries each value's own URIs, in the order they were joined", () => {
+    expect(rows[0].characteristic_value_uris["molecular entity"]).toEqual([
+      {
+        value: "polyA RNA extract",
+        category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+        value_uri: OBI_POLYA,
+      },
+      {
+        value: "Topotecan",
+        category_uri: "http://purl.obolibrary.org/obo/CHEBI_23367",
+        value_uri: null,
+      },
+    ]);
+  });
+
+  it("emits the decomposition for undoubled categories too", () => {
+    expect(rows[0].characteristic_value_uris["molecular entity"]).toHaveLength(2);
+    expect(
+      toSampleBiomaterials(SAMPLES_91164)[0].characteristic_value_uris[
+        "cell line"
+      ],
+    ).toEqual([
+      {
+        value: "MCF7 cell",
+        category_uri: "http://purl.obolibrary.org/obo/CLO_0000031",
+        value_uri: "http://purl.obolibrary.org/obo/CLO_0007606",
+      },
+    ]);
+  });
+});
+
 describe("the shapes that are not GSE324761", () => {
   it("splits a piped name the way parseShortName does", () => {
     const rows = toSampleBiomaterials([
@@ -388,5 +464,133 @@ describe("toExperimentTags — supportingEvidence", () => {
     ])[0].supporting_evidence;
     expect(out).toHaveLength(1);
     expect(out?.[0].quote).toBe("kept");
+  });
+});
+
+describe("toExperimentTags — the b5c6747f68 field rename", () => {
+  // 🛑 Four fields renamed with NO aliases, deliberately: className ->
+  // category, classUri -> categoryUri, termName -> value, termUri ->
+  // valueUri. Both spellings are read at this adapter for the length of
+  // the transition; delete the legacy branch once every Gemma we read
+  // serves it.
+  const base = { object_class: "ExperimentTag", id: 7 };
+
+  it("reads the new spelling", () => {
+    const [tag] = toExperimentTags([
+      {
+        ...base,
+        category: "organism part",
+        category_uri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+        value: "brain",
+        value_uri: "http://purl.obolibrary.org/obo/UBERON_0000955",
+      },
+    ]);
+    expect(tag.category.label).toBe("organism part");
+    expect(tag.category.uri).toBe("http://www.ebi.ac.uk/efo/EFO_0000635");
+    expect(tag.value.label).toBe("brain");
+    expect(tag.value.uri).toBe("http://purl.obolibrary.org/obo/UBERON_0000955");
+  });
+
+  it("still reads the old spelling until every Gemma is upgraded", () => {
+    const [tag] = toExperimentTags([
+      {
+        ...base,
+        class_name: "organism part",
+        class_uri: "http://www.ebi.ac.uk/efo/EFO_0000635",
+        term_name: "brain",
+        term_uri: "http://purl.obolibrary.org/obo/UBERON_0000955",
+      },
+    ]);
+    expect(tag.category.label).toBe("organism part");
+    expect(tag.value.label).toBe("brain");
+    expect(tag.value.uri).toBe("http://purl.obolibrary.org/obo/UBERON_0000955");
+  });
+
+  it("prefers the new spelling when a row somehow carries both", () => {
+    const [tag] = toExperimentTags([
+      { ...base, category: "new", class_name: "old", value: "v", term_name: "t" },
+    ]);
+    expect(tag.category.label).toBe("new");
+    expect(tag.value.label).toBe("v");
+  });
+});
+
+/**
+ * Composed EE tags — the shape 87 queued tags will arrive in.
+ *
+ * 🛑 **No experiment carries one today.** cab measured zero non-null
+ * predicates across all 68,786 experiment-level characteristics
+ * (2026-08-31), so this is written against the write-back's known output
+ * rather than against a live row: the subject/predicate/object triples
+ * are cab's (`CAB_TO_UIB_2026_08_31_THERE_IS_NO_SUCH_EXPERIMENT_YET_AND_THERE_WILL_BE_87.md`),
+ * the URIs are synthetic and only prove pass-through.
+ *
+ * All 87 are single-pair; the two-pair case is covered because the wire
+ * slot exists, not because anything fills it yet.
+ */
+describe("toExperimentTags — composed statements", () => {
+  it("carries the pair as a Statement instead of dropping it", () => {
+    const [tag] = toExperimentTags([
+      {
+        id: 55648200,
+        object_class: "ExperimentTag",
+        category: "cell type",
+        category_uri: "http://www.ebi.ac.uk/efo/EFO_0000324",
+        value: "Schwann cell",
+        value_uri: "http://purl.obolibrary.org/obo/CL_0002573",
+        predicate: "derives from part of",
+        predicate_uri: "http://example.invalid/derives_from_part_of",
+        object: "sciatic nerve",
+        object_uri: "http://purl.obolibrary.org/obo/UBERON_0001322",
+      },
+    ]);
+    expect(tag.statements).toHaveLength(1);
+    const [st] = tag.statements!;
+    // The subject is the tag's own value — one tag carrying a
+    // relationship, not two tags carrying none.
+    expect(st.subject.label).toBe("Schwann cell");
+    expect(st.predicate?.label).toBe("derives from part of");
+    expect(st.object?.label).toBe("sciatic nerve");
+    expect(st.object?.uri).toBe("http://purl.obolibrary.org/obo/UBERON_0001322");
+    expect(st.category?.label).toBe("cell type");
+    expect(st.gemma_id).toBe(55648200);
+  });
+
+  it("both pairs of one row share the id — that is what the ceiling counts", () => {
+    const [tag] = toExperimentTags([
+      {
+        id: 55648201,
+        object_class: "ExperimentTag",
+        category: "organism part",
+        value: "liver",
+        predicate: "has disease",
+        object: "hepatocellular carcinoma",
+        second_predicate: "has modifier",
+        second_object: "organoid",
+      },
+    ]);
+    expect(tag.statements).toHaveLength(2);
+    expect(tag.statements!.map((s) => s.gemma_id)).toEqual([55648201, 55648201]);
+    expect(tag.statements!.map((s) => s.predicate?.label)).toEqual([
+      "has disease",
+      "has modifier",
+    ]);
+  });
+
+  it("a flat tag gets undefined, not an empty array", () => {
+    // `TagBar` branches on `statements?.length`; an empty array is the
+    // flat tag it already renders, so the two must not differ by identity.
+    const [tag] = toExperimentTags([
+      {
+        id: 39131052,
+        object_class: "ExperimentTag",
+        category: "strain",
+        value: "Ascl1CreERT2/Ai14",
+        value_uri: null,
+        predicate: null,
+        object: null,
+      },
+    ]);
+    expect(tag.statements).toBeUndefined();
   });
 });

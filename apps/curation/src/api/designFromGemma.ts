@@ -13,7 +13,8 @@
  * Each is available; none was being asked for:
  *
  *     biomaterials  <- /datasets/{id}/samples        (sample.characteristics)
- *     tags          <- /datasets/{id}/annotations    (objectClass ExperimentTag)
+ *     tags          <- /datasets/{id}/annotations    (objectClass ExperimentTag,
+ *                                                     includeFreeText=true)
  *     publications  <- /datasets/{id}/publications
  *     overall_design<- /datasets/{id}/sourceMetadata (read in OverviewPanel,
  *                                                     which already has it)
@@ -49,7 +50,12 @@
  */
 import type { FindingEvidence } from "@/api/justification";
 import { api } from "./client";
-import type { Publication, Tag } from "@/features/experiment/types";
+import type {
+  OntologyTerm,
+  Publication,
+  Statement,
+  Tag,
+} from "@/features/experiment/types";
 
 /** One characteristic on a BioMaterial, post-`snakeify`. */
 interface WireCharacteristic {
@@ -91,6 +97,17 @@ export interface SampleBiomaterial {
     string,
     { category_uri?: string | null; value_uri?: string | null }
   >;
+  /** The individual characteristics behind each `characteristics`
+   *  entry, in the order they were joined into it. See
+   *  `Biomaterial.characteristic_value_uris`. */
+  characteristic_value_uris: Record<
+    string,
+    Array<{
+      value: string;
+      category_uri?: string | null;
+      value_uri?: string | null;
+    }>
+  >;
   bio_assays: Array<{ short_name: string; name: string }>;
 }
 
@@ -113,13 +130,25 @@ function shortNameOf(name: string): string {
  *  are JOINED rather than dropped. A curator reading `treatment = A; B`
  *  can see something is doubled; a curator reading `treatment = A` has
  *  no way to know B existed. The URI map keeps the first, since there
- *  is no way to join two URIs into one meaningful value. */
+ *  is no way to join two URIs into one meaningful value.
+ *
+ *  GSE43526.2 (experiment 8959) is the corpus counter-example the note
+ *  above allowed for: every one of its 10 samples carries `molecular
+ *  entity` twice — `polyA RNA extract` (OBI_0000869) plus one of
+ *  `Topotecan` / `Vehicle`, neither of which has a URI. Joined, the two
+ *  chips read the same truncated text and both showed `OBI:0000869`,
+ *  the first characteristic's term. So the join is kept (its consumers
+ *  are unchanged) and `characteristic_value_uris` carries the
+ *  decomposition beside it, each value with its OWN URIs. */
 function foldCharacteristics(chars: WireCharacteristic[]): {
   characteristics: Record<string, string>;
   characteristic_uris: SampleBiomaterial["characteristic_uris"];
+  characteristic_value_uris: SampleBiomaterial["characteristic_value_uris"];
 } {
   const characteristics: Record<string, string> = {};
   const characteristic_uris: SampleBiomaterial["characteristic_uris"] = {};
+  const characteristic_value_uris: SampleBiomaterial["characteristic_value_uris"] =
+    {};
   for (const c of chars) {
     const cat = (c.category ?? "").trim();
     const val = (c.value ?? "").trim();
@@ -133,8 +162,16 @@ function foldCharacteristics(chars: WireCharacteristic[]): {
         value_uri: c.value_uri ?? null,
       };
     }
+    // Emitted for every category, not just the doubled ones, so a
+    // reader has one enumeration path rather than a branch on whether
+    // this particular category collided.
+    (characteristic_value_uris[cat] ??= []).push({
+      value: val,
+      category_uri: c.category_uri ?? null,
+      value_uri: c.value_uri ?? null,
+    });
   }
-  return { characteristics, characteristic_uris };
+  return { characteristics, characteristic_uris, characteristic_value_uris };
 }
 
 /** Build the per-biomaterial rows for one experiment.
@@ -162,6 +199,7 @@ export function toSampleBiomaterials(
         accession,
         characteristics: folded.characteristics,
         characteristic_uris: folded.characteristic_uris,
+        characteristic_value_uris: folded.characteristic_value_uris,
         bio_assays: [],
       };
       byShortName.set(shortName, row);
@@ -209,12 +247,69 @@ export async function fetchSampleBiomaterials(
  *  origin. Only `ExperimentTag` rows are EE tags. */
 interface WireAnnotation {
   id?: number | null;
+  /** 🛑 **Four fields were renamed and there are no aliases** — a hard
+   *  rename, deliberately, because the thing being removed was itself a
+   *  compatibility shim (gembro, `b5c6747f68`, merged 2026-08-31, not
+   *  deployed; prod is `5328441870`).
+   *
+   *      className -> category      termName -> value
+   *      classUri  -> categoryUri   termUri  -> valueUri
+   *
+   *  Both spellings are read HERE, at the one adapter that touches
+   *  them, rather than per-field at the call sites — the same rule the
+   *  case boundary follows. It is a bounded transition: once every
+   *  Gemma we read serves `b5c6747f68`, delete the four legacy fields
+   *  and the coalescing below.
+   *
+   *  The rename also brings this route into line with
+   *  `/datasets/{id}/samples`, which has always used
+   *  `{category, categoryUri, value, valueUri}` — `foldCharacteristics`
+   *  above needs no change for the same reason. */
+  category?: string | null;
+  category_uri?: string | null;
+  value?: string | null;
+  value_uri?: string | null;
+  /** @deprecated pre-`b5c6747f68` spellings; see above. */
   class_name?: string | null;
-  class_uri?: string | null;
-  term_name?: string | null;
-  term_uri?: string | null;
+  /** @deprecated */ class_uri?: string | null;
+  /** @deprecated */ term_name?: string | null;
+  /** @deprecated */ term_uri?: string | null;
   evidence_code?: string | null;
   object_class?: string | null;
+  /** 🛑 **The two (predicate, object) slots Gemma's
+   *  `AnnotationValueObject` holds — there is no third.** The subject
+   *  is the row's own `value`; these are pairs hanging off it, so one
+   *  row can carry a whole composed statement.
+   *
+   *  Zero experiment-level characteristics in the corpus have a
+   *  non-null predicate today (cab, 2026-08-31, over all 68,786 —
+   *  so the six datasets probed from this side were exhaustive by
+   *  accident, not lucky). They are read anyway because 87 composed
+   *  tags across 74 datasets are built and queued for write-back,
+   *  and the shape they will arrive in is known:
+   *
+   *      GSE104324  cell type: Schwann cell
+   *                   + derives from part of -> sciatic nerve
+   *      GSE34669   organism part: liver
+   *                   + has disease -> hepatocellular carcinoma
+   *
+   *  The predicates to expect are `derives from part of`,
+   *  `derives from cell line`, `has modifier` and `has disease`; all
+   *  87 are single-pair, so `second_predicate` is unexercised and read
+   *  on principle rather than on evidence.
+   *
+   *  Dropping them is not a cosmetic loss: `cell type = Schwann cell`
+   *  rendered without the sciatic nerve is a different claim, and the
+   *  composed form exists precisely so it is one tag carrying a
+   *  relationship rather than two tags carrying none. */
+  predicate?: string | null;
+  predicate_uri?: string | null;
+  object?: string | null;
+  object_uri?: string | null;
+  second_predicate?: string | null;
+  second_predicate_uri?: string | null;
+  second_object?: string | null;
+  second_object_uri?: string | null;
   /** 🛑 The ONLY provenance a characteristic carries. Unlike a
    *  publication — which ships a whole `association` block with source,
    *  evidence text, assertedBy and assertedAt — an annotation row is
@@ -263,17 +358,72 @@ function asFindingEvidence(v: unknown): FindingEvidence[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+/** The (predicate, object) pairs on one annotation row, as the flat
+ *  `Statement` rows the UI keeps.
+ *
+ *  🛑 **Both pairs share the row's id.** `gemma_id` is what tells two
+ *  pairs of ONE statement apart from two separate statements on one
+ *  subject, and only the former is against Gemma's two-pair ceiling —
+ *  the same rule `composeDesign`'s factor-value statements follow. A
+ *  row that came without an id gets null, which is the "made by the
+ *  curator, no statement of its own yet" case.
+ *
+ *  Subject and category are the tag's own; a pair with neither a
+ *  predicate nor an object is not a statement and is skipped. */
+function toTagStatements(
+  r: WireAnnotation,
+  category: OntologyTerm,
+  subject: OntologyTerm,
+): Statement[] {
+  const gemma_id = typeof r.id === "number" ? r.id : null;
+  const pairs: [string | null | undefined, string | null | undefined, string | null | undefined, string | null | undefined][] = [
+    [r.predicate, r.predicate_uri, r.object, r.object_uri],
+    [r.second_predicate, r.second_predicate_uri, r.second_object, r.second_object_uri],
+  ];
+  const out: Statement[] = [];
+  for (const [pLabel, pUri, oLabel, oUri] of pairs) {
+    const p = (pLabel ?? "").trim();
+    const o = (oLabel ?? "").trim();
+    if (!p && !o) continue;
+    out.push({
+      gemma_id,
+      category,
+      subject,
+      predicate: p ? { label: p, uri: pUri ?? null } : null,
+      object: o ? { label: o, uri: oUri ?? null } : null,
+    });
+  }
+  return out;
+}
+
 export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
   const tags: Tag[] = [];
   for (const r of rows) {
     if (r.object_class !== "ExperimentTag") continue;
-    const label = (r.term_name ?? "").trim();
-    const category = (r.class_name ?? "").trim();
+    // 🛑 `value` is the TERM now, not a composed sentence. It used to
+    // hold `formatStatement(...)` output on a factor-value row — `"wild
+    // type genotype has background APP/PS1"`, or `"dexamethasone"` with
+    // the dose clause stripped. Nothing here has to undo that any more.
+    const label = (r.value ?? r.term_name ?? "").trim();
+    const category = (r.category ?? r.class_name ?? "").trim();
     if (!label && !category) continue;
+    const categoryTerm: OntologyTerm = {
+      label: category,
+      uri: r.category_uri ?? r.class_uri ?? null,
+    };
+    const valueTerm: OntologyTerm = {
+      label,
+      uri: r.value_uri ?? r.term_uri ?? null,
+    };
+    const statements = toTagStatements(r, categoryTerm, valueTerm);
     tags.push({
       id: r.id ?? tags.length + 1,
-      category: { label: category, uri: r.class_uri ?? null },
-      value: { label, uri: r.term_uri ?? null },
+      category: categoryTerm,
+      value: valueTerm,
+      // Left undefined rather than `[]` — `TagBar` branches on
+      // `statements?.length`, and an empty array is the flat tag it
+      // already renders, so the two must not be told apart by identity.
+      statements: statements.length > 0 ? statements : undefined,
       evidence_code: r.evidence_code ?? undefined,
       // Passed through, not reshaped: the wire shape IS
       // `FindingEvidence[]`. Anything else is dropped rather than
@@ -284,11 +434,38 @@ export function toExperimentTags(rows: WireAnnotation[]): Tag[] {
   return tags;
 }
 
+/** 🛑 `includeFreeText=true` is not optional here — without it the route
+ *  **omits every ungrounded annotation**, and an omitted tag is
+ *  indistinguishable from an absent one.
+ *
+ *  Measured on eid 38390 (GSE256180), gemma2 `0293d82c47`:
+ *
+ *      default              →  4 EE tags,  0 BioMaterial rows
+ *      includeFreeText=true →  5 EE tags,  6 BioMaterial rows
+ *
+ *  The fifth is `strain = Ascl1CreERT2/Ai14`, `valueUri` null —
+ *  `CHARACTERISTIC.ID 39131052`, evidence code `IC`, stored since the
+ *  original load. It reads as an agent invention when the tag bar shows
+ *  no such tag and Gemma's own page shows no such tag.
+ *
+ *  It is the ONLY parameter this route accepts, and it defaults to
+ *  hiding data. Ungrounded tags are shown and marked (italic, no URI),
+ *  never suppressed — so the complete list is the one to ask for.
+ *
+ *  The BioMaterial rows it also unhides are dropped by
+ *  `toExperimentTags` as before; sample characteristics come from
+ *  `/samples`, which has never suppressed free text (verified on the
+ *  same dataset: `BioSource = Trachea`, `valueUri` null, present with
+ *  no parameter at all).
+ *
+ *  Inert in local mode — the store does not serve this route (404 with
+ *  or without the parameter), and the caller already falls back to an
+ *  empty list. */
 export async function fetchExperimentTags(
   experimentId: number | string,
 ): Promise<Tag[]> {
   const rows = await api.get<WireAnnotation[]>(
-    `/rest/v2/datasets/${experimentId}/annotations`,
+    `/rest/v2/datasets/${experimentId}/annotations?includeFreeText=true`,
   );
   return toExperimentTags(Array.isArray(rows) ? rows : []);
 }

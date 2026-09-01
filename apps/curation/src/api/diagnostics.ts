@@ -108,13 +108,45 @@ export interface SampleCorrelationMatrix {
   method?: string | null;
 }
 
+/** The matrix, or the server's own reason for there not being one.
+ *
+ *  🛑 **A 404 here is no longer one thing.** Gemma began refusing this
+ *  route for single-cell datasets on `e8ccbfaae0` (2026-08-31) with a
+ *  sentence that explains itself:
+ *
+ *      "GSE282329 is a single-cell dataset; its sample correlation
+ *       matrix is computed across cell types and is not served while
+ *       that is being revised."
+ *
+ *  The card used to answer every 404 with a fixed guess — "hasn't been
+ *  preprocessed, or the route isn't deployed" — and both halves of that
+ *  guess are now wrong for a whole class of dataset, on a panel a
+ *  curator consults to decide whether something is missing or broken.
+ *  The reason travels so the card can print what the server said
+ *  instead of what we assumed. */
+export interface SampleCorrelationResult {
+  matrix: SampleCorrelationMatrix | null;
+  /** Empty when the matrix is present, or when the 404 carried no
+   *  message. Never reworded — it is the server's sentence. */
+  reason: string;
+}
+
 export function useSampleCorrelation(experimentId: number | string) {
-  return useQuery({
+  return useQuery<SampleCorrelationResult>({
     queryKey: ["diagnostics", "sample-correlation", experimentId],
-    queryFn: () =>
-      getOrNull<SampleCorrelationMatrix>(
-        `/rest/v2/datasets/${experimentId}/sample-correlation`,
-      ),
+    queryFn: async () => {
+      try {
+        const matrix = await api.get<SampleCorrelationMatrix>(
+          `/rest/v2/datasets/${experimentId}/sample-correlation`,
+        );
+        return { matrix, reason: "" };
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 204)) {
+          return { matrix: null, reason: e.detail || "" };
+        }
+        throw e;
+      }
+    },
     enabled: Boolean(experimentId),
   });
 }

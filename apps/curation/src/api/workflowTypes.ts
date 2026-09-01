@@ -442,4 +442,9 @@ export interface DatasetListParams {
   limit?: number;
   offset?: number;
   ids?: string;
+  /** Skip the fetch entirely. For a caller whose scope is known to be
+   *  EMPTY — a ticket with no targets — where the request would return
+   *  the whole corpus rather than nothing, because `ids` cannot express
+   *  "match none". Defaults to enabled. */
+  enabled?: boolean;
 }

@@ -80,6 +80,26 @@ export function gemmaUrl(path: string): string {
   return baseUrl + path;
 }
 
+/** Is `origin` a real, publicly reachable deployment of this app —
+ *  as opposed to a dev server someone is running?
+ *
+ *  `https:` is the same signal `publicGemmaUrl` rule 3 applies to the
+ *  configured base. Excluding loopback alone was narrower than "unless
+ *  we're on a dev host" claimed: a Vite dev server started with
+ *  `--host` is reached at `http://192.168.x.x:5183` or at the box's own
+ *  hostname, neither of which is loopback, so the origin sailed through
+ *  and UCSC was handed an address only the office can reach. Loopback
+ *  stays excluded for the rare dev setup terminating TLS locally.
+ *
+ *  Takes the origin rather than reading `window` so it can be tested,
+ *  and so both callers are provably asking the same question. */
+export function isPublicOrigin(origin: string): boolean {
+  return (
+    /^https:\/\//i.test(origin) &&
+    !/^https:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|$)/i.test(origin)
+  );
+}
+
 /**
  * A Gemma URL for someone ELSE to fetch — a genome browser loading a
  * custom track, say. Empty string when we have no base we can honestly
@@ -108,23 +128,9 @@ export function publicGemmaUrl(path: string): string {
   const explicit = import.meta.env.VITE_GEMMA_PUBLIC_URL;
   if (explicit) return String(explicit).replace(/\/+$/, "") + path;
 
-  // `https:` is the same signal rule 3 applies to the configured base,
-  // and it has to be applied here too. Excluding loopback alone was
-  // narrower than "unless we're on a dev host" claimed: a Vite dev
-  // server started with `--host` is reached at `http://192.168.x.x:5183`
-  // or at the box's own hostname, neither of which is loopback, so the
-  // origin sailed through and UCSC was handed an address only the
-  // office can reach — the very failure this function exists to stop.
-  // Loopback stays excluded for the rare dev setup terminating TLS
-  // locally.
   const origin =
     typeof window !== "undefined" ? window.location.origin : "";
-  if (
-    /^https:\/\//i.test(origin) &&
-    !/^https:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|$)/i.test(origin)
-  ) {
-    return origin + path;
-  }
+  if (isPublicOrigin(origin)) return origin + path;
 
   if (/^https:\/\//i.test(baseUrl)) return baseUrl + path;
   return "";

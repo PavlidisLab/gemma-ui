@@ -18,7 +18,11 @@ import { useEffect, useMemo, useState } from "react";
 
 import { markdownToPlainText } from "@/lib/markdown";
 import {
+  canCloseTicket,
+  closeBlockedReason,
+  useMyScratchpad,
   useMyTickets,
+  pinScratchpadFirst,
   usePatchTicket,
   ticketTypeLabel,
   ticketPriorityRank,
@@ -296,15 +300,35 @@ export function CuratorDashboard({
     includeClosed,
     light: true,
   });
+  // 🛑 This GET provisions the scratchpad on first access — gembro's
+  // contract, and the dashboard is where "first access" happens. It is
+  // not deployed yet, so today it answers 404 and the pin has nothing
+  // to pin, which renders exactly as the dashboard did before.
+  const scratchpad = useMyScratchpad();
 
   // Apply the chip filter, then sort by the curator's chosen order
   // (default: newest filed first).
   const filteredTickets = (tickets ?? []).filter((t) =>
     ticketMatchesFilter(t, filter),
   );
-  const sortedTickets = filteredTickets
-    .slice()
-    .sort((a, b) => compareTickets(a, b, sort));
+  // 🛑 The scratchpad is pinned AFTER the curator's sort, not folded
+  // into the comparator (Paul: "each curator would automatically get a
+  // scratchpad that is pinned first on their dashboard"; gembro makes
+  // it findable, the ordering is ours). Sorting by priority still puts
+  // the scratchpad first — the pin is a property of this dashboard, not
+  // of the sort.
+  //
+  // Filtered first, so a scratchpad excluded by the chip filter stays
+  // excluded. Pinning past the filter would make "Resolved" show an
+  // open ticket.
+  const sortedTickets = pinScratchpadFirst(
+    filteredTickets.slice().sort((a, b) => compareTickets(a, b, sort)),
+    // Only pin the fetched scratchpad when it survives the same filter
+    // the list did, for the same reason.
+    scratchpad.data && ticketMatchesFilter(scratchpad.data, filter)
+      ? scratchpad.data
+      : null,
+  );
 
   // Per-filter counts for the chip labels. Computed over the full
   // fetched list (``includeClosed`` is always on above), so every chip
@@ -640,11 +664,12 @@ function TicketCloseReopenControl({ ticket }: { ticket: Ticket }) {
           if (closed) void apply("OPEN", "reopened");
           else setConfirmingClose(true);
         }}
-        disabled={patch.isPending}
+        disabled={patch.isPending || (!closed && !canCloseTicket(ticket))}
         title={
           closed
             ? "Reopen this ticket (back to Open)."
-            : "Resolve this ticket. Targets stay in the system; only the ticket closes."
+            : closeBlockedReason(ticket) ||
+              "Resolve this ticket. Targets stay in the system; only the ticket closes."
         }
         className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded border border-slate-300 bg-white text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
       >

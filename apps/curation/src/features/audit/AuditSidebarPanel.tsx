@@ -26,6 +26,7 @@ import { useStickyState } from "@/lib/useStickyState";
 import { resolveApplyAction, type ApplyAction } from "./applyHandlers";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import {
+  canCloseTicket,
   usePatchTicketTarget,
   usePatchTicket,
   useTicket,
@@ -856,7 +857,12 @@ function SidebarHeader({
         ticketIdForResolve &&
         tk &&
         isSingleTargetTicket(tk) &&
-        !ticketIsClosed(tk)
+        !ticketIsClosed(tk) &&
+        // A scratchpad is never closed, so never offer it. Not offering
+        // is the right shape here rather than a greyed prompt — this is
+        // a volunteered suggestion, and a suggestion you cannot accept
+        // is worse than none.
+        canCloseTicket(tk)
       ) {
         setOfferResolveTicket(true);
       }

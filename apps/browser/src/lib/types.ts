@@ -188,22 +188,36 @@ export interface Publication {
 
 // ─── Pipeline status ──────────────────────────────────────────────────────────
 
+/** 🛑 Field names here are the ones `/datasets/{id}/pipelineStatus`
+ *  actually emits, verified against gemma2 on GSE11630, GSE270825 and
+ *  1658. Four of them were previously declared under names the server
+ *  does not use, and TypeScript cannot catch that — a read of an
+ *  undeclared field is `undefined`, not an error, so every consumer
+ *  silently got a falsy value and rendered its default branch. See
+ *  `pipelineStatus.test.ts`, which pins the spellings against a
+ *  captured response. */
+export type PipelineStepStatus = "ok" | "failed" | "notRun" | "notApplicable";
+
 export interface PipelineStep {
   step: string;
-  /** "ok" | "failed" | "notRun" | "notApplicable" */
-  state: string;
+  /** NOT `state`. */
+  status: PipelineStepStatus;
   lastRun?: string | null;
   eventType?: string | null;
-  message?: string | null;
+  /** NOT `message`. */
+  details?: string | null;
 }
 
 export interface PipelineStatus {
-  experimentId: number;
+  /** NOT `experimentId`. */
+  datasetId: number;
   steps: PipelineStep[];
   hasBatchInformation: boolean;
-  hasDifferentialExpressionAnalysis: boolean;
+  /** NOT `hasDifferentialExpressionAnalysis`. */
+  hasDea: boolean;
   hasCoexpressionAnalysis: boolean;
-  troubled: boolean;
+  /** NOT `troubled`. */
+  isTroubled: boolean;
   troubleDetails?: string | null;
   needsAttention: boolean;
   isPublic: boolean;

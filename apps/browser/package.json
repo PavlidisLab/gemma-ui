@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "preview": "vite preview",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:annotations": "node scripts/check-annotation-contract.mjs"
   },
   "dependencies": {
     "@gemma/assets": "*",

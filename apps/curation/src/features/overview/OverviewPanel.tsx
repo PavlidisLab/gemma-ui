@@ -10,9 +10,10 @@ import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import { extractPaperMeta, pmidFromPaperSource } from "@/features/proposal/paperEvidence";
 import { isPaperDismissed, markPaperDismissed } from "@/features/proposal/paperDismissal";
 import { platformPageUrl } from "@/lib/gemmaUrls";
-import { constantGeoFields, geoFieldLabel, useSourceMetadata } from "@/api/sourceMetadata";
+import { constantGeoFields, sourceFieldLabel, useSourceMetadata } from "@/api/sourceMetadata";
 import { descriptionWithoutGeoRecordBlock, overallDesignFromDescription } from "./geoRecordBlock";
 import { FindPublicationButton } from "./FindPublicationButton";
+import { SourceLinksCard } from "./SourceLinksCard";
 import { KV, SummaryCard } from "./SummaryCard";
 import { DesignSummary } from "./DesignSummary";
 import { TagBar } from "./TagBar";
@@ -293,12 +294,25 @@ export function OverviewPanel() {
         />
       </article>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {/* The design sits directly under the description, above the
+          reference cards (Paul, 2026-08-31). It is the thing being
+          curated; source links, GEO fields and publications are what you
+          consult ABOUT it. It was below them because the cards grew
+          around it, not because anything wanted it there. */}
+      <DesignSummary
+        factors={draft.factors}
+        biomaterials={draft.biomaterials}
+        nTags={draft.tags.length}
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
         {/* Identity card removed 2026-04-30 — short_name + source +
-            external link already render in the ExperimentBanner at the
-            top of the page; experiment_id is internal plumbing
-            curators rarely need. The short_name is still curator-
-            editable inline on the banner. */}
+            external link all rendered in the ExperimentBanner then;
+            experiment_id is internal plumbing curators rarely need. The
+            short_name is still curator-editable inline on the banner.
+            The source and the outbound links came BACK to this panel on
+            2026-08-31, as `SourceLinksCard` below — the banner row they
+            were on had run out of width. */}
 
         <SummaryCard label="Subject + assay">
           <KV k="taxon" v={meta?.taxon || "—"} />
@@ -324,10 +338,22 @@ export function OverviewPanel() {
               mono
             />
           ) : null}
-          <KV k="loaded at" v={formatTimestamp(meta?.loaded_at) || "—"} />
           {(() => {
+            // 🛑 Whose words these are, read from the record rather than
+            // assumed. Gemma models the origin as
+            // `externalSource {database, accession, uri}` and datasets
+            // arrive from more than one — CELLxGENE among them (Paul,
+            // 2026-08-31: "we might have different fields from different
+            // providers; retain some flexibility"). Every one of the 100
+            // datasets sampled on gemma2 today says `GEO`, which is why
+            // that is the fallback and not why it should be the literal.
+            const provider = meta?.external_source?.database?.trim() || "GEO";
             const rows: Array<{ label: string; text: string }> = [];
-            if (overallDesign) rows.push({ label: "design (GEO)", text: overallDesign });
+            if (overallDesign)
+              rows.push({
+                label: sourceFieldLabel("design", provider),
+                text: overallDesign,
+              });
             rows.push(
               ...orderGeoFields(
                 // 🛑 `meta.biomaterials` does not exist — `DatasetMeta`
@@ -347,7 +373,10 @@ export function OverviewPanel() {
                     (b) => b.accession || b.short_name,
                   ),
                 ),
-              ).map(({ key, text }) => ({ label: geoFieldLabel(key), text })),
+              ).map(({ key, text }) => ({
+                label: sourceFieldLabel(key, provider),
+                text,
+              })),
             );
             return rows.map(({ label, text }) => {
               const oneLine = text.replace(/\s+/g, " ").trim();
@@ -376,7 +405,7 @@ export function OverviewPanel() {
                         {oneLine.slice(0, 72)}
                         {oneLine.length > 72 ? "…" : ""}
                         <span className="ml-1 text-[10px] italic text-slate-400">
-                          from GEO — hover
+                          from {provider} — hover
                         </span>
                       </span>
                     </Tooltip>
@@ -393,6 +422,14 @@ export function OverviewPanel() {
             of the DesignSummary card below where they're actually
             used (the curator is reading the design crosstab; "165
             samples · 1 factor / 6 FVs · 3 tags" belongs there). */}
+
+        {/* Above Publications on purpose: that card carries the other
+            outbound row ("find on PubMed: by accession / by title"), so
+            the two halves of "go look this up elsewhere" sit together.
+            These items came off the banner's meta line, which was
+            reflowing under them. */}
+        <div className="space-y-3">
+        <SourceLinksCard design={meta ?? null} />
 
         <SummaryCard label="Publications">
           {(meta?.publications?.length ?? 0) === 0 ? (
@@ -487,13 +524,8 @@ export function OverviewPanel() {
             title={meta?.title ?? ""}
           />
         </SummaryCard>
+        </div>
       </div>
-
-      <DesignSummary
-        factors={draft.factors}
-        biomaterials={draft.biomaterials}
-        nTags={draft.tags.length}
-      />
     </div>
   );
 }
@@ -674,23 +706,6 @@ function renderPlatform(
   );
 }
 
-
-function formatTimestamp(iso: string | undefined): string {
-  if (!iso) return "";
-  try {
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return iso;
-    return d.toLocaleString([], {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  } catch {
-    return iso;
-  }
-}
 
 const GUIDELINE_TOPICS: { label: string; snippet: GuidelineSnippet }[] = [
   { label: "ontologies", snippet: ONTOLOGY_GUIDELINE },

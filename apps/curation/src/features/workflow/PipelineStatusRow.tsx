@@ -164,6 +164,22 @@ export function PipelineStatusRow({
 
   const discTone = rowDiscTone(status, hasLocalDraft);
   const discTitle = rowDiscTitle(status, hasLocalDraft);
+  // 🛑 Only as many tickets as the CALLER was given. The queue passes
+  // the ticket context when there is one; the global list passes none,
+  // because nothing answers "which tickets hold these fifty datasets"
+  // in one call — `/datasets/{id}/tickets` is per-dataset and fifty
+  // round trips is not a list view. Asked of gembro; modelled on
+  // `POST /datasets/pipeline-status`, which is the same shape. So a
+  // missing `#` here means "not known", never "not on a ticket", and
+  // the glyph is therefore only ever shown, never negated.
+  const onTicketCount = (tickets ?? []).filter((t) =>
+    (t.targets ?? []).some(
+      (x) =>
+        x.target_type === "EXPRESSION_EXPERIMENT" &&
+        x.target_id === dataset.id,
+    ),
+  ).length;
+
   const nextTask = deriveNextTask(
     dataset.id,
     status,
@@ -228,42 +244,71 @@ export function PipelineStatusRow({
               {findingsBadge.label}
             </span>
           )}
+          {/* 🛑 Glyphs, not words. The row carried `troubled`,
+              `attention` and `public`/`private` as three word-chips, and
+              a list of fifty of them is mostly repeated text (Paul,
+              2026-09-01: "should be more compact and show more status
+              … small icons/glyphs"). One letter each, fixed width, with
+              the wording moved into the tooltip — so more statuses fit
+              in less room and the row scans as a column of marks rather
+              than a paragraph.
+
+              Every glyph is ASCII. A missing status renders NOTHING
+              rather than a grey placeholder: the eye should catch the
+              exceptions, and on this corpus `private` is 2,145 of them
+              — so it is public that is the signal worth a mark, and
+              private that is unmarked. */}
           {dataset.troubled && (
-            <span
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 ring-1 ring-inset ring-red-200 dark:ring-red-800"
-              title="known data issue with this experiment"
-            >
-              troubled
-            </span>
+            <StatusGlyph
+              glyph="T"
+              tone="red"
+              label="Troubled — a known data issue with this experiment"
+            />
           )}
           {dataset.needs_attention && (
-            <span
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 ring-1 ring-inset ring-amber-200 dark:ring-amber-800"
-              title="a curator should look at this"
-            >
-              attention
-            </span>
+            <StatusGlyph
+              glyph="A"
+              tone="amber"
+              label="Needs attention — a curator should look at this"
+            />
           )}
-          {/* Visibility chip — always show, whether public or
-              private, so curators can spot the public ones in a
-              private-mostly list at a glance. Per design review
-              2026-05-25 ("the public/private status should be
-              shown as a badge for each experiment"). */}
           {dataset.is_public ? (
-            <span
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400 ring-1 ring-inset ring-sky-200 dark:ring-sky-800"
-              title="public — visible to all Gemma users"
-            >
-              public
-            </span>
+            <StatusGlyph
+              glyph="P"
+              tone="sky"
+              label="Public — visible to all Gemma users"
+            />
           ) : (
-            <span
-              className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 ring-1 ring-inset ring-slate-200 dark:ring-slate-700"
-              title="private — only visible to curators"
-            >
-              private
-            </span>
+            // 🛑 Marked, but SUBTLE (Paul, 2026-09-01: "yes worth a
+            // mark, subtle"). Private is 2,145 of this corpus, so at
+            // full contrast it would be a wall of identical marks
+            // drowning the exceptions beside it. Muted enough to read
+            // as background texture until looked for — the state IS
+            // shown, it just does not compete with `T` and `A`.
+            <StatusGlyph
+              glyph="p"
+              tone="muted"
+              label="Private — only visible to curators"
+            />
           )}
+          {onTicketCount > 0 ? (
+            <StatusGlyph
+              glyph="#"
+              tone="violet"
+              label={
+                onTicketCount === 1
+                  ? "On a curation ticket"
+                  : `On ${onTicketCount} curation tickets`
+              }
+            />
+          ) : null}
+          {hasLocalDraft ? (
+            <StatusGlyph
+              glyph="\u25CF"
+              tone="emerald"
+              label="Uncommitted local edits on this experiment"
+            />
+          ) : null}
           <GeeqPill score={dataset.geeq_public_quality_score} label="Q" />
           <GeeqPill score={dataset.geeq_public_suitability_score} label="S" />
         </span>
@@ -347,6 +392,49 @@ function LeadingBadge({ label, tone }: { label: string; tone: BadgeTone }) {
       className={`text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border shrink-0 ${palette[tone]}`}
     >
       {label}
+    </span>
+  );
+}
+
+/** One compact status mark.
+ *
+ *  Fixed width so a column of rows lines up and the eye can run down it
+ *  — an unaligned strip of variable-width chips is what made the word
+ *  version hard to scan. The letter is the glyph; the sentence lives in
+ *  `title`, which is also what a screen reader gets.
+ */
+function StatusGlyph({
+  glyph,
+  tone,
+  label,
+}: {
+  glyph: string;
+  tone: "red" | "amber" | "sky" | "violet" | "emerald" | "muted";
+  label: string;
+}) {
+  const cls = {
+    red: "bg-red-100 text-red-700 ring-red-200 dark:bg-red-900/30 dark:text-red-400 dark:ring-red-800",
+    amber:
+      "bg-amber-100 text-amber-700 ring-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:ring-amber-800",
+    sky: "bg-sky-100 text-sky-700 ring-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:ring-sky-800",
+    violet:
+      "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:ring-violet-800",
+    emerald:
+      "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:ring-emerald-800",
+    // No fill and no ring — the quietest a glyph can be while still
+    // being there. For a state that is true of most rows.
+    muted: "text-slate-400 dark:text-slate-600 ring-transparent",
+  }[tone];
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className={cn(
+        "inline-flex items-center justify-center w-4 h-4 rounded text-[10px] font-semibold font-mono ring-1 ring-inset shrink-0",
+        cls,
+      )}
+    >
+      {glyph}
     </span>
   );
 }

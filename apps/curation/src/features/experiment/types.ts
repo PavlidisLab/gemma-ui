@@ -158,6 +158,39 @@ export interface Biomaterial {
     string,
     { category_uri?: string | null; value_uri?: string | null }
   >;
+  /** The individual characteristics behind each ``characteristics``
+   *  entry, in the order they were joined into it.
+   *
+   *  A sample can carry two characteristics of the SAME category, and
+   *  ``characteristics`` holds one string per category, so
+   *  ``foldCharacteristics`` joins them with ``"; "`` and
+   *  ``characteristic_uris`` keeps only the first one's URIs. On
+   *  GSE43526.2 (experiment 8959) that put ``polyA RNA extract``
+   *  (OBI_0000869) and an un-URI'd ``Topotecan`` / ``Vehicle`` into one
+   *  string, and both tag chips rendered the same truncated text over
+   *  the same CURIE — a term that belongs to only one of them.
+   *
+   *  Each entry here carries its OWN URIs, so a value with none renders
+   *  as free text instead of borrowing its neighbour's. Read it through
+   *  ``characteristicValues()``, never directly: the array describes the
+   *  string it was folded from, and a curator can edit that string.
+   *
+   *  Absent from producers predating the field (the local API's design
+   *  projection, fixtures), where readers fall back to the joined string
+   *  plus ``characteristic_uris``.
+   *
+   *  🛑 The value labels sit in a ``value`` FIELD rather than being map
+   *  keys because ``snakeifyDataMap`` protects exactly one level of
+   *  data-keyed map — the category names here — and a second level of
+   *  submitter-written keys underneath would be rewritten. */
+  characteristic_value_uris?: Record<
+    string,
+    Array<{
+      value: string;
+      category_uri?: string | null;
+      value_uri?: string | null;
+    }>
+  >;
   /** Assays attached to this biomaterial. Usually one per
    *  biomaterial; >1 on multi-lane / multi-platform runs. Optional
    *  for backwards compat with payloads predating the field. */

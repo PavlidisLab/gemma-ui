@@ -170,3 +170,31 @@ export function platformDisplay<P>(
     ? { primary: orig, mappedTo: used }
     : { primary: used, mappedTo: [] };
 }
+
+/**
+ * Does this platform publish an annotation file (the element → gene
+ * mapping at `/platforms/{id}/annotations`)?
+ *
+ * Everything with an element set does; `SEQUENCING` platforms do not,
+ * and the route 404s for them — they carry no elements to map
+ * (`numberOfElements` is null). Measured across every populated
+ * technology type on gemma2 2.9.4 (2026-09-01):
+ *
+ *   ONECOLOR   GPL96, GPL1355            200
+ *   TWOCOLOR   GPL890                    200
+ *   DUALMODE   GPL1310                   200
+ *   GENELIST   Generic_human_ncbiIds     200
+ *   SEQUENCING GPL16791, GPL11154        404
+ *
+ * A predicate rather than an inline check in the page so the type table
+ * above is testable without rendering anything. Unknown / missing type
+ * ⇒ true: offering a link that might 404 beats hiding one that works,
+ * and `OTHER` has no members in the corpus to measure.
+ */
+export function platformHasAnnotationFile(
+  technologyType: string | null | undefined,
+): boolean {
+  const t = (technologyType ?? "").trim().toUpperCase();
+  if (!t) return true;
+  return !RNA_SEQ_TECHNOLOGY_TYPES.includes(t);
+}

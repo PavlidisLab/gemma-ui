@@ -9,6 +9,7 @@ import {
 import { LOCK_POLL_MS } from "@/features/design/useCurationLock";
 import { relativeSince } from "@/features/design/LockChip";
 import { navigate } from "@/routes";
+import { useCurationCounts } from "@/api/curationCounts";
 
 /**
  * "Under curation" — what is being worked on right now, across the
@@ -51,19 +52,19 @@ export function UnderCurationPanel() {
   // quiet" — the same reason DiagnosticsPanel names its unavailability
   // instead of rendering blank cards.
   if (data === LOCKS_ROUTE_ABSENT) {
-    return (
-      <Frame>
-        <p className="text-sm text-slate-600 dark:text-slate-300">
-          Not available yet.
-        </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          Gemma can say whether particular datasets are held, but not yet
-          list everything currently held. Until that lands this panel
-          cannot tell a quiet corpus from a question it could not ask, so
-          it shows neither.
-        </p>
-      </Frame>
-    );
+    // 🛑 The live-holder list is still not answerable — `GET
+    // /datasets/curation/locks` takes a `datasets` list and answers
+    // per-id, and with no ids it returns `{}`, which means "I checked
+    // nothing" rather than "the corpus is quiet". Building on that
+    // empty object would print a confident, wrong all-clear.
+    //
+    // But counts and statuses ARE answerable, which is what the panel
+    // was asked for (Paul, 2026-09-01: "we just want counts and
+    // statuses, and we also have a link on the page that goes to the
+    // list of experiments"). So the panel stops being a placeholder and
+    // becomes the summary, with the one thing still missing named in a
+    // line rather than a paragraph.
+    return <CurationCounts />;
   }
 
   if (isLoading) {
@@ -161,5 +162,78 @@ function Frame({
       </header>
       <div className="card p-3">{children}</div>
     </section>
+  );
+}
+
+/** Corpus-wide curation counts. What the panel shows until — and
+ *  arguably after — the live-holder list exists.
+ *
+ *  🛑 **A dash is not a zero.** `null` means the count could not be
+ *  asked for (local mode serves no `/datasets/count`, or the filter
+ *  property changed under us); `0` means it was asked and the answer is
+ *  none. Rendering both as "0" is the same confident-wrong-all-clear
+ *  this panel was built to avoid, one level down. */
+function CurationCounts() {
+  const { statuses, summary, isLoading } = useCurationCounts();
+  return (
+    <Frame>
+      {isLoading ? (
+        <p className="text-sm text-slate-500">Counting…</p>
+      ) : (
+        <>
+          <dl className="flex flex-wrap gap-x-6 gap-y-2">
+            {statuses.map((s) => (
+              <div key={s.key} title={s.hint}>
+                <dt className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {s.label}
+                </dt>
+                <dd className="text-lg font-semibold text-slate-800 dark:text-slate-100 tabular-nums">
+                  {s.count === null ? (
+                    <span
+                      className="text-slate-400"
+                      title="Could not ask — this count is unavailable here, which is not the same as none."
+                    >
+                      —
+                    </span>
+                  ) : (
+                    s.count.toLocaleString()
+                  )}
+                </dd>
+              </div>
+            ))}
+            {summary ? (
+              <div title="Open curation tickets across the corpus. Scratchpads are counted separately — one is never 'done', so counting it as outstanding work would leave every curator permanently behind.">
+                <dt className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  Open tickets
+                </dt>
+                <dd className="text-lg font-semibold text-slate-800 dark:text-slate-100 tabular-nums">
+                  {(summary.total_open ?? 0).toLocaleString()}
+                  {summary.scratchpad_open ? (
+                    <span className="ml-1 text-xs font-normal text-slate-500 dark:text-slate-400">
+                      + {summary.scratchpad_open} scratchpad
+                      {summary.scratchpad_open === 1 ? "" : "s"}
+                    </span>
+                  ) : null}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+
+          <div className="mt-3 flex items-baseline gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => navigate("#/all-experiments")}
+              className="text-xs text-blue-700 hover:underline dark:text-blue-300"
+            >
+              All experiments →
+            </button>
+            <span className="text-[11px] text-slate-500 dark:text-slate-400">
+              Who is holding a dataset right now is still per-dataset
+              only — the lock chip inside an experiment answers it.
+            </span>
+          </div>
+        </>
+      )}
+    </Frame>
   );
 }

@@ -295,6 +295,51 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
+        // Subsets Gemma has already cut. Gemma-only, like the GEO
+        // record above: the store serves no such route. Matches the
+        // collection only — `/subSets/{id}` and `/subSetGroups` are not
+        // read (the latter 500s on exactly the single-cell datasets the
+        // single-cell panel exists for; see api/subsets.ts).
+        // Gemma's own experiment sets. Gemma-only; the store serves
+        // no such route. Read whole and filtered client-side because
+        // Gemma has no "which sets contain dataset X" route.
+        "^/rest/v2/experiment-sets(\\?.*)?$": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          cookieDomainRewrite: "",
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
+        // Who assigned the cell types — Gemma-only, same reason as
+        // `subSets` below. 404 is an ordinary answer here (no
+        // assignment recorded, or not a single-cell dataset) and the
+        // hook reads the server's sentence off it.
+        "^/rest/v2/datasets/\\d+/cellTypeAssignment$": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          cookieDomainRewrite: "",
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
+        "^/rest/v2/datasets/\\d+/subSets$": {
+          target: GEMMA_REST_URL,
+          changeOrigin: true,
+          cookieDomainRewrite: "",
+          configure: (proxy) => {
+            proxy.on("proxyReq", (proxyReq) => {
+              proxyReq.removeHeader("origin");
+              proxyReq.removeHeader("referer");
+            });
+          },
+        },
         // Explicit local_api passthrough — strips the `/local-api`
         // prefix so the upstream sees the bare `/rest/v2/...` path.
         // Used by hooks that need to bypass a gemma-rest routing

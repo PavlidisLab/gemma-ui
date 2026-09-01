@@ -114,3 +114,160 @@ export async function mockExperiment(page: Page, harName: string) {
     );
   }
 }
+
+/** A ticket as the routes below serve it. Loose on purpose — the specs
+ *  set only what they assert on. */
+export interface MockTicket {
+  id: number;
+  title: string;
+  type: string;
+  state?: string;
+  acceptsTargets?: boolean;
+  targets?: Array<{
+    target_type: string;
+    target_id: number;
+    status?: string;
+    display_label?: string;
+  }>;
+}
+
+/**
+ * The ticket routes, served from an in-memory store so a spec can
+ * assert on what a CLICK did rather than only on what rendered.
+ *
+ * 🛑 Registered AFTER `mockExperiment` — Playwright matches handlers in
+ * reverse registration order, so these win over the HAR router, which
+ * would otherwise abort every ticket call as uncovered.
+ *
+ * Add and remove mutate the store, so the membership list genuinely
+ * changes and a spec can prove the round trip instead of trusting a
+ * spinner. Both are idempotent here for the same reason they are on the
+ * server: a stale menu must not turn a second click into an error.
+ *
+ * Returns the store so a spec can inspect it after acting.
+ */
+export async function mockTickets(page: Page, seed: MockTicket[]) {
+  const store = new Map<number, MockTicket>(
+    seed.map((t) => [
+      t.id,
+      { state: "OPEN", acceptsTargets: false, targets: [], ...t },
+    ]),
+  );
+  let nextId = Math.max(0, ...seed.map((t) => t.id)) + 1;
+
+  const json = (body: unknown, status = 200) => ({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(body),
+  });
+  const hasTarget = (t: MockTicket, id: number) =>
+    (t.targets ?? []).some((x) => x.target_id === id);
+
+  // Order matters within this block too: the more specific target
+  // routes are registered last so they win over `/tickets/{id}`.
+  await page.route("**/tickets/scratchpad", (route) =>
+    route.fulfill(
+      json({ data: [...store.values()].find((t) => t.type === "SCRATCHPAD") ?? null }),
+    ),
+  );
+
+  await page.route("**/tickets/search**", (route) => {
+    const q = (new URL(route.request().url()).searchParams.get("query") ?? "")
+      .trim()
+      .toLowerCase();
+    // Digits-only is a verbatim id and sorts first — the server's rule,
+    // mirrored so a spec can pin it.
+    const byId = /^\d+$/.test(q) ? store.get(Number(q)) : undefined;
+    const byTitle = [...store.values()].filter(
+      (t) => t.id !== byId?.id && t.title.toLowerCase().includes(q),
+    );
+    const hits = [...(byId ? [byId] : []), ...byTitle].map((t) => ({
+      id: t.id,
+      title: t.title,
+      state: t.state,
+      type: t.type,
+      targetCount: (t.targets ?? []).length,
+      updatedAt: "2026-09-01T00:00:00Z",
+    }));
+    return route.fulfill(json({ data: hits }));
+  });
+
+  await page.route("**/datasets/*/tickets", (route) => {
+    const m = route.request().url().match(/datasets\/(\d+)\/tickets/);
+    const eid = m ? Number(m[1]) : NaN;
+    return route.fulfill(
+      json({ data: [...store.values()].filter((t) => hasTarget(t, eid)) }),
+    );
+  });
+
+  await page.route(/\/tickets\/\d+$/, (route) => {
+    const id = Number(route.request().url().match(/tickets\/(\d+)$/)![1]);
+    const t = store.get(id);
+    return t
+      ? route.fulfill(json({ data: t }))
+      : route.fulfill(json({ error: { code: 404 } }, 404));
+  });
+
+  await page.route(/\/tickets\/\d+\/targets$/, async (route) => {
+    const id = Number(route.request().url().match(/tickets\/(\d+)\/targets/)![1]);
+    const t = store.get(id);
+    if (!t) return route.fulfill(json({ error: { code: 404 } }, 404));
+    if (!t.acceptsTargets || t.state !== "OPEN") {
+      return route.fulfill(json({ error: { code: 409 } }, 409));
+    }
+    const body = route.request().postDataJSON() as {
+      targets?: Array<{ targetId?: number; target_id?: number }>;
+    };
+    const added: number[] = [];
+    const alreadyPresent: number[] = [];
+    for (const x of body.targets ?? []) {
+      const tid = (x.targetId ?? x.target_id) as number;
+      if (hasTarget(t, tid)) alreadyPresent.push(tid);
+      else {
+        t.targets!.push({
+          target_type: "EXPRESSION_EXPERIMENT",
+          target_id: tid,
+          status: "NOT_DONE",
+        });
+        added.push(tid);
+      }
+    }
+    return route.fulfill(json({ data: { added, alreadyPresent, ticket: t } }));
+  });
+
+  await page.route(/\/tickets\/\d+\/targets\/[A-Z_]+\/\d+$/, (route) => {
+    const m = route
+      .request()
+      .url()
+      .match(/tickets\/(\d+)\/targets\/[A-Z_]+\/(\d+)/)!;
+    const t = store.get(Number(m[1]));
+    if (!t) return route.fulfill(json({ error: { code: 404 } }, 404));
+    const tid = Number(m[2]);
+    const row = (t.targets ?? []).find((x) => x.target_id === tid);
+    if (!row) return route.fulfill({ status: 204, body: "" });
+    t.targets = t.targets!.filter((x) => x.target_id !== tid);
+    return route.fulfill(
+      json({ data: { targetType: "EXPRESSION_EXPERIMENT", targetId: tid, status: row.status, ticket: t } }),
+    );
+  });
+
+  await page.route("**/curation/v1/tickets", (route) => handleCreate(route));
+  await page.route(/\/rest\/v2\/tickets$/, (route) => handleCreate(route));
+
+  function handleCreate(route: Parameters<Parameters<Page["route"]>[1]>[0]) {
+    if (route.request().method() !== "POST") return route.fallback();
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    const t: MockTicket = {
+      id: nextId++,
+      title: String(body.title ?? ""),
+      type: String(body.type ?? "GENERIC"),
+      state: "OPEN",
+      acceptsTargets: body.acceptsTargets === true || body.accepts_targets === true,
+      targets: (body.targets as MockTicket["targets"]) ?? [],
+    };
+    store.set(t.id, t);
+    return route.fulfill(json({ data: t }));
+  }
+
+  return store;
+}

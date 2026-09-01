@@ -10,6 +10,11 @@ import { useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
 import {
+  groupStatementsBySubject,
+  statementHasPair,
+  type StatementGroup,
+} from "@/lib/statementGroups";
+import {
   getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
@@ -39,7 +44,7 @@ import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { parseAnnotationStatement } from "@/lib/annotationStatement";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
-import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
+import { tintForIndex, compareValuesNatural, compareSortColumn } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
@@ -59,7 +64,6 @@ import type {
   BioMaterialFactorValueAssignment,
   ExperimentalFactorEntry,
   FactorValueBasic,
-  FactorValueStatement,
   Publication,
   PipelineStatus,
   DiffExAnalysis,
@@ -238,12 +242,17 @@ function Banner({
   const me = useMe();
   const curateHref = me.data ? curationUrl(`/#/experiments/${dataset.id}`) : null;
 
+  // Pipeline state is operator information — which analyses have run on
+  // this dataset, and which failed. Admin-only, and gated on the FETCH
+  // rather than just the render so a non-admin's dataset page does not
+  // issue the request at all.
   const pipeline = useQuery({
     queryKey: ["pipelineStatus", dataset.id],
     queryFn: ({ signal }) => getDatasetPipelineStatus(dataset.id, signal),
     staleTime: 5 * 60_000,
+    enabled: isAdmin,
   });
-  const ps = pipeline.data ?? null;
+  const ps = isAdmin ? (pipeline.data ?? null) : null;
 
   return (
     <section className="sticky top-0 z-10 bg-white border-b border-slate-200">
@@ -388,7 +397,7 @@ function Banner({
           {ps && <PipelineStatusRow ps={ps} />}
         </div>
         {SHOW_GEEQ && geeq && <GeeqChip geeq={geeq} />}
-        {ps?.troubled && (
+        {ps?.isTroubled && (
           <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-50 text-red-700 border border-red-200 shrink-0"
             title={ps.troubleDetails ?? undefined}>
             troubled
@@ -419,19 +428,19 @@ const STEP_LABELS: Record<string, string> = {
 
 function PipelineStatusRow({ ps }: { ps: PipelineStatus }) {
   const shown = ps.steps.filter(
-    (s) => s.state !== "notApplicable" && s.step in STEP_LABELS,
+    (s) => s.status !== "notApplicable" && s.step in STEP_LABELS,
   );
   if (!shown.length) return null;
   return (
     <div className="mt-1.5 flex items-center gap-1.5 flex-wrap">
       {shown.map((s) => (
         <span key={s.step}
-          title={s.lastRun ? `${s.step}: ${s.state} — ${s.lastRun}` : `${s.step}: ${s.state}`}
+          title={s.lastRun ? `${s.step}: ${s.status} — ${s.lastRun}` : `${s.step}: ${s.status}`}
           className={
             "text-[10px] px-1.5 py-0.5 rounded border font-mono " +
-            (s.state === "ok"     ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-             s.state === "failed" ? "bg-red-50 text-red-700 border-red-200" :
-                                    "bg-slate-100 text-slate-500 border-slate-200")
+            (s.status === "ok"     ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+             s.status === "failed" ? "bg-red-50 text-red-700 border-red-200" :
+                                     "bg-slate-100 text-slate-500 border-slate-200")
           }>
           {STEP_LABELS[s.step]}
         </span>
@@ -1299,8 +1308,12 @@ function FactorValueRow({
       ) : null}
       {visibleStmts.length > 0 ? (
         <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-          {visibleStmts.map((s, i) => (
-            <StatementLine key={s.id ?? i} statement={s} />
+          {/* One line per SUBJECT, not per statement. Gemma stores the
+              pairs flat and repeats the subject on each, so a value
+              carrying "delivered for duration 2 d" and "delivered at
+              dose 1 µM" printed GSK2879552 and its CURIE twice. */}
+          {groupStatementsBySubject(visibleStmts).map((g, i) => (
+            <StatementLine key={g.statements[0]?.id ?? i} group={g} />
           ))}
         </div>
       ) : !value.isMeasurement && visibleChars.length > 0 ? (
@@ -1334,34 +1347,47 @@ function FactorValueRow({
   );
 }
 
-/** One S-P-O statement line — subject [predicate] object, with the
- *  curation conventions: ontology-resolved terms in emerald chips,
- *  free-text in muted italic, predicate in slate. Missing parts are
- *  omitted so a subject-only statement reads as just the subject. */
-function StatementLine({ statement }: { statement: FactorValueStatement }) {
-  const hasSubject = !!(statement.subject || statement.subjectUri);
-  const hasPredicate = !!(statement.predicate || statement.predicateUri);
-  const hasObject = !!(statement.object || statement.objectUri);
+/** One SUBJECT and everything said about it — subject chip once,
+ *  followed by each [predicate] object pair.
+ *
+ *  Ontology-resolved terms in emerald chips, predicate in slate, and
+ *  missing parts omitted so a subject-only statement reads as just the
+ *  subject. Same shape the curation editor uses for a multi-pair
+ *  subject, so the two surfaces describe one value the same way. */
+function StatementLine({ group }: { group: StatementGroup }) {
+  const hasSubject = !!(group.subject || group.subjectUri);
+  const pairs = group.statements.filter(statementHasPair);
   return (
     <div className="flex items-baseline gap-1 flex-wrap text-[12px]">
       {hasSubject ? (
-        <OntologyTermChip uri={statement.subjectUri ?? null}>
-          {statement.subject ?? ""}
+        <OntologyTermChip uri={group.subjectUri ?? null}>
+          {group.subject ?? ""}
         </OntologyTermChip>
       ) : null}
-      {hasPredicate ? (
-        <OntologyTermChip
-          uri={statement.predicateUri ?? null}
-          variant="predicate"
-        >
-          {statement.predicate ?? ""}
-        </OntologyTermChip>
-      ) : null}
-      {hasObject ? (
-        <OntologyTermChip uri={statement.objectUri ?? null}>
-          {statement.object ?? ""}
-        </OntologyTermChip>
-      ) : null}
+      {pairs.map((s, i) => {
+        const hasPredicate = !!(s.predicate || s.predicateUri);
+        const hasObject = !!(s.object || s.objectUri);
+        return (
+          <span
+            key={s.id ?? i}
+            className="inline-flex items-baseline gap-1 flex-wrap"
+          >
+            {hasPredicate ? (
+              <OntologyTermChip
+                uri={s.predicateUri ?? null}
+                variant="predicate"
+              >
+                {s.predicate ?? ""}
+              </OntologyTermChip>
+            ) : null}
+            {hasObject ? (
+              <OntologyTermChip uri={s.objectUri ?? null}>
+                {s.object ?? ""}
+              </OntologyTermChip>
+            ) : null}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -1420,38 +1446,111 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
       .sort((a, b) => Number(a.isBlock) - Number(b.isBlock));
   }, [samples, factorDescriptions]);
 
+  // Column key encoding, one string so a single `sort` state covers the
+  // fixed columns and every dynamically-generated factor column alike:
+  // "name" / "accession" / "flags" / "factor:<experimentalFactorId>".
+  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
+
+  // "" means "no value" — sampleSortValue never returns the "—"
+  // placeholder the cells display, so a blank always compares as
+  // missing rather than sorting into the alphabet at "—".
+  const sampleSortValue = (s: BioAssay, key: string): string => {
+    if (key === "name") return s.name ?? s.shortName ?? `BA ${s.id}`;
+    if (key === "accession") return s.accession?.accession ?? "";
+    if (key === "flags") {
+      if (s.userFlaggedOutlier) return "outlier";
+      if (s.predictedOutlier) return "predicted outlier";
+      return "";
+    }
+    const fid = Number(key.slice("factor:".length));
+    const fv = s.sample?.factorValues?.find((f) => f.experimentalFactorId === fid);
+    return fv?.summary || fv?.value || "";
+  };
+
+  const sortedSamples = useMemo(() => {
+    if (!sort) return samples;
+    const dir = sort.dir === "asc" ? 1 : -1;
+    return [...samples].sort((a, b) =>
+      compareSortColumn(sampleSortValue(a, sort.key), sampleSortValue(b, sort.key), dir),
+    );
+  }, [samples, sort]);
+
+  // asc -> desc -> unsorted, matching DesignBreakdown's crosstab above.
+  const onSortClick = (key: string) =>
+    setSort((cur) => {
+      if (!cur || cur.key !== key) return { key, dir: "asc" };
+      if (cur.dir === "asc") return { key, dir: "desc" };
+      return null;
+    });
+  const sortArrow = (key: string) =>
+    !sort || sort.key !== key ? "" : sort.dir === "asc" ? " ▲" : " ▼";
+  const thCls = "text-left py-1.5 pr-4 font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-100";
+
   return (
     <SectionCard title="Samples"
       subtitle={q.isLoading ? "loading…" : `${samples.length || nSamples} sample${nSamples === 1 ? "" : "s"}`}>
       {q.isLoading ? <LoadingRow /> : q.isError ? <ErrorRow /> : samples.length === 0 ? <Empty msg="no samples" /> : (
+        // Name + Accession stay sticky (left-0 / left-44, matched to
+        // Name's w-44) so a 100-factor-column dataset still reads who
+        // each row is while scrolling right. This container — not the
+        // page — is what scrolls: overflow-x-auto here plus the block
+        // (non-flex) ancestor chain up to the max-w-[1200px] page wrapper
+        // keeps a wide table from ever forcing the whole page sideways.
         <div className="overflow-x-auto">
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="border-b border-slate-200">
-                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Name</th>
-                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Accession</th>
+                <th
+                  className={thCls + " sticky left-0 z-10 bg-white w-44 min-w-[11rem] max-w-[11rem]"}
+                  onClick={() => onSortClick("name")}
+                  title="click to sort"
+                >
+                  Name{sortArrow("name")}
+                </th>
+                <th
+                  className={thCls + " sticky left-44 z-10 bg-white border-r border-slate-200"}
+                  onClick={() => onSortClick("accession")}
+                  title="click to sort"
+                >
+                  Accession{sortArrow("accession")}
+                </th>
                 {factorColumns.map((c) => (
-                  <th key={c.id} className="text-left py-1.5 pr-4 font-medium text-slate-600">
-                    <span className="block max-w-[12rem] truncate" title={c.label}>
-                      {c.label}
+                  <th
+                    key={c.id}
+                    className={thCls}
+                    onClick={() => onSortClick(`factor:${c.id}`)}
+                    title={`${c.label}\n\n(click to sort)`}
+                  >
+                    <span className="flex items-center gap-0.5">
+                      <span className="max-w-[12rem] truncate">{c.label}</span>
+                      <span className="shrink-0">{sortArrow(`factor:${c.id}`)}</span>
                     </span>
                   </th>
                 ))}
-                <th className="text-left py-1.5 font-medium text-slate-600">Flags</th>
+                <th
+                  className="text-left py-1.5 font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-100"
+                  onClick={() => onSortClick("flags")}
+                  title="click to sort"
+                >
+                  Flags{sortArrow("flags")}
+                </th>
               </tr>
             </thead>
             <tbody>
-              {samples.map((s) => {
+              {sortedSamples.map((s) => {
                 const outlier = s.outlier || s.predictedOutlier || s.userFlaggedOutlier;
+                const stickyBg = outlier ? "bg-amber-50" : "bg-white";
                 return (
                   <tr key={s.id} className={"border-b border-slate-100 " + (outlier ? "bg-amber-50/40" : "")}>
-                    <td className="py-1.5 pr-4 text-slate-800">
-                      <span className="inline-flex items-center">
-                        {s.name ?? s.shortName ?? `BA ${s.id}`}
+                    <td className={`py-1.5 pr-4 text-slate-800 sticky left-0 z-10 w-44 min-w-[11rem] max-w-[11rem] ${stickyBg}`}>
+                      <span className="flex items-center gap-1">
+                        <span className="truncate min-w-0" title={s.name ?? s.shortName ?? `BA ${s.id}`}>
+                          {s.name ?? s.shortName ?? `BA ${s.id}`}
+                        </span>
                         <SampleMetaPopover assay={s} />
                       </span>
                     </td>
-                    <td className="py-1.5 pr-4 font-mono text-slate-600">
+                    <td className={`py-1.5 pr-4 font-mono text-slate-600 sticky left-44 z-10 border-r border-slate-200 ${stickyBg}`}>
                       {s.accession?.accession
                         ? <a href={`https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=${s.accession.accession}`}
                             target="_blank" rel="noopener noreferrer"
@@ -1792,7 +1891,20 @@ function FlagChip({ label, color }: { label: string; color: "red" | "amber" | "s
 
 // ─── Differential Expression tab ──────────────────────────────────────────────
 
-/** Shared query options for a result set's corrected p-value histogram.
+/** Shared query options for a result set's RAW p-value histogram.
+ *
+ *  🛑 **Raw, never corrected.** The shape of this histogram is the
+ *  whole point of showing it — a flat distribution with a spike near 0
+ *  says the contrast has signal, a flat one says it does not, and a
+ *  peak at 1 says something is wrong with the model. Multiple-testing
+ *  correction destroys exactly that: FDR-adjusted values pile up near
+ *  1 and the diagnostic reads as "no signal" on data that has plenty.
+ *  A reader cannot tell the two apart from the picture. Paul,
+ *  2026-08-31: "it MUST be raw pvalues".
+ *
+ *  The route takes `column=raw|corrected`; corrected stays available
+ *  for anything that genuinely wants FDR, which the gene tables below
+ *  do (they RANK by it, which is the right use).
  *  Used both by the per-row {@link PvalueHistogramStrip} and by the
  *  tab-level prefetch below — keeping the key/args/staleTime identical
  *  in one place so a prefetch reliably warms the cache the strips read.
@@ -1802,7 +1914,7 @@ function pvalueDistQueryOptions(resultSetId: number) {
   return {
     queryKey: ["resultset-pvalue-dist", resultSetId] as const,
     queryFn: ({ signal }: QueryFunctionContext) =>
-      getPvalueDistribution(resultSetId, { bins: 20, column: "corrected" }, signal),
+      getPvalueDistribution(resultSetId, { bins: 20, column: "raw" }, signal),
     staleTime: 30 * 60_000,
   };
 }
@@ -2458,7 +2570,7 @@ function DeCountChip({
   );
 }
 
-/** Tiny inline histogram of the corrected-p-value distribution for a
+/** Tiny inline histogram of the raw-p-value distribution for a
  *  result set. Fetches the binned payload from
  *  ``GET /resultSets/{id}/pvalueDistribution`` (shipped 2026-05-23).
  *  Renders 20 bars
@@ -2515,14 +2627,14 @@ function PvalueHistogramStrip({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Enlarge corrected p-value distribution"
+        aria-label="Enlarge raw p-value distribution"
         className="inline-flex items-center align-middle rounded p-0 cursor-pointer hover:ring-1 hover:ring-sky-300 focus:outline-none focus:ring-1 focus:ring-sky-400"
       >
         <svg
           width={W}
           height={H}
           role="img"
-          aria-label="corrected p-value distribution"
+          aria-label="raw p-value distribution"
           className="inline-block align-middle"
           style={{ display: "inline-block" }}
         >
@@ -2577,7 +2689,7 @@ function PvalueHistogramStrip({
   );
 }
 
-/** Enlarged, axis-labelled corrected-p-value histogram shown in the
+/** Enlarged, axis-labelled raw-p-value histogram shown in the
  *  pop-out modal when a curator clicks the inline strip. Same data +
  *  colour semantics as the strip (leftmost bin = smallest p-values,
  *  highlighted; dashed uniform-null reference) with real axes: probe
@@ -2608,7 +2720,7 @@ function PvalueHistogramLarge({ dist }: { dist: PvalueDistribution }) {
         width={W}
         height={H}
         role="img"
-        aria-label="corrected p-value distribution, enlarged"
+        aria-label="raw p-value distribution, enlarged"
       >
         <rect x={0} y={0} width={W} height={H} fill="#ffffff" />
         {/* y grid + tick labels */}
@@ -2729,7 +2841,7 @@ function PvalueHistogramLarge({ dist }: { dist: PvalueDistribution }) {
           textAnchor="middle"
           fontFamily="-apple-system, sans-serif"
         >
-          corrected p-value
+          raw p-value
         </text>
         <text
           x={16}

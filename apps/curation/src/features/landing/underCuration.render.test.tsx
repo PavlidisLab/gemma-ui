@@ -51,11 +51,22 @@ describe("Under curation", () => {
     result.current = null;
   });
 
-  it("says it cannot answer when the route is absent — not 'nothing'", async () => {
+  it("shows counts when the live-holder route is absent — never 'nothing'", async () => {
+    // 🛑 The invariant survives the redesign: with no way to list who
+    // holds what, the panel must not claim the corpus is quiet. What
+    // changed (2026-09-01) is that it no longer says "not available
+    // yet" either — corpus counts ARE answerable and are what the panel
+    // was asked for, so it shows those and names the one thing still
+    // missing. The assertion that matters is the absence of a false
+    // all-clear, not the presence of a particular sentence.
     result.current = LOCKS_ROUTE_ABSENT;
     open();
-    await waitFor(() => expect(screen.getByText(/not available yet/i)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/needs attention/i)).toBeTruthy(),
+    );
     expect(screen.queryByText(/nothing is under curation/i)).toBeNull();
+    // Still honest about what it cannot say.
+    expect(screen.getByText(/holding a dataset right now/i)).toBeTruthy();
   });
 
   it("says nothing is under curation when the route answers empty", async () => {
