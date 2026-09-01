@@ -356,6 +356,7 @@ function NextActionBar({
   const patch = usePatchTicket(ticketId);
   const create = useCreateTicket();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const isScratchpad = ticket.type === "SCRATCHPAD";
   const action = nextActionFor(ticket);
   // No action defined for this ticket type — nothing to render. The
   // header still shows targets + progress; the curator drives work
@@ -373,12 +374,25 @@ function NextActionBar({
           <div className="text-xs text-emerald-700 dark:text-emerald-400">
             {action.doneNote}
           </div>
+          {/* 🛑 A scratchpad is never closed (Paul, 2026-09-01: "we
+              shouldn't be allowed to close the scratchpad"). Finishing
+              with a dataset means REMOVING it, not resolving the
+              ticket — the pile itself is permanent, and a curator who
+              closed theirs would have nowhere to put the next thing.
+              Greyed with the reason rather than hidden, so the absence
+              reads as deliberate. */}
           <button
             type="button"
             onClick={() => setConfirmOpen(true)}
-            disabled={patch.isPending || create.isPending}
+            disabled={
+              isScratchpad || patch.isPending || create.isPending
+            }
             className="btn text-xs"
-            title="Resolve this ticket. The targets stay in the system; only the ticket closes."
+            title={
+              isScratchpad
+                ? "A scratchpad stays open. Finish with a dataset by removing it from the ticket, not by closing the ticket."
+                : "Resolve this ticket. The targets stay in the system; only the ticket closes."
+            }
           >
             {patch.isPending || create.isPending
               ? "closing…"

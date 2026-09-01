@@ -291,14 +291,50 @@ function datasetListPath(
   return `/rest/v2/datasets?${qs}`;
 }
 
+/** A `filter` clause restricting to a set of dataset ids.
+ *
+ *  🛑 **The ids-in-path route does NOT accept `query`.** Measured on
+ *  gemma2 `41f45962c5`:
+ *
+ *      /datasets/{500 ids}?query=dissecting
+ *        400 "Unknown query parameter 'query'. This endpoint accepts:
+ *             cursor, filter, limit, offset, sort."
+ *
+ *  So every search typed into a ticket's queue in remote mode 400ed,
+ *  and the list went on showing the previous unfiltered page — which
+ *  reads as "the search does nothing" rather than as an error (Paul,
+ *  2026-09-01: "this search is barely (or not?) working").
+ *
+ *  The plain `/datasets` route takes both, and they compose — verified
+ *  against a known hit: `query=dissecting&filter=id in (20728,1,2)`
+ *  returns exactly `GSE185024.1`. So a search inside an id scope moves
+ *  off the path form and expresses the scope as a filter instead.
+ *
+ *  🛑 Do NOT reach for `filter=name like %…%` as the search. It answers
+ *  200 with zero rows even for a short name that exists
+ *  (`shortName like %GSE6966%` → 0), so it fails silently in the one
+ *  way a search must not. `query` is the search; `filter` is the
+ *  scope. */
+export function idScopeFilter(ids: string): string {
+  return `id in (${ids})`;
+}
+
 /** Exposed for test — the URL shape is the whole fix. */
-export const __test = { datasetListPath };
+export const __test = { datasetListPath, idScopeFilter };
 
 export function useDatasetsPaginated(params: DatasetListParams) {
   const mode = resolveGemmaMode().mode;
   const p = new URLSearchParams();
+  // Remote + an id scope + a search cannot use the path form, which
+  // rejects `query` — see `idScopeFilter`. Fall back to the plain route
+  // with the scope expressed as a filter.
+  const scopeAsFilter =
+    mode === "remote" && !!params.ids && !!params.query;
+  const filter = [params.filter, scopeAsFilter ? idScopeFilter(params.ids!) : null]
+    .filter(Boolean)
+    .join(" and ");
   if (params.query)  p.set("query",  params.query);
-  if (params.filter) p.set("filter", params.filter);
+  if (filter)        p.set("filter", filter);
   if (params.sort)   p.set("sort",   params.sort);
   // Remote carries the ids in the path instead — see `datasetListPath`.
   if (params.ids && mode === "local") p.set("ids", params.ids);
@@ -306,9 +342,13 @@ export function useDatasetsPaginated(params: DatasetListParams) {
   p.set("offset", String(params.offset ?? 0));
   return useQuery({
     queryKey: KEY.datasetsPaginated(params),
+    // 🛑 An empty scope cannot be expressed as `ids` — omitting it asks
+    // for EVERYTHING. A caller whose scope is empty passes
+    // `enabled: false` and gets no rows instead of the whole corpus.
+    enabled: params.enabled !== false,
     queryFn: async () => {
       const raw = await api.get<Record<string, unknown>>(
-        datasetListPath(mode, params.ids, p.toString()),
+        datasetListPath(mode, scopeAsFilter ? undefined : params.ids, p.toString()),
       );
       return adaptDatasetListResponse(raw);
     },
