@@ -278,7 +278,19 @@ export function PipelineStatusRow({
               tone="sky"
               label="Public — visible to all Gemma users"
             />
-          ) : null}
+          ) : (
+            // 🛑 Marked, but SUBTLE (Paul, 2026-09-01: "yes worth a
+            // mark, subtle"). Private is 2,145 of this corpus, so at
+            // full contrast it would be a wall of identical marks
+            // drowning the exceptions beside it. Muted enough to read
+            // as background texture until looked for — the state IS
+            // shown, it just does not compete with `T` and `A`.
+            <StatusGlyph
+              glyph="p"
+              tone="muted"
+              label="Private — only visible to curators"
+            />
+          )}
           {onTicketCount > 0 ? (
             <StatusGlyph
               glyph="#"
@@ -397,7 +409,7 @@ function StatusGlyph({
   label,
 }: {
   glyph: string;
-  tone: "red" | "amber" | "sky" | "violet" | "emerald";
+  tone: "red" | "amber" | "sky" | "violet" | "emerald" | "muted";
   label: string;
 }) {
   const cls = {
@@ -409,6 +421,9 @@ function StatusGlyph({
       "bg-violet-100 text-violet-700 ring-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:ring-violet-800",
     emerald:
       "bg-emerald-100 text-emerald-700 ring-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:ring-emerald-800",
+    // No fill and no ring — the quietest a glyph can be while still
+    // being there. For a state that is true of most rows.
+    muted: "text-slate-400 dark:text-slate-600 ring-transparent",
   }[tone];
   return (
     <span
