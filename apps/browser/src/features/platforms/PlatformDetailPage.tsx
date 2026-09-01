@@ -328,19 +328,15 @@ function AnnotationFileCard({ platform: p }: { platform: Platform }) {
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
         {/* Served with `Content-Disposition: attachment`, so a plain
             anchor saves the file — no JS, and the big generic
-            platforms never pass through memory. */}
+            platforms never pass through memory. One link, because the
+            route's `download=true` variant transfers the identical
+            gzip bytes and only differs in handing over a `.gz` to
+            unzip; see `platformAnnotationsDownloadUrl`. */}
         <a
           className="text-gemma-accent hover:underline"
           href={platformAnnotationsDownloadUrl(id)}
         >
           Download annotations (TSV)
-        </a>
-        <span className="text-[11px] text-gemma-subtle">or</span>
-        <a
-          className="text-[11px] text-gemma-accent hover:underline"
-          href={platformAnnotationsDownloadUrl(id, { gzip: true })}
-        >
-          gzipped
         </a>
       </div>
       <div className="text-[11px] text-gemma-subtle">

@@ -1124,9 +1124,18 @@ export function datasetDataDownloadUrl(
  * 2.9.4), and the server sends `Content-Disposition: attachment;
  * filename="GPL96.an.txt"` so the click saves a properly-named file.
  *
- * `gzip: true` maps to the route's `download` parameter, which serves
- * the `.an.txt.gz` as `application/octet-stream`. Worth offering
- * because the generic gene-list pseudoplatforms are big.
+ * 🛑 **Already gzipped, so there is no compressed variant worth
+ * offering.** The route's `download=true` parameter serves the SAME
+ * bytes — measured on GPL96, both forms put 19673 identical gzip bytes
+ * (`1f 8b …`) on the wire. The only difference is the headers: plain
+ * declares `Content-Encoding: gzip` with
+ * `Content-Type: text/tab-separated-values`, so the browser
+ * decompresses transparently and the curator ends up with a usable
+ * `GPL96.an.txt`; `download=true` omits the encoding header, calls it
+ * `application/octet-stream` and names it `GPL96.an.txt.gz`, so the
+ * curator ends up with a file to unzip. Same transfer either way, worse
+ * result — a second link earned nothing and this one shipped briefly
+ * (`88e4877`) on the wrong assumption that plain meant uncompressed.
  *
  * 🛑 **`SEQUENCING` platforms have no annotation file** and this URL
  * 404s for them — they carry no element set to map (`numberOfElements`
@@ -1144,10 +1153,8 @@ export function datasetDataDownloadUrl(
  */
 export function platformAnnotationsDownloadUrl(
   idOrShortName: number | string,
-  opts?: { gzip?: boolean },
 ): string {
-  const path = `${BASE}/platforms/${idOrShortName}/annotations`;
-  return opts?.gzip ? `${path}?download=true` : path;
+  return `${BASE}/platforms/${idOrShortName}/annotations`;
 }
 
 /**

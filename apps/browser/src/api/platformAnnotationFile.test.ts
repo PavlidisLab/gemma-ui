@@ -22,13 +22,9 @@ import { platformAnnotationsDownloadUrl } from "./endpoints";
 import { platformHasAnnotationFile } from "@/lib/platformConstants";
 
 describe("platformAnnotationsDownloadUrl", () => {
-  it("🛑 sends no query parameter but `download` — the route 400s on any other", () => {
-    const plain = platformAnnotationsDownloadUrl("GPL96");
-    expect(plain).not.toContain("?");
-
-    const gz = platformAnnotationsDownloadUrl("GPL96", { gzip: true });
-    const params = new URLSearchParams(gz.split("?")[1] ?? "");
-    expect([...params.keys()]).toEqual(["download"]);
+  it("🛑 sends no query parameter at all — the route 400s on any it doesn't know", () => {
+    expect(platformAnnotationsDownloadUrl("GPL96")).not.toContain("?");
+    expect(platformAnnotationsDownloadUrl(1)).not.toContain("?");
   });
 
   it("addresses the platform by short name or numeric id", () => {
@@ -44,10 +40,13 @@ describe("platformAnnotationsDownloadUrl", () => {
     );
   });
 
-  it("asks for the gzip variant only when told to", () => {
+  it("does not ask for the `download` variant — it is the same bytes", () => {
+    // `download=true` transfers the identical 19673 gzip bytes measured
+    // on GPL96; it only swaps `Content-Encoding: gzip` +
+    // `text/tab-separated-values` for an opaque `application/octet-stream`
+    // named `.an.txt.gz`. Same wire cost, and the curator has to unzip
+    // it. The plain form is already compressed in transit.
     expect(platformAnnotationsDownloadUrl(1)).not.toContain("download");
-    expect(platformAnnotationsDownloadUrl(1, { gzip: true })).toContain("download=true");
-    expect(platformAnnotationsDownloadUrl(1, { gzip: false })).not.toContain("download");
   });
 });
 
