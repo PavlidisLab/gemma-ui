@@ -23,12 +23,13 @@ export const DIAGNOSTICS_PANEL_BODY_PX = 308;
  *  subtracts this from the body height to size its square cells so the
  *  matrix fills the remaining box regardless of sample count.
  *
- *  🛑 Tied to the legend's own type size — it was 77 while the caption
- *  and tick labels were 10px, and grew with them when those went to 12
- *  (2026-09-01, they were unreadable). Under-counting here does not
- *  clip anything; it oversizes the cells and the matrix runs past the
- *  bottom of the box. */
-export const HEATMAP_LEGEND_ZONE_PX = 83;
+ *  🛑 Now only the body's own padding: the sample-correlation card
+ *  moved its legend to a SIDE rail (`legendPlacement="side"`), so the
+ *  bar and its labels no longer sit above the matrix and no longer eat
+ *  height. It was 83 while the legend was on top. Under-counting here
+ *  does not clip anything; it oversizes the cells and runs the matrix
+ *  past the bottom of the box, so re-measure if the legend moves back. */
+export const HEATMAP_LEGEND_ZONE_PX = 16;
 
 export function PanelCard({
   title,

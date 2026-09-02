@@ -189,6 +189,7 @@ export function SampleCorrelationCard({
         chrome={false}
         showControls={false}
         showLegend={true}
+        legendPlacement="side"
         showTooltip={true}
         showDownload={false}
         defaultPalette="blackbody"

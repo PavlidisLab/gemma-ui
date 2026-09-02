@@ -76,6 +76,12 @@ export interface HeatmapWidgetProps {
   defaultControlsOpen?: boolean;
   /** Hide the value-scale legend. Default `true`. */
   showLegend?: boolean;
+  /** Where the value scale sits. `top` (default) is a horizontal bar
+   *  above the plot. `side` stands it up to the right of the matrix,
+   *  which is what a short, wide tile wants — a horizontal bar plus its
+   *  caption costs ~80px of height there, and height is the axis a
+   *  square matrix is starved of. */
+  legendPlacement?: 'top' | 'side';
   /** Hide the cursor tooltip. Default `true`. */
   showTooltip?: boolean;
   /** Custom number formatter for the hover tooltip + legend ticks. */
@@ -208,6 +214,7 @@ export function HeatmapWidget({
   showControls = true,
   defaultControlsOpen = false,
   showLegend = true,
+  legendPlacement = 'top',
   showTooltip = true,
   formatValue,
   chrome = true,
@@ -516,7 +523,13 @@ export function HeatmapWidget({
         minWidth: 0,
         maxWidth: '100%',
         fontFamily: 'Helvetica, Arial, sans-serif',
-        color: TEXT,
+        // 🛑 No `color` on a chromeless embed. It used to set TEXT
+        // (#1f2937) here, which overrode the theme-aware colour the
+        // host surface sets and left the legend's labels near-black on
+        // a dark panel — invisible, and not fixable from the host,
+        // because an inline style beats an inherited class. The card
+        // chrome above still names its own colour: it also paints its
+        // own white background, so it owns both halves of the contrast.
       };
 
   return (
@@ -680,7 +693,7 @@ export function HeatmapWidget({
           minWidth: 0,
         }}
       >
-        {showLegend && (
+        {showLegend && legendPlacement === 'top' && (
           <Legend
             palette={palette}
             domain={legendDomain}
@@ -698,7 +711,7 @@ export function HeatmapWidget({
             rather than an in-flow sibling, so opening it never squeezes
             the matrix into unreadability. In v1 mode `pinned` is always
             null, so this is just the single matrix column. */}
-        <div style={{ position: 'relative', display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 12, alignItems: 'stretch', minWidth: 0 }}>
           {/* The matrix lives inside a scrollable region so Expand mode can
               overflow horizontally without growing the chrome. In Squeeze
               mode the matrix never overflows; the overflow:auto is a no-op
@@ -821,6 +834,23 @@ export function HeatmapWidget({
               }
             />
           </div>
+          {showLegend && legendPlacement === 'side' && (
+            // A rail beside the matrix, not a bar above it. On a short
+            // wide tile the horizontal legend plus its caption cost
+            // ~80px of height, and height is the axis a square matrix
+            // is starved of — every one of those pixels came straight
+            // out of the cells. `alignSelf: center` keeps it beside the
+            // matrix rather than pinned to the top of a taller row.
+            <div style={{ flex: '0 0 auto', alignSelf: 'center' }}>
+              <Legend
+                palette={palette}
+                domain={legendDomain}
+                orientation="vertical"
+                width={Math.max(60, Math.min(160, maxH || 120))}
+                barHeight={10}
+              />
+            </div>
+          )}
           {payload && pinned ? (
             <div
               style={{
