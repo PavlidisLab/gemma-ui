@@ -56,6 +56,16 @@ export function curieToUrl(uri: string | null | undefined): string | null {
   return uri;
 }
 
+/** The NCBI gene id in a gene URI, or null when it isn't one.
+ *
+ *  Same shape ``shortenUri`` carves out below to render
+ *  ``NCBI:gene:19934`` — kept beside it so the two can't drift. */
+export function ncbiGeneIdFromUri(uri: string | null | undefined): string | null {
+  if (!uri) return null;
+  const m = uri.match(/ncbi_gene\/(\d+)(?:[/?#].*)?$/i);
+  return m ? m[1] : null;
+}
+
 export function shortenUri(uri: string | null | undefined): string {
   if (!uri) return "";
   // 1. Pavlab/commons NCBI gene: .../record/ncbi_gene/19934 →

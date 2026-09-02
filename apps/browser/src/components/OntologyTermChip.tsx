@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { curieToUrl, shortenUri } from "@/lib/curie";
+import { shortenUri } from "@/lib/curie";
+import { Link } from "@tanstack/react-router";
+import { browseTermLink } from "@/lib/appLinks";
 
 /**
  * Read-only ontology-term chip ported from the curation UI's
@@ -7,8 +9,12 @@ import { curieToUrl, shortenUri } from "@/lib/curie";
  * Three variants:
  *
  *  - **resolved** (URI present, default) — emerald chip with a CURIE
- *    tail. Wraps in an `<a target="_blank">` opening the term page;
- *    tooltip carries the full URI.
+ *    tail, linking to a Gemma search for datasets carrying the term.
+ *    It used to open the term's page on the ontology's own site, which
+ *    ended the reader's visit on a third-party page to answer a
+ *    question Gemma can answer better: what ELSE is annotated this way
+ *    (Paul, 2026-09-01). The full URI stays in the tooltip, so the
+ *    ontology id is still there to copy.
  *  - **free** (URI absent, default) — muted italic chip, no link.
  *    Signals the label hasn't been mapped to ontology.
  *  - **predicate** — slate chip; connective tissue between subject
@@ -28,6 +34,9 @@ export function OntologyTermChip({
   asLink = true,
   className,
   labelTitle,
+  termLabel,
+  categoryUri,
+  categoryLabel,
 }: {
   children: ReactNode;
   uri?: string | null;
@@ -39,6 +48,13 @@ export function OntologyTermChip({
    *  reader can still recover the whole term on hover. The chip's own
    *  tooltip stays the URI. */
   labelTitle?: string;
+  /** The term's own label + its category, forwarded to the browse
+   *  link so the annotation facet arrives with this term ticked under
+   *  its category. Without them the term still filters, but the side
+   *  panel can't show WHICH term produced the list. */
+  termLabel?: string;
+  categoryUri?: string | null;
+  categoryLabel?: string | null;
 }) {
   const effective: TermVariant = variant === "default" && !uri ? "free" : variant;
   const variantCls =
@@ -69,17 +85,28 @@ export function OntologyTermChip({
     </>
   );
 
-  if (asLink && uri && effective !== "free") {
+  const browse = browseTermLink({
+    uri,
+    label: termLabel,
+    categoryUri,
+    categoryLabel,
+  });
+  if (asLink && browse && effective !== "free") {
     return (
-      <a
-        href={curieToUrl(uri) ?? uri}
-        target="_blank"
-        rel="noopener noreferrer"
-        title={tooltip}
+      // Same tab on purpose: this is navigation within Gemma, and a new
+      // tab per term chip would litter the reader's window.
+      <Link
+        to={browse.to}
+        search={browse.search}
+        title={
+          tooltip
+            ? `Browse datasets annotated with this term\n${tooltip}`
+            : undefined
+        }
         className={cls + " no-underline hover:underline"}
       >
         {inner}
-      </a>
+      </Link>
     );
   }
   return (

@@ -618,6 +618,23 @@ export interface DatasetAnnotation {
   classUri: string | null;
   termName: string;
   termUri: string | null;
+  /** The statement said ABOUT this term, when there is one. Gemma
+   *  carries up to two predicate/object pairs per annotation, and they
+   *  are often the only thing telling two otherwise identical values
+   *  apart — dataset 27773 has two `Tardbp` treatments that differ only
+   *  by `has modifier → peptide 15` vs `peptides 10 and 12`, and two
+   *  `tetO-hTDP43∆NLS` genotypes where one carries the extra
+   *  `has role → control`. Dropping these made each pair look like a
+   *  duplicate. Null when the annotation is a bare term. */
+  statements: DatasetAnnotationPair[];
+}
+
+/** One predicate/object pair on an annotation. */
+export interface DatasetAnnotationPair {
+  predicate: string | null;
+  predicateUri: string | null;
+  object: string | null;
+  objectUri: string | null;
 }
 
 /** Shape returned by GET /annotations/search?query=...  */
