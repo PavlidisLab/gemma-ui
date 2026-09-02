@@ -122,6 +122,9 @@ interface LegacyBiomaterial {
     }>
   >;
   bio_assays?: Array<{
+    /** Gemma's BioAssay id — the join key for `/svd`, which returns
+     *  `bioAssayIds`. See the mapper below. */
+    bio_assay_id?: number | null;
     short_name?: string;
     name?: string | null;
   }>;
@@ -424,11 +427,28 @@ export function composeCurationDesign(
         characteristics: legacy?.characteristics ?? {},
         characteristic_uris: legacy?.characteristic_uris,
         characteristic_value_uris: legacy?.characteristic_value_uris,
+        // 🛑 `bio_assay_id` must survive this mapping. It is Gemma's
+        // BioAssay id and the ONLY route from an `/svd` column back to
+        // a sample — that route returns `bioAssayIds` and never
+        // mentions a GSM, so `short_name` cannot stand in. It was
+        // dropped here, and PC x factor reported "No factor
+        // assignments overlap with bio-assays in the SVD" on every
+        // remote-mode dataset.
+        //
+        // The filter is on identity, not on the label, for the same
+        // reason: an assay carrying an id and no accession is still a
+        // real sample the join can place.
         bio_assays: legacy?.bio_assays
-          ?.filter((a): a is { short_name: string; name?: string | null } =>
-            typeof a.short_name === "string" && a.short_name.length > 0,
+          ?.filter(
+            (a) =>
+              (typeof a.short_name === "string" && a.short_name.length > 0) ||
+              a.bio_assay_id != null,
           )
-          .map((a) => ({ short_name: a.short_name, name: a.name ?? "" })),
+          .map((a) => ({
+            bio_assay_id: a.bio_assay_id ?? null,
+            short_name: a.short_name ?? "",
+            name: a.name ?? "",
+          })),
         source_biomaterial_id: legacy?.source_biomaterial_id ?? null,
         geo_fields: legacy?.geo_fields,
         accession: legacy?.accession ?? null,

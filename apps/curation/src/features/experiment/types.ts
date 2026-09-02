@@ -136,6 +136,14 @@ export interface Factor {
 }
 
 export interface BioAssay {
+  /** Gemma's BioAssay id.
+   *
+   *  🛑 This is the join key for `/svd`, which returns `bioAssayIds` —
+   *  the PC x factor panel's only route from a principal-component
+   *  column back to a sample. `short_name` cannot stand in: it is the
+   *  GSM accession and /svd never mentions one. Optional because the
+   *  local API's own biomaterial projection has never carried it. */
+  bio_assay_id?: number | null;
   /** Typically the GSM accession. */
   short_name: string;
   /** Descriptive title — the value curators key off when scanning a

@@ -48,19 +48,32 @@ export function MvScatter({ data }: { data: MvScatterData }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const W = width > 0 ? width : 220;
   const H = height > 0 ? height : 180;
-  const padL = 26;
-  const padR = 6;
-  const padT = 8;
-  const padB = 22;
+  const padL = 38;
+  const padR = 10;
+  const padT = 10;
+  const padB = 32;
   const innerW = W - padL - padR;
   const innerH = H - padT - padB;
   const { means, variances, fit } = data;
 
-  const xRange = quantileRange(means, 0.005, 0.995);
-  const yRange = quantileRange(variances, 0.005, 0.995);
+  // Robust bounds first — a couple of extreme probes must not set the
+  // axes — then breathing room on x at both ends, so the leftmost and
+  // rightmost marks are not clipped in half by the plot edge.
+  const xq = quantileRange(means, 0.005, 0.995);
+  const xPad = (xq[1] - xq[0]) * 0.05 || 0.5;
+  const xRange: [number, number] = [xq[0] - xPad, xq[1] + xPad];
+  // 🛑 Variance starts at ZERO, always, with a labelled tick there.
+  // It is a squared quantity on a plot whose whole point is how far
+  // spread runs above nothing; an axis cropped to the observed minimum
+  // makes a tight dataset look as dispersed as a noisy one, because the
+  // reader has no fixed floor to judge the height against.
+  const yq = quantileRange(variances, 0.005, 0.995);
+  const yRange: [number, number] = [0, yq[1] * 1.05 || 1];
   const [xLo, xHi] = xRange;
   const [yLo, yHi] = yRange;
   const xTicks = niceTicks(xRange[0], xRange[1], 4);
+  // `niceTicks` starts at the first nice multiple at or above the
+  // minimum, so a range beginning at 0 always includes a 0 tick.
   const yTicks = niceTicks(yRange[0], yRange[1], 4);
   const xs = scaler(xRange, [padL, padL + innerW]);
   const ys = scaler(yRange, [padT + innerH, padT]);
@@ -106,10 +119,20 @@ export function MvScatter({ data }: { data: MvScatterData }) {
     ctx.beginPath();
     ctx.rect(padL, padT, innerW, innerH);
     ctx.clip();
-    ctx.fillStyle = INK;
-    ctx.globalAlpha = 0.18;
-    const r = 0.7;
     const n = Math.min(means.length, variances.length);
+    // 🛑 Sized for the data that ARRIVES, not the data that used to.
+    // r=0.7 at 18% opacity was right for 22,000 overplotted probes,
+    // where the cloud's shape came from thousands of marks stacking
+    // into visible density. Gemma now decimates to ~1,500 points, one
+    // per grid cell, so nothing stacks — each mark has to carry itself
+    // and at those settings the plot read as a faint smudge.
+    //
+    // Still scaled by count rather than fixed: the point count is the
+    // server's, it already varies 1,500-3,500 across datasets, and a
+    // finer grid later must not silently return the plot to a smudge.
+    ctx.fillStyle = INK;
+    ctx.globalAlpha = n > 8000 ? 0.25 : n > 3000 ? 0.5 : 0.65;
+    const r = n > 8000 ? 0.7 : n > 3000 ? 1.2 : 1.5;
     for (let i = 0; i < n; i++) {
       const x = xs(means[i]);
       const y = ys(variances[i]);
@@ -141,9 +164,9 @@ export function MvScatter({ data }: { data: MvScatterData }) {
         {yTicks.map((t) => (
           <text
             key={`y${t}`}
-            x={padL - 3}
-            y={ys(t) + 3}
-            fontSize={7}
+            x={padL - 5}
+            y={ys(t) + 3.5}
+            fontSize={10}
             fill={SUBTLE}
             textAnchor="end"
             fontFamily="-apple-system, sans-serif"
@@ -155,8 +178,8 @@ export function MvScatter({ data }: { data: MvScatterData }) {
           <text
             key={`x${t}`}
             x={xs(t)}
-            y={padT + innerH + 8}
-            fontSize={7}
+            y={padT + innerH + 13}
+            fontSize={10}
             fill={SUBTLE}
             textAnchor="middle"
             fontFamily="-apple-system, sans-serif"
@@ -181,20 +204,20 @@ export function MvScatter({ data }: { data: MvScatterData }) {
           </clipPath>
         </defs>
         <text
-          x={6}
+          x={11}
           y={padT + innerH / 2}
-          fontSize={7.5}
+          fontSize={11}
           fill={INK}
           textAnchor="middle"
-          transform={`rotate(-90 6 ${padT + innerH / 2})`}
+          transform={`rotate(-90 11 ${padT + innerH / 2})`}
           fontFamily="-apple-system, sans-serif"
         >
           variance (log₂)
         </text>
         <text
           x={padL + innerW / 2}
-          y={H - 4}
-          fontSize={7.5}
+          y={H - 6}
+          fontSize={11}
           fill={INK}
           textAnchor="middle"
           fontFamily="-apple-system, sans-serif"

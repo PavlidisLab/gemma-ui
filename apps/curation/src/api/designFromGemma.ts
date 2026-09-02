@@ -108,7 +108,18 @@ export interface SampleBiomaterial {
       value_uri?: string | null;
     }>
   >;
-  bio_assays: Array<{ short_name: string; name: string }>;
+  /** 🛑 `bio_assay_id` is Gemma's BioAssay id and it is the JOIN KEY
+   *  for anything keyed off `/svd` — that route returns `bioAssayIds`,
+   *  and the PC x factor panel maps them back to samples through this
+   *  field. It was omitted here, so in remote mode that panel matched
+   *  nothing and reported "No factor assignments overlap with
+   *  bio-assays in the SVD" on every dataset. `short_name` cannot
+   *  stand in: it is the GSM accession, which /svd never mentions. */
+  bio_assays: Array<{
+    bio_assay_id: number | null;
+    short_name: string;
+    name: string;
+  }>;
 }
 
 /** Pull the GEO short-name out of Gemma's piped biomaterial name.
@@ -210,8 +221,12 @@ export function toSampleBiomaterials(
     }
 
     const assayName = (a.name ?? "").trim();
-    if (accession || assayName) {
+    // An id alone is enough to keep: the diagnostics join needs the id,
+    // not the label, and dropping an unnamed assay loses a real sample
+    // from the PC x factor panel.
+    if (accession || assayName || a.id != null) {
       row.bio_assays.push({
+        bio_assay_id: a.id ?? null,
         short_name: accession ?? assayName,
         name: assayName,
       });

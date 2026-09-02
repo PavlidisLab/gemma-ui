@@ -241,8 +241,26 @@ describe("the shapes that are not GSE324761", () => {
       "GSM1",
       "GSM2",
     ]);
+    // 🛑 The BioAssay id, which is what /svd's `bioAssayIds` are. It was
+    // dropped here, and the PC x factor panel — whose only way back from
+    // an SVD column to a sample is this field — reported "No factor
+    // assignments overlap with bio-assays in the SVD" on every dataset
+    // in remote mode. The accession cannot stand in: /svd never mentions
+    // a GSM.
+    expect(rows[0].bio_assays.map((a) => a.bio_assay_id)).toEqual([1, 2]);
     // First assay naming a GSM wins the join key.
     expect(rows[0].accession).toBe("GSM1");
+  });
+
+  it("keeps an assay that has an id but no accession or name", () => {
+    // The join needs the id, not the label. Dropping an unnamed assay
+    // loses a real sample from the PC x factor panel.
+    const rows = toSampleBiomaterials([
+      { id: 77, sample: { id: 9, name: "BM", characteristics: [] } },
+    ]);
+    expect(rows[0].bio_assays).toEqual([
+      { bio_assay_id: 77, short_name: "", name: "" },
+    ]);
   });
 
   it("joins a repeated category rather than dropping half of it", () => {

@@ -90,9 +90,11 @@ function normaliseCurationDraft(
   const samples = new Map<string, number[]>();
   for (const bm of design.biomaterials) {
     for (const ba of bm.bio_assays ?? []) {
-      const baId =
-        (ba as { id?: number | string }).id ??
-        (ba as { bio_assay_id?: number | string }).bio_assay_id;
+      // No cast: `bio_assay_id` is on the BioAssay type now. It used to
+      // be read through one, which is part of why nobody noticed the
+      // field was never populated in remote mode — a cast makes an
+      // absent field look like a present one the compiler cannot see.
+      const baId = ba.bio_assay_id;
       if (baId == null) continue;
       const scores = bioAssayScores[String(baId)];
       if (scores) {
