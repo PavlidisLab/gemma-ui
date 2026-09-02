@@ -27,7 +27,10 @@ import {
   sampleCorrelationMatrixPx,
   useContainerSize,
 } from "@gemma/diagnostics";
-import { useSampleCorrelation } from "@/api/diagnostics";
+import {
+  useSampleCorrelation,
+  type SampleCorrelationVariant,
+} from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { buildDesignHeatmapPayload } from "./heatmapPayload";
 import { useEscapeKey } from "@gemma/ui";
@@ -93,7 +96,21 @@ export function SampleCorrelationCard({
 }: {
   experimentId: number | string;
 }) {
-  const { data: result, isLoading, error } = useSampleCorrelation(experimentId);
+  /**
+   * Which matrix Gemma builds. Non-regressed by default — Paul,
+   * 2026-09-02: *"the matrix should be NON-regressed by default (it's
+   * less confusing) but sometimes outliers aren't that obvious."*
+   *
+   * The regressed one takes the design's factor effects out, so
+   * structure that is just the experiment stops dominating and a sample
+   * that is genuinely odd stands out. It is also the matrix the outlier
+   * DETECTOR reads, so a predicted call is only reproducible here.
+   */
+  const [variant, setVariant] = useState<SampleCorrelationVariant>("full");
+  const { data: result, isLoading, error } = useSampleCorrelation(
+    experimentId,
+    variant,
+  );
   const data = result?.matrix ?? null;
   // Design-data panels read the DRAFT, not the saved server design —
   // the strips must show what the curator is looking at, including
@@ -359,6 +376,14 @@ export function SampleCorrelationCard({
           <>
             <span>
               {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
+              {/* What the server BUILT, not what we asked for — `best`
+                  resolves to `regressed`, so the two are not the same
+                  claim. Silent when it agrees with the default. */}
+              {data.matrix && data.matrix !== "full" ? (
+                <span className="ml-1.5 text-amber-700 dark:text-amber-300">
+                  · {data.matrix}
+                </span>
+              ) : null}
             </span>
             {outliers ? (
               <span
@@ -400,6 +425,20 @@ export function SampleCorrelationCard({
                   : `mask ${maskable} outlier(s)`}
               </button>
             ) : null}
+            <button
+              type="button"
+              onClick={() =>
+                setVariant((v) => (v === "full" ? "regressed" : "full"))
+              }
+              className="underline decoration-dotted underline-offset-2 text-blue-700 dark:text-blue-300 hover:no-underline"
+              title={
+                variant === "full"
+                  ? "Take the design's factor effects out, so structure that is just the experiment stops dominating and an odd sample stands out. This is also the matrix the outlier detector reads."
+                  : "Back to the plain correlation, with no model subtracted."
+              }
+            >
+              {variant === "full" ? "regress out design" : "show unregressed"}
+            </button>
             {/* Curator-only affordance — wire a "Mark / Unmark
                 outlier" button cluster here. Gemma serves
                 POST /datasets/{id}/samples/outliers (batch mark /
