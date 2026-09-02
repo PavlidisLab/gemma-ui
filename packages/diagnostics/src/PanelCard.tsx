@@ -19,11 +19,16 @@ export const DIAGNOSTICS_PANEL_BODY_PX = 308;
 
 /** Vertical space (CSS px) consumed above a heatmap's matrix inside the
  *  panel body — the sequential legend strip + its labels + the body's
- *  top padding. Measured empirically (matrix top offset ≈ 77px). The
- *  sample-correlation card subtracts this from the body height to size
- *  its square cells so the matrix fills the remaining box regardless of
- *  sample count. */
-export const HEATMAP_LEGEND_ZONE_PX = 77;
+ *  top padding. Measured empirically. The sample-correlation card
+ *  subtracts this from the body height to size its square cells so the
+ *  matrix fills the remaining box regardless of sample count.
+ *
+ *  🛑 Tied to the legend's own type size — it was 77 while the caption
+ *  and tick labels were 10px, and grew with them when those went to 12
+ *  (2026-09-01, they were unreadable). Under-counting here does not
+ *  clip anything; it oversizes the cells and the matrix runs past the
+ *  bottom of the box. */
+export const HEATMAP_LEGEND_ZONE_PX = 83;
 
 export function PanelCard({
   title,
@@ -53,7 +58,12 @@ export function PanelCard({
           apps' Tailwind `content` globs only scan `./src`, so arbitrary
           utilities used solely in this package never get generated. */}
       <div
-        className="p-2 flex items-stretch justify-stretch overflow-hidden bg-white dark:bg-slate-900"
+        // 🛑 An explicit text colour, because the heatmap package draws its
+        // legend with `currentColor` — it ships no Tailwind and cannot
+        // write a `dark:` rule of its own. Without this the body
+        // inherited a near-black from the app root and the legend's
+        // caption and tick labels were invisible on the dark panel.
+        className="p-2 flex items-stretch justify-stretch overflow-hidden bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200"
         style={{ height: DIAGNOSTICS_PANEL_BODY_PX }}
       >
         {children}

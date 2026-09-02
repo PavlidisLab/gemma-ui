@@ -78,19 +78,19 @@ export function Legend({
       {label && (
         // currentColor, not a fixed grey: this package ships no Tailwind
         // and #6b7280 / #374151 were invisible on the dark-mode panel.
-        // Both apps set a theme-aware text colour on the surrounding
-        // surface, so inheriting it is correct in either theme; the
-        // label steps back with opacity rather than its own hue.
-        <div style={{ fontSize: 10, color: 'currentColor', opacity: 0.65, marginBottom: 2 }}>{label}</div>
+        // The surrounding surface sets a theme-aware text colour (see
+        // PanelCard's body), so inheriting it is correct in either
+        // theme. Barely any opacity: a scale nobody can read is not a
+        // scale, and this text is 12px on a saturated colour bar.
+        <div style={{ fontSize: 12, color: 'currentColor', opacity: 0.9, marginBottom: 3 }}>{label}</div>
       )}
       <canvas ref={canvasRef} style={{ display: 'block', imageRendering: 'pixelated' }} />
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          fontSize: 10,
+          fontSize: 12,
           color: 'currentColor',
-          opacity: 0.8,
           marginTop: 2,
           width,
         }}
