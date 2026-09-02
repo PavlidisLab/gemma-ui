@@ -126,12 +126,32 @@ export function computeLayout(
 
   // Square cells: pin height to the computed width (clamped to the
   // configured height bounds) so a symmetric matrix renders 1:1 instead
-  // of tall/narrow. Overrides the availableH-driven cellH above.
+  // of tall/narrow.
+  //
+  // 🛑 Still bounded by `availableH`. This used to override the
+  // height-derived cellH outright, so a square matrix wider than it is
+  // tall grew past the bottom of its container and was simply clipped —
+  // no caller could prevent it, because the width is what sets the size
+  // and the height was not consulted at all. A 60x60 matrix in a
+  // 248px-tall box takes 4px cells however wide the box is.
+  //
+  // Squareness is preserved, because cellW follows: the matrix gets
+  // smaller in both directions rather than becoming tall and narrow,
+  // which is what the flag is for.
   if (config.square) {
-    cellH = Math.min(
+    let squareSide = Math.min(
       config.cell.maxHeight,
       Math.max(config.cell.minHeight, Math.round(cellW)),
     );
+    if (availableH != null && numRows > 0) {
+      const fitsH = Math.floor(availableH / numRows);
+      squareSide = Math.max(
+        config.cell.minHeight,
+        Math.min(squareSide, fitsH),
+      );
+    }
+    cellH = squareSide;
+    cellW = squareSide;
   }
 
   return {

@@ -38,7 +38,10 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
   );
   // Size each square cell so the matrix fills the panel body regardless
   // of sample count — few-sample datasets otherwise leave the box empty.
-  const cellPx = sampleCorrelationCellPx(data?.bioAssayIds.length);
+  // 🛑 No annotation strips on this wrapper — the public browse page
+  // has no design draft to build a payload from — so the strip
+  // allowance is zero here, unlike curation's.
+  const cellPx = sampleCorrelationCellPx(data?.bioAssayIds.length, 0);
 
   let body;
   if (isLoading) {
@@ -56,6 +59,10 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
         chrome={false}
         showControls={false}
         showLegend={true}
+        // Side rail, matching curation's: a horizontal bar plus its
+        // caption costs ~50px of height on a short tile, and height is
+        // the axis a square matrix is starved of.
+        legendPlacement="side"
         showTooltip={true}
         showDownload={false}
         defaultPalette="blackbody"

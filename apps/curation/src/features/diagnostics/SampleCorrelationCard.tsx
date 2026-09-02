@@ -318,6 +318,14 @@ export function SampleCorrelationCard({
             <span>
               {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
             </span>
+            {/* The ▶ beside the strips marks the active grouping, but a
+                marker is not an invitation — nothing said the strips
+                could be clicked, so the ordering looked fixed. */}
+            {payload && payload.factors.length > 1 ? (
+              <span className="text-slate-500 dark:text-slate-400">
+                click a strip to order by it
+              </span>
+            ) : null}
             {outliers ? (
               <span
                 className={

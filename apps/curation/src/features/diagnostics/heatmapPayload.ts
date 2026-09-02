@@ -21,6 +21,15 @@
 import type { HeatmapPayload } from "@gemma/heatmap";
 import type { Design } from "@/features/experiment/types";
 
+/** A row is a probe only if the caller gave it a design-element id.
+ *  Rows that are samples (the correlation matrix) carry a label and no
+ *  id, and must not be described as probes anywhere. */
+function isProbe(
+  row?: { designElementId?: number | null },
+): boolean {
+  return row?.designElementId != null;
+}
+
 /** bioAssay id -> the biomaterial short name it belongs to. */
 function assayToShortName(design: Design): Map<number, string> {
   const out = new Map<number, string>();
@@ -133,9 +142,14 @@ export function buildDesignHeatmapPayload(args: {
       // SAMPLES and have no probes at all. The fix is to NAME the rows
       // (`labelSymbol` below); this id is only ever the fallback.
       designElementId: rows?.[i]?.designElementId ?? i,
-      designElementName: rows?.[i]?.symbol ?? "",
+      // 🛑 Only when the row IS a probe, which the caller signals by
+      // giving a design-element id. The sample-correlation matrix names
+      // its rows too, and filling these made its tooltip read
+      // "PROBE ACHC35_3xLPS_3 (ACHC35_3xLPS_3)" — the sample's name as
+      // a probe, and again as the gene it supposedly maps to.
+      designElementName: isProbe(rows?.[i]) ? (rows?.[i]?.symbol ?? "") : "",
       geneIds: [],
-      geneSymbols: rows?.[i]?.symbol ? [rows[i].symbol] : [],
+      geneSymbols: isProbe(rows?.[i]) && rows?.[i]?.symbol ? [rows[i].symbol] : [],
       geneNames: rows?.[i] ? [rows[i].name] : undefined,
       labelSymbol: rows?.[i]?.symbol,
       labelName: rows?.[i]?.name,
