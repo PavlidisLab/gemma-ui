@@ -34,6 +34,19 @@ export interface HeatmapWidgetProps {
   caption?: string;
   /** Initial palette. Default `'ambsky'`. */
   defaultPalette?: WidgetPalette;
+  /**
+   * The palette is a property of THIS heatmap, not a user preference.
+   *
+   * 🛑 The stored preference is one global key shared by every heatmap
+   * in the app, so switching palette anywhere switches it everywhere.
+   * That is right for heatmaps of the same kind and wrong across kinds:
+   * a correlation matrix holds |r| in [0.9, 1] with no meaningful zero,
+   * and a diverging ramp splits it at an arbitrary midpoint into two
+   * colours that mean "above" and "below" nothing. Set this and
+   * `defaultPalette` is the palette, full stop — nothing is read from
+   * or written to storage, and the picker greys out saying why.
+   */
+  paletteLocked?: boolean;
   /** Initial clip value. Default `2` — diverging palette saturates at
    *  ±2 z-score by default, which makes typical row-scaled expression
    *  heatmaps read at the right contrast for our DE pop-out. */
@@ -238,6 +251,7 @@ export function HeatmapWidget({
   title,
   caption,
   defaultPalette = 'blackbody',
+  paletteLocked = false,
   defaultClip = 2,
   defaultDomain,
   defaultRowScale = true,
@@ -277,10 +291,12 @@ export function HeatmapWidget({
   // ``handleSetPaletteKey`` — initial mount is NOT persisted so a
   // caller-supplied default doesn't silently become the user's
   // global preference.
-  const [paletteKey, setPaletteKeyRaw] = useState<WidgetPalette>(() =>
-    readStoredPalette() ?? defaultPalette,
+  const [storedPaletteKey, setPaletteKeyRaw] = useState<WidgetPalette>(() =>
+    paletteLocked ? defaultPalette : readStoredPalette() ?? defaultPalette,
   );
+  const paletteKey = paletteLocked ? defaultPalette : storedPaletteKey;
   const setPaletteKey = (next: WidgetPalette) => {
+    if (paletteLocked) return;
     setPaletteKeyRaw(next);
     writeStoredPalette(next);
   };
@@ -483,6 +499,20 @@ export function HeatmapWidget({
     palette.kind === 'sequential'
       ? defaultDomain ?? naturalDomain ?? [-clip, clip]
       : naturalDomain; // diverging palette still honours the natural domain when row-scale is off
+
+  /**
+   * Whether the Clip slider reaches the colour scale at all.
+   *
+   * `sequentialScale` bins across the DOMAIN and never reads `clip`;
+   * only `divergingScale` maps `[-clip, +clip]` onto the ramp. So on a
+   * sequential palette the slider moves and nothing happens — unless
+   * there is no domain to fall back on, in which case `[-clip, clip]`
+   * IS the domain (that is the row-scaled case with no caller-supplied
+   * domain, e.g. the PC-loadings popup).
+   */
+  const clipDrivesScale =
+    palette.kind === 'diverging' ||
+    (palette.kind === 'sequential' && !defaultDomain && !naturalDomain);
 
   const config = useMemo<HeatmapConfig>(
     () => ({
@@ -710,8 +740,10 @@ export function HeatmapWidget({
                   <ControlsPopover
                     paletteKey={paletteKey}
                     setPaletteKey={setPaletteKey}
+                    paletteLocked={paletteLocked}
                     clip={clip}
                     setClip={setClip}
+                    clipDrivesScale={clipDrivesScale}
                     rowScale={rowScale}
                     setRowScale={setRowScale}
                     fitMode={fitMode}
@@ -1015,8 +1047,10 @@ function stripeFor(palette: Palette): string {
 function ControlsPopover({
   paletteKey,
   setPaletteKey,
+  paletteLocked,
   clip,
   setClip,
+  clipDrivesScale,
   rowScale,
   setRowScale,
   fitMode,
@@ -1030,8 +1064,13 @@ function ControlsPopover({
 }: {
   paletteKey: WidgetPalette;
   setPaletteKey: (v: WidgetPalette) => void;
+  /** True when the caller fixed the palette; the picker greys out. */
+  paletteLocked: boolean;
   clip: number;
   setClip: (v: number) => void;
+  /** False when the current palette ignores `clip` — the row greys out
+   *  rather than moving a slider that changes nothing. */
+  clipDrivesScale: boolean;
   rowScale: boolean;
   setRowScale: (v: boolean) => void;
   fitMode: FitMode;
@@ -1081,11 +1120,16 @@ function ControlsPopover({
         color: TEXT,
       }}
     >
-      <ControlRow label="Palette">
+      <ControlRow
+        label="Palette"
+        disabled={paletteLocked}
+        disabledHint="This heatmap's palette is fixed — a correlation matrix has no meaningful midpoint for a diverging ramp to split on."
+      >
         <SegmentedControl
           options={PALETTE_OPTIONS}
           value={paletteKey}
           onChange={setPaletteKey}
+          disabled={paletteLocked}
         />
       </ControlRow>
       <ControlRow label="Row-scale">
@@ -1096,7 +1140,11 @@ function ControlsPopover({
           hint="z-score each row"
         />
       </ControlRow>
-      <ControlRow label="Clip">
+      <ControlRow
+        label="Clip"
+        disabled={!clipDrivesScale}
+        disabledHint="Clip saturates a diverging ramp at ±n. This palette is sequential and takes its ends from the data range instead."
+      >
         <CompactSlider
           label=""
           value={clip}
@@ -1106,6 +1154,7 @@ function ControlsPopover({
           onChange={setClip}
           display={`±${fmt(clip)}`}
           width={112}
+          disabled={!clipDrivesScale}
         />
       </ControlRow>
       <div style={{ height: 1, background: BORDER, margin: '2px 0' }} />
@@ -1149,17 +1198,27 @@ function ControlsPopover({
 function ControlRow({
   label,
   children,
+  disabled = false,
+  disabledHint,
 }: {
   label: string;
   children: React.ReactNode;
+  /** Greys the row when the control cannot affect anything. */
+  disabled?: boolean;
+  /** Why it is greyed — a control that dims without saying why reads as
+   *  broken. Surfaced as the row's `title`. */
+  disabledHint?: string;
 }) {
   return (
     <div
+      title={disabled ? disabledHint : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 10,
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? 'not-allowed' : undefined,
       }}
     >
       <span style={{ color: SUBTLE, fontSize: 10.5, whiteSpace: 'nowrap' }}>
@@ -1176,10 +1235,12 @@ function SegmentedControl<T extends string>({
   options,
   value,
   onChange,
+  disabled = false,
 }: {
   options: Array<{ key: T; label: string; hint?: string }>;
   value: T;
   onChange: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -1198,6 +1259,7 @@ function SegmentedControl<T extends string>({
           <button
             key={opt.key}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(opt.key)}
             title={opt.hint}
             style={{
@@ -1206,7 +1268,7 @@ function SegmentedControl<T extends string>({
               padding: '6px 14px',
               fontSize: 12,
               lineHeight: 1,
-              cursor: 'pointer',
+              cursor: disabled ? 'not-allowed' : 'pointer',
               background: selected ? ACCENT : 'transparent',
               color: selected ? '#fff' : TEXT,
               fontWeight: selected ? 600 : 400,
@@ -1231,6 +1293,7 @@ function CompactSlider({
   onChange,
   display,
   width,
+  disabled = false,
 }: {
   label: string;
   value: number;
@@ -1240,6 +1303,7 @@ function CompactSlider({
   onChange: (v: number) => void;
   display: string;
   width: number;
+  disabled?: boolean;
 }) {
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -1260,8 +1324,13 @@ function CompactSlider({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(+e.target.value)}
-        style={{ width, accentColor: ACCENT, cursor: 'pointer' }}
+        style={{
+          width,
+          accentColor: ACCENT,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+        }}
       />
       <span
         style={{

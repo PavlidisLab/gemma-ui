@@ -312,6 +312,12 @@ export function SampleCorrelationCard({
         showTooltip={true}
         showDownload={false}
         defaultPalette="blackbody"
+        // 🛑 Not a user preference here. The palette is stored under ONE
+        // global key shared by every heatmap in the app, so switching it
+        // on any other heatmap switched it on this one — and a diverging
+        // ramp on |r| in [0.96, 1.00] splits the scale at a midpoint that
+        // means nothing.
+        paletteLocked
         defaultClip={1}
         defaultDomain={seqDomain}
         defaultRowScale={false}
@@ -499,6 +505,12 @@ export function SampleCorrelationCard({
                 defaultMainGroupingFactorId={groupBy}
                 onMainGroupingFactorChange={setGroupBy}
                 defaultPalette="blackbody"
+        // 🛑 Not a user preference here. The palette is stored under ONE
+        // global key shared by every heatmap in the app, so switching it
+        // on any other heatmap switched it on this one — and a diverging
+        // ramp on |r| in [0.96, 1.00] splits the scale at a midpoint that
+        // means nothing.
+        paletteLocked
                 defaultClip={1}
                 defaultDomain={seqDomain}
                 defaultRowScale={false}
