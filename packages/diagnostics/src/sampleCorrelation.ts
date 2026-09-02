@@ -22,11 +22,38 @@ import { DIAGNOSTICS_PANEL_BODY_PX, HEATMAP_LEGEND_ZONE_PX } from "./PanelCard";
  */
 export function sampleCorrelationCellPx(
   sampleCount: number | undefined | null,
+  /** How many annotation strips sit above the matrix. Each costs
+   *  `ANNOTATION_STRIP_PX` plus a gap, and they are drawn INSIDE the
+   *  same box the cells have to fit in.
+   *
+   *  🛑 A constant cannot cover this. The zone above the matrix used to
+   *  be one number, which was right while the only thing up there was a
+   *  legend — then the panel grew one strip per design factor and the
+   *  matrix ran off the bottom of the card, by exactly the height of
+   *  the strips nobody had subtracted. */
+  stripCount = 0,
 ): number {
   if (!sampleCount || sampleCount <= 0) return 6;
-  const matrixAreaPx = DIAGNOSTICS_PANEL_BODY_PX - HEATMAP_LEGEND_ZONE_PX;
-  return matrixAreaPx / sampleCount;
+  const stripsPx =
+    stripCount > 0
+      ? stripCount * ANNOTATION_STRIP_PX +
+        (stripCount - 1) * ANNOTATION_STRIP_GAP_PX +
+        STRIP_TO_MATRIX_GAP_PX
+      : 0;
+  const matrixAreaPx =
+    DIAGNOSTICS_PANEL_BODY_PX - HEATMAP_LEGEND_ZONE_PX - stripsPx;
+  return Math.max(2, matrixAreaPx / sampleCount);
 }
+
+/** Mirrors the heatmap package's own defaults (`layout.ts`:
+ *  `annotationStripHeight` 12, `annotationStripGap` 2, plus the 4px it
+ *  leaves between the last strip and the matrix). Duplicated rather
+ *  than imported because they are resolved config there, not exports —
+ *  if they move, this over- or under-shoots and the matrix stops
+ *  meeting the bottom of its box. */
+const ANNOTATION_STRIP_PX = 12;
+const ANNOTATION_STRIP_GAP_PX = 2;
+const STRIP_TO_MATRIX_GAP_PX = 4;
 
 export interface SampleCorrelationInput {
   bioAssayIds: number[];
@@ -64,35 +91,51 @@ export function buildSampleCorrelationHeatmapData(
   } satisfies HeatmapData;
 }
 
-/** Pick a sequential-palette domain for the heatmap. Sample
- *  correlations typically sit in [0.85, 1.0]; mapping the full
- *  [-1, 1] would collapse contrast. Set the lower bound to hug just
- *  below the observed off-diagonal minimum (the value furthest from
- *  1.0) — a 0.01 cushion, rounded to two decimals — so the palette
- *  spends its full range on the actual spread instead of a coarse 0.1
- *  grid, while the darkest cell stays a hair inside the scale rather
- *  than pinned to the palette's extreme end. Upper bound is always
- *  1.0. Returns `undefined` when there's no data so the widget falls
- *  back to its default. */
+/** Pick a sequential-palette domain for the heatmap.
+ *
+ *  Both ends come from the data, over off-diagonal cells only.
+ *
+ *  🛑 The upper bound used to be pinned at 1.0, and it cost most of the
+ *  palette. The diagonal is excluded from the picture, so r never
+ *  reaches 1: measured on eid 40086, the off-diagonal cells run
+ *  0.648-0.884, which put the entire real spread in the bottom
+ *  two-thirds of the ramp and spent the top 12% on values that do not
+ *  exist. Gemma 1.0's version of this plot looks more contrasty for
+ *  exactly this reason — it scales to what is there.
+ *
+ *  The lower bound is the 2.5th percentile rather than the minimum, so
+ *  one unusually dissimilar PAIR cannot stretch the scale and flatten
+ *  everything else. Cells below it saturate at the palette's dark end,
+ *  which still reads as "least similar" — and how far below is not a
+ *  question this plot answers anyway: the outlier lists in the footer
+ *  are what name a bad sample.
+ *
+ *  Returns `undefined` when there is no usable data so the widget falls
+ *  back to its own default. */
 export function computeSampleCorrelationDomain(
   values: number[][] | null | undefined,
 ): [number, number] | undefined {
   if (!values?.length) return undefined;
-  let lo = 1;
+  const off: number[] = [];
   for (let i = 0; i < values.length; i++) {
     const row = values[i];
     for (let j = 0; j < row.length; j++) {
       if (i === j) continue;
       const v = row[j];
-      if (typeof v === "number" && !Number.isNaN(v) && v < lo) lo = v;
+      // Non-finite cells are masked samples and missing data — never
+      // scale to them.
+      if (typeof v === "number" && Number.isFinite(v)) off.push(v);
     }
   }
-  // `Math.round` (not `Math.floor`) on the cushioned value dodges the
-  // float-precision off-by-one that `floor(x * 100) / 100` hits when
-  // `x * 100` lands a hair under an integer. The 0.01 subtraction keeps
-  // the bound strictly below `lo` even after rounding.
-  const lowerBound = Math.round((lo - 0.01) * 100) / 100;
-  return [Math.max(-1, lowerBound), 1.0];
+  if (off.length === 0) return undefined;
+  off.sort((a, b) => a - b);
+  const lo = off[Math.floor(0.025 * (off.length - 1))];
+  const hi = off[off.length - 1];
+  // A degenerate spread (every cell equal) would map every value to one
+  // end of the ramp; give it a hair of range so the plot is flat rather
+  // than black.
+  if (!(hi > lo)) return [lo - 0.01, lo + 0.01];
+  return [Math.max(-1, lo), Math.min(1, hi)];
 }
 
 /** Outlier footer caption — quiet slate when no outliers; amber when

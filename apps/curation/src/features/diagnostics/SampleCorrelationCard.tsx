@@ -224,7 +224,12 @@ export function SampleCorrelationCard({
   );
   // Size each square cell so the matrix fills the panel body regardless
   // of sample count — few-sample datasets otherwise leave the box empty.
-  const cellPx = sampleCorrelationCellPx(data?.bio_assay_ids.length);
+  // One strip per factor the payload carries — that is what the widget
+  // will draw above the matrix, and it comes out of the same box.
+  const cellPx = sampleCorrelationCellPx(
+    data?.bio_assay_ids.length,
+    payload ? payload.factors.length : 0,
+  );
 
 
   let body;

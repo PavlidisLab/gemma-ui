@@ -93,15 +93,22 @@ function CellRows({
   return (
     <table style={{ borderSpacing: 0, fontSize: 11 }}>
       <tbody>
-        <Row label="PROBE">
-          {row?.designElementName ?? '—'}
-          {row?.geneSymbols.length ? (
-            <span style={{ color: '#9ca3af' }}>
-              {' '}
-              ({row.geneSymbols.join(', ')})
-            </span>
-          ) : null}
-        </Row>
+        {/* 🛑 Only when the rows ARE probes. A payload's rows do not
+            have to be: the sample-correlation matrix is sample x
+            sample, and it was rendering an empty "PROBE —" line above
+            every cell reading. An unnamed row is not a nameless probe,
+            it is a matrix that has no probes. */}
+        {row?.designElementName || row?.geneSymbols.length ? (
+          <Row label="PROBE">
+            {row?.designElementName ?? '—'}
+            {row?.geneSymbols.length ? (
+              <span style={{ opacity: 0.6 }}>
+                {' '}
+                ({row.geneSymbols.join(', ')})
+              </span>
+            ) : null}
+          </Row>
+        ) : null}
         <Row label="SAMPLE">
           {col?.name ?? '—'}
         </Row>
