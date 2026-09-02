@@ -1,5 +1,6 @@
 export {
   HeatmapWidget,
+  serializeHeatmapDataAsTsv,
   type HeatmapWidgetProps,
   type WidgetPalette,
 } from './HeatmapWidget';

@@ -1344,7 +1344,7 @@ function triggerDownload(url: string, filename: string): void {
  *  Missing values export as the empty string (matches R / Pandas
  *  defaults). Row / col labels default to ``row_i`` / ``col_j``
  *  when the input didn't carry labels. */
-function serializeHeatmapDataAsTsv(data: HeatmapData): string {
+export function serializeHeatmapDataAsTsv(data: HeatmapData): string {
   const numRows = data.values.length;
   const numCols = numRows > 0 ? data.values[0].length : 0;
   const colLabels =

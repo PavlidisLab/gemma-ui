@@ -11,7 +11,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { HeatmapWidget } from "@gemma/heatmap";
+import { HeatmapWidget, serializeHeatmapDataAsTsv } from "@gemma/heatmap";
 import {
   PanelCard,
   PanelEmpty,
@@ -27,6 +27,58 @@ import { useSampleCorrelation } from "@/api/diagnostics";
 /** Masking every sample leaves no scale to compute — below this many
  *  survivors the matrix arrives unmasked and the toggle is refused. */
 const MIN_UNMASKED_SAMPLES = 3;
+
+/** The whole served matrix as TSV, sample names on both axes.
+ *
+ *  🛑 This used to be an `<a href>` straight at
+ *  `/rest/v2/datasets/{id}/sample-correlation` labelled "raw matrix as
+ *  TSV". That route answers JSON, so the file was JSON under a name
+ *  promising otherwise — and a curator opening it in a spreadsheet got
+ *  a wall of braces. The route has no TSV form to point at (it takes
+ *  `dataset` alone), so the table is built here from the payload the
+ *  panel already holds, using the heatmap package's own serializer
+ *  rather than a second one.
+ *
+ *  Deliberately the FULL matrix, not the masked view: the mask is a
+ *  reading aid, and a file that silently dropped the samples under it
+ *  would be a different file under the same name. The diagonal is
+ *  included too — it is blanked for the palette's sake, which is a
+ *  rendering concern the export does not share. A cell Gemma sent as
+ *  NaN exports empty, matching R and pandas defaults. */
+function downloadMatrixTsv(
+  experimentId: number | string,
+  data: {
+    bio_assay_ids: number[];
+    bio_assay_short_names: (string | null)[];
+    values: number[][];
+  },
+): void {
+  const labels = data.bio_assay_short_names.map(
+    (s, i) => s || String(data.bio_assay_ids[i] ?? i),
+  );
+  const tsv = serializeHeatmapDataAsTsv({
+    rowLabels: labels,
+    colLabels: labels,
+    values: data.values.map((row) =>
+      row.map((v) => {
+        const n = typeof v === "number" ? v : Number(v);
+        return Number.isFinite(n) ? n : null;
+      }),
+    ),
+  });
+  const url = URL.createObjectURL(
+    new Blob([tsv], { type: "text/tab-separated-values" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `sample-correlation-${experimentId}.tsv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Same delay the heatmap widget uses — revoking synchronously can
+  // beat the browser to the file on Safari.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function SampleCorrelationCard({
   experimentId,
@@ -217,23 +269,14 @@ export function SampleCorrelationCard({
                 stays affordance-free so the public browse wrapper
                 isn't forced to pull in mutating UI. */}
             <span className="ml-auto">
-              <a
-                // 🛑 `format` is not a parameter of this route — it
-                // takes `dataset` alone. Dropped rather than renamed:
-                // there is nothing to rename it to. Since `5328441870`
-                // an unknown parameter is a 400, so this would have
-                // turned a working download into a failing one.
-                //
-                // Always the WHOLE matrix — the hide is a view, and a
-                // download that silently dropped rows would be a
-                // different file under the same name.
-                href={`/rest/v2/datasets/${experimentId}/sample-correlation`}
+              <button
+                type="button"
+                onClick={() => downloadMatrixTsv(experimentId, data)}
                 className="text-blue-700 dark:text-blue-300 hover:underline"
-                download
-                title="raw matrix as TSV"
+                title="The full matrix as TSV — every sample, masked or not, and the diagonal included"
               >
                 download matrix ↓
-              </a>
+              </button>
             </span>
           </>
         ) : null
