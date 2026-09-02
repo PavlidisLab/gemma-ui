@@ -1824,6 +1824,16 @@ export interface HeatmapDataArgs {
   sampleSize?: number;
   /** Sub-set the matrix to a specific subSet id (filter the columns). */
   subSet?: number;
+  /** Top-loaded probes on a principal component, with their EXPRESSION
+   *  — the server picks the rows. Pairs with `pcaCount`.
+   *
+   *  🛑 This is what the PC-loadings popup should ask for. Drawing
+   *  `loading × sample score` from /svd/loadings instead gives the
+   *  outer product of two vectors: every column a scaled copy of one
+   *  pattern, by construction. */
+  pcaComponent?: number;
+  /** How many top-loaded probes `pcaComponent` returns. */
+  pcaCount?: number;
   /** Quantitation-type selector — a QT id or name. When omitted the
    *  server serves the dataset's processed QT (the default view). A
    *  non-processed QT is served from its raw vectors and still supports
@@ -1856,6 +1866,8 @@ export async function getHeatmapData(
     params.genes = args.genes.join(",");
   }
   if (args.sampleSize) params.sampleSize = args.sampleSize;
+  if (args.pcaComponent != null) params.pcaComponent = args.pcaComponent;
+  if (args.pcaCount != null) params.pcaCount = args.pcaCount;
   if (args.subSet) params.subSet = args.subSet;
   if (args.quantitationType != null && args.quantitationType !== "") {
     params.quantitationType = args.quantitationType;
