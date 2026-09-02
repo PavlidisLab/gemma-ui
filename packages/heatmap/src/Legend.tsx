@@ -53,16 +53,21 @@ export function Legend({
   // Decimals from the SPAN, not a fixed 1. A sample-correlation domain
   // is 0.96-1.00 — every value rounds to "1.0", so both ends of the bar
   // printed the same number and the scale said nothing about itself.
-  // Resolve to roughly a twentieth of the span, so the label never
-  // misstates the bound it names: at the span's own precision a
-  // [0.85, 1.0] domain printed its floor as "0.8", which is not where
-  // the scale starts. Capped at 4 so a degenerate span cannot run the
-  // label off the bar.
+  // Fewest decimals that actually say something: the two ends must
+  // render differently, and the low end must not be rounded so far that
+  // the label misstates where the scale starts. Stops at 3 — a colour
+  // bar is read at a glance, and a 0.96-1.00 domain needs "0.96", not
+  // "0.960". One decimal was the old fixed choice and printed "1.0" at
+  // both ends of exactly that domain.
   const span = Math.abs(hi - lo);
-  const decimals =
-    span > 0 && Number.isFinite(span)
-      ? Math.min(4, Math.max(1, Math.ceil(-Math.log10(span)) + 1))
-      : 1;
+  let decimals = 1;
+  if (span > 0 && Number.isFinite(span)) {
+    for (let d = 1; d <= 3; d++) {
+      decimals = d;
+      const drift = Math.abs(lo - Number(lo.toFixed(d)));
+      if (lo.toFixed(d) !== hi.toFixed(d) && drift <= span / 10) break;
+    }
+  }
   const fmt = (v: number) =>
     Math.abs(v) >= 100 || (v !== 0 && Math.abs(v) < 0.01)
       ? v.toExponential(1)
