@@ -32,6 +32,7 @@ export function resolveConfig(data: HeatmapData, config: HeatmapConfig | undefin
     dimColor: c.dimColor ?? 'rgba(100, 116, 139, 0.62)',
     markColor: c.markColor ?? 'rgba(245, 158, 11, 0.22)',
     markGlyphColor: c.markGlyphColor ?? '#f59e0b',
+    dimGlyphColor: c.dimGlyphColor ?? '#cbd5e1',
     showRowLabels: c.showRowLabels ?? 'auto',
     showColLabels: c.showColLabels ?? 'auto',
     cell,

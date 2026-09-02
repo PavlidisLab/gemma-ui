@@ -6,7 +6,7 @@ import type {
   StripHit,
 } from './types';
 import { computeLayout, resolveConfig } from './layout';
-import { renderMatrix } from './render';
+import { renderMatrix, markGutterFor } from './render';
 
 export interface HeatmapProps {
   data: HeatmapData;
@@ -246,7 +246,9 @@ export function Heatmap({
     }
     return acc;
   }, [layout.columns, data.colGapsBefore]);
-  const matrixRenderW = layout.matrixW + totalColGap;
+  // + the marker gutter, or the canvas overflows this grid column and
+  // shoves the row labels across the plot.
+  const matrixRenderW = layout.matrixW + totalColGap + markGutterFor(data);
 
   const renderResultRef = useRef<ReturnType<typeof renderMatrix> | null>(null);
 

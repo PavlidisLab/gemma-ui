@@ -138,6 +138,8 @@ export interface HeatmapConfig {
   dimColor?: string;
   /** Tint for `HeatmapData.markRows`. Default a light amber. */
   markColor?: string;
+  /** Outline colour for the `dimRows` glyph. Default a light slate. */
+  dimGlyphColor?: string;
   /** Arrowhead colour for `HeatmapData.markRows` — opaque, so the mark
    *  reads as a symbol rather than as another shade. Default amber. */
   markGlyphColor?: string;
@@ -188,6 +190,7 @@ export interface ResolvedConfig {
   dimColor: string;
   markColor: string;
   markGlyphColor: string;
+  dimGlyphColor: string;
   showRowLabels: boolean | 'auto';
   showColLabels: boolean | 'auto';
   cell: Required<NonNullable<HeatmapConfig['cell']>>;

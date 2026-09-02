@@ -11,6 +11,23 @@ import type {
   StripHit,
 } from './types';
 
+/** Width of the margin outside the plot that outlier markers sit in.
+ *  Zero when nothing is marked, so an ordinary heatmap is unchanged.
+ *
+ *  🛑 Exported because the React wrapper sizes the matrix grid column
+ *  itself. It computed that width from `layout.matrixW` alone, so the
+ *  canvas overflowed its column by exactly this margin and the row
+ *  labels were dragged across the plot. Both must add the same number.
+ */
+export const MARK_GUTTER_PX = 11;
+
+/** The gutter this data needs: markers, staged or saved, or nothing. */
+export function markGutterFor(data: HeatmapData): number {
+  const any =
+    data.markRows?.some(Boolean) || data.dimRows?.some(Boolean) || false;
+  return any ? MARK_GUTTER_PX : 0;
+}
+
 export interface RenderOptions {
   /** Available width in CSS pixels for the matrix area. */
   availableW: number;
@@ -72,8 +89,15 @@ export function renderMatrix(
     xs[r] = cursorX;
     cursorX += layout.cellW;
   }
-  const totalW = cursorX;
-  const totalH = stripsBlockH + gapAfterStrips + layout.matrixH;
+  // 🛑 Outlier markers get their own gutter OUTSIDE the plot. Paul,
+  // 2026-09-02: *"it can't be _in_ the heatmap, because it might be
+  // invisible. It has to be on the edge."* Drawn over the outermost
+  // cells they landed on whatever colour happened to be there, which on
+  // a blackbody ramp is sometimes amber. The whole canvas is shifted by
+  // this margin and every existing coordinate stays in matrix space.
+  const markGut = markGutterFor(data);
+  const totalW = cursorX + markGut;
+  const totalH = stripsBlockH + gapAfterStrips + layout.matrixH + markGut;
 
   const dpr = opts.dpr ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
 
@@ -89,6 +113,9 @@ export function renderMatrix(
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, totalW, totalH);
+  // Everything below draws in matrix space; the gutter is the margin
+  // the markers live in, at negative coordinates.
+  ctx.translate(markGut, markGut);
   // Crisp rectangles: disable smoothing (only matters if cells are sub-pixel).
   ctx.imageSmoothingEnabled = false;
 
@@ -158,38 +185,32 @@ export function renderMatrix(
       if (!marked[layout.columns[r].srcStart]) continue;
       ctx.fillRect(xs[r], matrixY, layout.cellW, layout.numRows * layout.cellH);
     }
-    // 🛑 A tint alone is a colour among colours. Paul, 2026-09-02:
-    // *"there should be some kind of marker on the row/column of the
-    // outlier, so it is always clearly marked. Put some glyph or
-    // arrowhead."* An arrowhead has a shape the palette cannot
-    // accidentally produce, and it survives the cell shrinking to a
-    // couple of pixels, where a tint of a couple of pixels does not.
+    // 🛑 A DIAMOND, not a triangle. The right-pointing triangle in the
+    // label gutter already means "this is the strip the columns are
+    // grouped by" — two different facts sharing one shape is how a
+    // reader learns to distrust both.
     //
-    // Both axes, pointing INTO the row and column they name. Solid, at
-    // full opacity, drawn over the outermost cells — a few pixels of a
-    // matrix hundreds wide, against being unable to tell a flagged
-    // sample from an orange one.
+    // In the gutter, at negative coordinates: outside the plot, so the
+    // mark never has to compete with a cell colour, and legible at any
+    // cell size because it does not shrink with the cells.
     ctx.fillStyle = resolved.markGlyphColor;
-    const g = Math.max(5, Math.min(10, Math.max(layout.cellH, layout.cellW)));
-    for (let i = 0; i < layout.numRows; i++) {
-      if (!marked[i]) continue;
-      const cy = matrixY + i * layout.cellH + layout.cellH / 2;
+    const g = MARK_GUTTER_PX - 3;
+    const diamond = (cx: number, cy: number) => {
       ctx.beginPath();
-      ctx.moveTo(0, cy - g / 2);
-      ctx.lineTo(g, cy);
-      ctx.lineTo(0, cy + g / 2);
+      ctx.moveTo(cx, cy - g / 2);
+      ctx.lineTo(cx + g / 2, cy);
+      ctx.lineTo(cx, cy + g / 2);
+      ctx.lineTo(cx - g / 2, cy);
       ctx.closePath();
       ctx.fill();
+    };
+    for (let i = 0; i < layout.numRows; i++) {
+      if (!marked[i]) continue;
+      diamond(-MARK_GUTTER_PX / 2, matrixY + i * layout.cellH + layout.cellH / 2);
     }
     for (let r = 0; r < layout.columns.length; r++) {
       if (!marked[layout.columns[r].srcStart]) continue;
-      const cx = xs[r] + layout.cellW / 2;
-      ctx.beginPath();
-      ctx.moveTo(cx - g / 2, matrixY);
-      ctx.lineTo(cx, matrixY + g);
-      ctx.lineTo(cx + g / 2, matrixY);
-      ctx.closePath();
-      ctx.fill();
+      diamond(xs[r] + layout.cellW / 2, -MARK_GUTTER_PX / 2);
     }
     ctx.restore();
   }
@@ -215,6 +236,30 @@ export function renderMatrix(
     for (let r = 0; r < layout.columns.length; r++) {
       if (!dim[layout.columns[r].srcStart]) continue;
       ctx.fillRect(xs[r], matrixY, layout.cellW, layout.numRows * layout.cellH);
+    }
+    // The same diamond as a saved flag, HOLLOW — Paul, 2026-09-02:
+    // *"clicking on a sample to mark it an outlier should add those
+    // glyphs."* Same shape because it is the same fact being asserted;
+    // outlined rather than filled because it has not happened yet.
+    ctx.strokeStyle = resolved.dimGlyphColor;
+    ctx.lineWidth = 1.5;
+    const dg = MARK_GUTTER_PX - 4;
+    const hollow = (cx: number, cy: number) => {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - dg / 2);
+      ctx.lineTo(cx + dg / 2, cy);
+      ctx.lineTo(cx, cy + dg / 2);
+      ctx.lineTo(cx - dg / 2, cy);
+      ctx.closePath();
+      ctx.stroke();
+    };
+    for (let i = 0; i < layout.numRows; i++) {
+      if (!dim[i]) continue;
+      hollow(-MARK_GUTTER_PX / 2, matrixY + i * layout.cellH + layout.cellH / 2);
+    }
+    for (let r = 0; r < layout.columns.length; r++) {
+      if (!dim[layout.columns[r].srcStart]) continue;
+      hollow(xs[r] + layout.cellW / 2, -MARK_GUTTER_PX / 2);
     }
     ctx.restore();
   }
@@ -245,7 +290,7 @@ export function renderMatrix(
     ctx.restore();
   }
 
-  const matrix = { x: 0, y: matrixY, w: totalW, h: layout.matrixH };
+  const matrix = { x: markGut, y: matrixY + markGut, w: totalW - markGut, h: layout.matrixH };
 
   // Hit testing — convert canvas-relative CSS coords to a cell.
   // We binary-search `xs[]` since the rendered columns are not
@@ -267,7 +312,8 @@ export function renderMatrix(
     if (y < matrix.y || y >= matrix.y + matrix.h) return null;
     const ry = y - matrix.y;
     const row = Math.floor(ry / layout.cellH);
-    const colIdx = findRenderedCol(x);
+    // `xs` is matrix space; the gutter has to come off before the lookup.
+    const colIdx = findRenderedCol(x - markGut);
     if (colIdx < 0) return null;
     if (row < 0 || row >= layout.numRows) return null;
     const { srcStart, srcCount } = layout.columns[colIdx];
@@ -275,7 +321,7 @@ export function renderMatrix(
       row,
       col: srcStart,
       mergedCols: srcCount,
-      x: xs[colIdx],
+      x: xs[colIdx] + markGut,
       y: matrix.y + row * layout.cellH,
       w: layout.cellW,
       h: layout.cellH,
@@ -284,7 +330,9 @@ export function renderMatrix(
 
   const stripAt = (x: number, y: number): StripHit | null => {
     if (stripRects.length === 0) return null;
-    if (x < 0 || x >= totalW) return null;
+    x -= markGut;
+    y -= markGut;
+    if (x < 0 || x >= totalW - markGut) return null;
     if (y < 0 || y >= stripsBlockH + gapAfterStrips) return null;
     // Find which strip band the y-coord is in.
     let stripIndex = -1;
@@ -314,8 +362,10 @@ export function renderMatrix(
     width: totalW,
     height: totalH,
     matrix,
-    strips: stripRects,
-    cells,
+    // Reported in CANVAS space, like `matrix` — a consumer positioning
+    // an overlay measures from the canvas, not from the plot.
+    strips: stripRects.map((r) => ({ ...r, x: r.x + markGut, y: r.y + markGut })),
+    cells: cells.map((c) => ({ ...c, x: c.x + markGut, y: c.y + markGut })),
     cellAt,
     stripAt,
   };
