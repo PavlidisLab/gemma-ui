@@ -46,8 +46,8 @@ export type StepStatus =
    *
    * The axis is never-started (`not_run`, the row is absent) vs
    * started-and-unfinished. It says nothing about whether a derived
-   * analysis still matches its input — that is a DIFFERENT state, does
-   * not exist yet, and would be `stale` when it does.
+   * analysis still matches its input — that is a DIFFERENT state, and
+   * it is `stale`, below.
    *
    * 🛑 Was `needs_attention` until 2026-08-26, which collided with the
    * curator-set `curationDetails.needsAttention` boolean that rides at
@@ -56,6 +56,22 @@ export type StepStatus =
    * unfinished". Renamed agent-side; the boolean is untouched.
    */
   | "incomplete"
+  /**
+   * The step ran and SUCCEEDED, and its input changed afterwards — the
+   * design was edited, or a sample was flagged/unflagged as an outlier.
+   * Nothing reprocesses on either event, so this is how a curator sees a
+   * recompute that is owed. Distinct from `incomplete`: nobody left this
+   * half-done, and distinct from `not_run`: it has a real `last_run`.
+   *
+   * Analysis track only — Gemma sets it; `batchInfo` never goes stale
+   * (scan dates and file headers are untouched by a design edit).
+   *
+   * 🛑 Landed on the wire before the UI knew the word. `mapGemmaStatus`
+   * had no case for it, so it fell through to `not_run` and three steps
+   * on eid 1658 (preprocess, pca, dea) rendered "not run" while carrying
+   * a 2015/2020/2022 `lastRun`. Verified against gemma2 2026-09-02.
+   */
+  | "stale"
   | "na";
 
 export interface PipelineStep {

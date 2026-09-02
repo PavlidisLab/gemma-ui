@@ -39,6 +39,7 @@ function statusDot(status: StepStatus) {
     case "ok":              return <span className={`${base} bg-emerald-500`} />;
     case "failed":          return <span className={`${base} bg-red-500`} />;
     case "incomplete":      return <span className={`${base} bg-amber-400`} />;
+    case "stale":           return <span className={`${base} bg-amber-400`} />;
     case "na":              return <span className={`${base} bg-slate-200 dark:bg-slate-700`} />;
     default:                return <span className={`${base} bg-slate-300 dark:bg-slate-600`} />;
   }
@@ -50,6 +51,10 @@ function statusLabel(status: StepStatus) {
     case "ok":              return <span className={`${base} bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400`}>ok</span>;
     case "failed":          return <span className={`${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`}>failed</span>;
     case "incomplete":      return <span className={`${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`}>unfinished</span>;
+    // Same amber as `incomplete` — both say "something is owed here" —
+    // and the word carries the difference. The two never share a track:
+    // `incomplete` is curation-side, `stale` analysis-side.
+    case "stale":           return <span className={`${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`}>stale</span>;
     case "na":              return <span className={`${base} bg-slate-100 text-slate-400 dark:bg-slate-800 dark:text-slate-600`}>n/a</span>;
     default:                return <span className={`${base} bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400`}>not run</span>;
   }
