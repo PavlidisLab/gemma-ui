@@ -41,24 +41,17 @@ export const DIAGNOSTICS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
  * — and the gap widens exactly where it matters, because rounded
  * numbers compress far better than full-precision ones.
  *
- * Measured on gemma2 `db182e86a6`, `len(json.dumps(...))` on the parsed
- * body. Sample correlation: 8.7 KB at 34 samples, 76 KB at 103, 527 KB
- * at 278 — about 7 bytes a cell. Mean-variance is the big one: 451 KB
- * at 11,776 probes, 883 KB at 22,283, 1.6 MB at 41,015, and 4
- * significant digits takes those to roughly 346 KB / 640 KB.
+ * Measured on gemma2, `len(json.dumps(...))` on the parsed body. The
+ * correlation matrix is the only large payload left on the tab: 8.7 KB
+ * at 34 samples, 76 KB at 103, **527 KB at 278** — about 7 bytes a
+ * cell. 1 MB covers it up to roughly 390 samples.
  *
- * 1 MB per entry covers the correlation matrix for all but the largest
- * datasets and mean-variance for most. It is deliberately not sized to
- * fit every mean-variance payload: gembro measured that 93% of those
- * points land on a pixel already painted, so server-side decimation
- * takes the whole scatter to ~1,500 points and the question stops being
- * about storage. Raising this further would be paying megabytes to
- * cache data that is about to stop being sent.
- *
- * (For contrast, the same three gzipped are 1.6 / 16 / 104 KB.
- * `db182e86a6`'s 3-decimal rounding cut the wire 5.6x and the stored
- * string only 2.7x. Both are real; only one is this constant's
- * business.)
+ * Mean-variance used to be the reason this limit went to 1 MB (451 KB
+ * at 11,776 probes, 1.6 MB at 41,015 — it fit nothing). Gemma now
+ * decimates it to a 200x133 grid, so it is 23 KB at 22,283 probes and
+ * 22 KB at 41,015: the point count is the grid's, not the corpus's, and
+ * the payload barely varies with dataset size. `/svd` halved on the
+ * same change. Neither is near this limit any more.
  *
  * Above this an entry is simply not stored — the query still works, it
  * just re-fetches next reload, which is the pre-existing behaviour.

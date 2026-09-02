@@ -5,10 +5,17 @@
  *
  * 🛑 **The dots are drawn on a canvas, the axes stay SVG.** They used
  * to be one `<circle>` per probe, and a probe count is not a display
- * quantity: measured on gemma2, eid 1 is 22,283 probes, eid 2800 is
- * 41,015. That is tens of thousands of DOM nodes per card, laid out and
- * repainted on every resize, for marks 1.4px across at 18% opacity that
- * no reader can tell apart. Canvas draws the same picture in one node.
+ * quantity: eid 1 was 22,283 probes, eid 2800 was 41,015 — tens of
+ * thousands of DOM nodes per card, laid out and repainted on every
+ * resize, for marks 1.4px across at 18% opacity that no reader can tell
+ * apart.
+ *
+ * Gemma has since decimated the endpoint to a 200x133 grid, so what
+ * arrives is ~1,500 points and the DOM version would survive it. The
+ * canvas stays anyway: the count is the SERVER's choice, and a
+ * component that falls over when an endpoint sends more than it
+ * currently does is a component waiting to fail. `means.length` is the
+ * point count now, NOT the probe count — do not label it one.
  *
  * The split is by z-order, not by convenience: canvas carries the plot
  * background, the gridlines and the dots; the SVG on top carries the
