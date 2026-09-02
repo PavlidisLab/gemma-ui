@@ -24,13 +24,28 @@ import type { HeatmapRowGene } from "@gemma/heatmap";
 
 /* --------------------- requests --------------------- */
 
+/* 🛑 **No `gid` param on any of these routes.** The Vue browser sent
+ * `gid=<the signed-in user's group>` on every browse query
+ * (`legacy-vue/src/views/Browser.vue`, five call sites) and the React
+ * port carried it over. Gemma 2.0 never accepted it: it 400s the whole
+ * request with `UNKNOWN_QUERY_PARAMETER`, and `gid` appears nowhere in
+ * `/rest/v2/openapi.json`. Measured against 2.9.4 (2026-09-01) — all
+ * four browse routes 400 with it and 200 without.
+ *
+ * It only fired for a signed-in user, so the browse page worked
+ * anonymously and returned zero results — no table rows, every facet
+ * count 0 — the moment anyone logged in. Nothing narrows a query to a
+ * group here; server-side ACLs already scope a result set to what the
+ * caller can see, off the session cookie / bearer token.
+ *
+ * Don't reintroduce it without a param in the spec to point at. */
+
 export interface DatasetsArgs {
   query?: string;
   filter: string[][];
   offset: number;
   limit: number;
   sort?: string;
-  gid?: string;
 }
 
 export async function getDatasets(args: DatasetsArgs, signal?: AbortSignal): Promise<PaginatedResponse<Dataset>> {
@@ -41,7 +56,6 @@ export async function getDatasets(args: DatasetsArgs, signal?: AbortSignal): Pro
     limit: args.limit,
     sort: args.sort,
     query: args.query,
-    gid: args.gid,
   };
   return apiGet<PaginatedResponse<Dataset>>(`${BASE}/datasets`, { params, signal });
 }
@@ -59,7 +73,6 @@ export interface CategoriesArgs {
    *  on such a filter from the home page's factor-value chart, and a
    *  selected row with no number reads as a broken filter. */
   keepCategories?: string[];
-  gid?: string;
 }
 
 const DISALLOWED_CATEGORY_FILTER_PREFIXES = [
@@ -171,7 +184,6 @@ export async function getCategories(args: CategoriesArgs, signal?: AbortSignal) 
     filter: compressed,
     limit: args.limit ?? 20,
     query: args.query,
-    gid: args.gid,
   };
   if (args.applyExclusions) {
     const keep = new Set(args.keepCategories ?? []);
@@ -200,7 +212,6 @@ export interface AnnotationsByCategoryArgs {
   limit?: number;
   excludeFreeText?: boolean;
   applyExclusions: boolean;
-  gid?: string;
 }
 
 export async function getAnnotationsByCategory(args: AnnotationsByCategoryArgs, signal?: AbortSignal) {
@@ -212,7 +223,6 @@ export async function getAnnotationsByCategory(args: AnnotationsByCategoryArgs, 
     exclude: ["parentTerms"],
     retainMentionedTerms: true,
     query: args.query,
-    gid: args.gid,
   };
   if (args.applyExclusions) {
     params.excludedTerms = await compressArg(excludedTerms.join(","));
@@ -233,7 +243,6 @@ export interface PlatformsArgs {
   query?: string;
   filter: string[][];
   limit?: number;
-  gid?: string;
 }
 
 /** Full platform catalog — the Platforms page's primary fetch.
@@ -753,7 +762,6 @@ export async function getPlatforms(args: PlatformsArgs, signal?: AbortSignal) {
     filter: compressed,
     limit: args.limit ?? 200,
     query: args.query,
-    gid: args.gid,
   };
   return apiGet<PaginatedResponse<Platform>>(`${BASE}/datasets/platforms`, { params, signal });
 }
@@ -819,7 +827,6 @@ export async function getGenericPlatforms(
 export interface TaxaArgs {
   query?: string;
   filter: string[][];
-  gid?: string;
 }
 
 export async function getTaxa(args: TaxaArgs, signal?: AbortSignal) {
@@ -830,7 +837,6 @@ export async function getTaxa(args: TaxaArgs, signal?: AbortSignal) {
   const params: Params = {
     filter: compressed,
     query: args.query,
-    gid: args.gid,
   };
   return apiGet<PaginatedResponse<Taxon>>(`${BASE}/datasets/taxa`, { params, signal });
 }
@@ -1910,7 +1916,6 @@ export async function getCategoriesWithChildren(
             filter: childFilter,
             applyExclusions: args.applyExclusions,
             excludeFreeText: args.applyExclusions,
-            gid: args.gid,
           },
           signal,
         );

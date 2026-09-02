@@ -9,7 +9,6 @@ import {
   getTaxa,
   type DatasetsArgs,
 } from "@/api/endpoints";
-import type { User } from "@/lib/types";
 
 export interface BrowsingOptions {
   query?: string;
@@ -18,7 +17,6 @@ export interface BrowsingOptions {
   limit: number;
   sort?: string;
   ignoreExcludedTerms: boolean;
-  gid?: string;
 }
 
 export function useDatasets(opts: BrowsingOptions) {
@@ -32,14 +30,13 @@ export function useDatasets(opts: BrowsingOptions) {
         offset: opts.offset,
         limit: opts.limit,
         sort: opts.sort,
-        gid: opts.gid,
       };
       return getDatasets(args, signal);
     },
   });
 }
 
-export function useTaxa(opts: { query?: string; filter: string[][]; gid?: string }) {
+export function useTaxa(opts: { query?: string; filter: string[][] }) {
   return useQuery({
     queryKey: ["taxa", opts],
     placeholderData: keepPreviousData,
@@ -47,7 +44,7 @@ export function useTaxa(opts: { query?: string; filter: string[][]; gid?: string
   });
 }
 
-export function usePlatforms(opts: { query?: string; filter: string[][]; gid?: string }) {
+export function usePlatforms(opts: { query?: string; filter: string[][] }) {
   return useQuery({
     queryKey: ["platforms", opts],
     placeholderData: keepPreviousData,
@@ -62,7 +59,6 @@ export function useCategories(opts: {
   /** See CategoriesArgs.keepCategories — a category the visitor has
    *  selected stays in the facet so its count is real. */
   keepCategories?: string[];
-  gid?: string;
 }) {
   return useQuery({
     queryKey: ["categoriesWithChildren", opts],
@@ -88,8 +84,4 @@ export function useTechnologyTypeOptions(): Array<{ id: string; label: string }>
   const found = list.find((p) => p.name === "bioAssays.arrayDesignUsed.technologyType");
   if (!found?.allowedValues) return [];
   return found.allowedValues.map((v) => ({ id: v.value, label: v.label }));
-}
-
-export function gidOf(user: User | null | undefined): string | undefined {
-  return user?.group;
 }

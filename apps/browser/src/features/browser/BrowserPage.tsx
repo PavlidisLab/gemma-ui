@@ -3,9 +3,7 @@
 
 import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronUp, Code2 } from "lucide-react";
-import { getMyself } from "@/api/endpoints";
 import { HelpHint } from "@/features/shared/HelpHint";
 import { fallbackTaxa } from "@/lib/gemmaConfig";
 import { emptySearchSettings } from "@/lib/types";
@@ -74,9 +72,6 @@ export function BrowserPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showSnippet, setShowSnippet] = useState(false);
 
-  const me = useQuery({ queryKey: ["me"], queryFn: ({ signal }) => getMyself(signal) });
-  const gid = me.data?.group;
-
   const filter = useMemo(() => {
     const f = generateFilter(settings);
     if (updatedSince) f.push([`lastUpdated > ${updatedSince}`]);
@@ -91,14 +86,13 @@ export function BrowserPage() {
       limit: pageSize,
       sort,
       ignoreExcludedTerms: settings.ignoreExcludedTerms,
-      gid,
     }),
-    [settings.query, filter, page, pageSize, sort, settings.ignoreExcludedTerms, gid],
+    [settings.query, filter, page, pageSize, sort, settings.ignoreExcludedTerms],
   );
 
   const datasets = useDatasets(browsing);
-  const taxa = useTaxa({ query: settings.query, filter, gid });
-  const platforms = usePlatforms({ query: settings.query, filter, gid });
+  const taxa = useTaxa({ query: settings.query, filter });
+  const platforms = usePlatforms({ query: settings.query, filter });
   // A selected category is never excluded from its own facet — see
   // CategoriesArgs.keepCategories. Sorted so the query key is stable
   // across re-orderings of the same selection.
@@ -116,7 +110,6 @@ export function BrowserPage() {
     filter,
     applyExclusions: !settings.ignoreExcludedTerms,
     keepCategories,
-    gid,
   });
 
   // Fill in platforms that arrived as bare ids.
@@ -207,6 +200,32 @@ export function BrowserPage() {
   const platformList = platforms.data?.data ?? [];
   const annotationList = categories.data ?? [];
 
+  // Every browse query renders its failure as a zero — an empty table,
+  // a facet count of 0, "No annotations available" — so a broken
+  // request is indistinguishable from a corpus that genuinely has
+  // nothing. That is exactly how the `gid` param survived unnoticed:
+  // it 400d all four of these for any signed-in user and the page just
+  // said "No results". Name what failed and show the server's own
+  // message; the four are usually one cause, so they share one banner.
+  const browseQueries = useMemo(
+    (): Array<[string, Error | null]> => [
+      ["datasets", datasets.error],
+      ["taxa", taxa.error],
+      ["platforms", platforms.error],
+      ["annotations", categories.error],
+    ],
+    [datasets.error, taxa.error, platforms.error, categories.error],
+  );
+  const failures = useMemo(
+    () => browseQueries.flatMap(([name, e]) => (e ? [[name, e] as [string, Error]] : [])),
+    [browseQueries],
+  );
+  // One message when they agree, which a shared cause makes the norm.
+  const failureDetail = useMemo(
+    () => [...new Set(failures.map(([, e]) => e.message).filter(Boolean))].join(" · "),
+    [failures],
+  );
+
   const filterSummary = generateFilterSummary(settings);
   const filterDescription = generateFilterDescription(settings);
 
@@ -247,7 +266,13 @@ export function BrowserPage() {
           <h2 className="text-sm font-medium inline-flex items-center gap-1.5">
             {total > 0 ? (
               <>Showing <span className="tabular-nums">{total.toLocaleString()}</span> results</>
-            ) : datasets.isLoading ? "Loading…" : "No results"}
+            ) : datasets.isLoading ? (
+              "Loading…"
+            ) : datasets.isError ? (
+              <span className="text-rose-700 dark:text-rose-300">Results unavailable</span>
+            ) : (
+              "No results"
+            )}
             <HelpHint
               label="Result row"
               body={
@@ -295,9 +320,34 @@ export function BrowserPage() {
           )}
         </div>
 
+        {failures.length > 0 ? (
+          <div
+            role="alert"
+            className="px-3 py-2 border-b border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/40 text-xs text-rose-800 dark:text-rose-200"
+          >
+            <span className="font-medium">
+              {failures.length === browseQueries.length
+                ? "Every browse query failed"
+                : `Browse ${failures.length === 1 ? "query" : "queries"} failed: ${failures
+                    .map(([name]) => name)
+                    .join(", ")}`}
+              .
+            </span>{" "}
+            {failureDetail ? (
+              <span className="break-words">{failureDetail}</span>
+            ) : (
+              <span>The server did not say why.</span>
+            )}{" "}
+            <span className="text-rose-700/80 dark:text-rose-300/80">
+              Counts and results below are missing, not zero.
+            </span>
+          </div>
+        ) : null}
+
         <ResultsTable
           datasets={list}
           loading={datasets.isFetching}
+          error={datasets.error}
           sort={sort}
           onSortChange={setSort}
           expanded={expanded}

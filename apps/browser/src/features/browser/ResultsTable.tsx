@@ -15,6 +15,10 @@ import { DatasetPreview } from "./DatasetPreview";
 interface Props {
   datasets: Dataset[];
   loading?: boolean;
+  /** The dataset query's failure, when it has one. An empty `datasets`
+   *  means two very different things and this is what separates them —
+   *  see the empty-state rows below. */
+  error?: unknown;
   sort?: string;
   onSortChange: (sort: string | undefined) => void;
   expanded: Set<number>;
@@ -70,7 +74,7 @@ function shortDate(iso: string): string {
 
 export function ResultsTable(props: Props) {
   const {
-    datasets, loading, sort, onSortChange,
+    datasets, loading, error, sort, onSortChange,
     expanded, onToggleExpanded,
     selectedAnnotations, selectedCategories, availableAnnotations,
     onSelectTerm, onUnselectTerm,
@@ -116,7 +120,16 @@ export function ResultsTable(props: Props) {
           {loading && datasets.length === 0 ? (
             <tr><td colSpan={6} className="text-center py-8 text-gemma-subtle">Loading…</td></tr>
           ) : null}
-          {!loading && datasets.length === 0 ? (
+          {/* A query that FAILED is not a corpus with nothing in it.
+              Claiming "no datasets match" for a 400 sent everyone off
+              hunting a filter they hadn't set — that is how the `gid`
+              param went unnoticed (see the note in `endpoints.ts`).
+              The banner above carries the server's message; this row
+              only has to stop lying about why it is empty. */}
+          {!loading && error && datasets.length === 0 ? (
+            <tr><td colSpan={6} className="text-center py-8 text-rose-700 dark:text-rose-300">The dataset query failed — these results are unavailable, not empty.</td></tr>
+          ) : null}
+          {!loading && !error && datasets.length === 0 ? (
             <tr><td colSpan={6} className="text-center py-8 text-gemma-subtle">No datasets match the query and filters.</td></tr>
           ) : null}
           {datasets.map((d) => {
