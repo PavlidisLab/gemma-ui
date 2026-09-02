@@ -10,7 +10,7 @@
  * forced to pull in mutating UI.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   HeatmapWidget,
   computeColumnOrder,
@@ -114,6 +114,9 @@ export function SampleCorrelationCard({
   const [unmasked, setUnmasked] = useState(false);
 
   const [zoomed, setZoomed] = useState(false);
+  /** Whether the in-flight click started on the zoom backdrop. See the
+   *  handler for why a bare `onClick` was not enough. */
+  const backdropArmed = useRef(false);
   // 🛑 One selection, two widgets. The tile and the popped-out view
   // render the same matrix, and the grouping factor is widget state —
   // so without lifting it they auto-pick independently, can disagree
@@ -424,10 +427,39 @@ export function SampleCorrelationCard({
       {zoomed && built ? (
         <div
           className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6"
-          onClick={() => setZoomed(false)}
+          // 🛑 Close on a click that BEGAN on the backdrop, not on any
+          // click that lands there. A resize drag starts on the panel's
+          // corner handle and usually ends over the backdrop; `click`
+          // then fires on the common ancestor — the backdrop — and the
+          // dialog shut itself every time it was resized.
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) backdropArmed.current = true;
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && backdropArmed.current) {
+              setZoomed(false);
+            }
+            backdropArmed.current = false;
+          }}
         >
+          {/* Resizable by the native corner handle: `resize` needs a
+              non-visible `overflow` and a concrete starting size, so the
+              panel opens at 1100x760 (clamped to the viewport) rather
+              than sizing to its content. Dragging it larger gives the
+              matrix more room, and the body below scrolls whenever the
+              matrix is bigger than the panel — which at 224 samples it
+              is, in both directions. */}
           <div
-            className="bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded shadow-lg max-w-[95vw] max-h-[90vh] flex flex-col"
+            className="bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded shadow-lg flex flex-col overflow-hidden"
+            style={{
+              resize: "both",
+              width: "min(95vw, 1100px)",
+              height: "min(90vh, 760px)",
+              maxWidth: "95vw",
+              maxHeight: "90vh",
+              minWidth: 360,
+              minHeight: 260,
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
@@ -474,6 +506,15 @@ export function SampleCorrelationCard({
                 defaultShowRowLabels
                 defaultShowColLabels
                 defaultFitMode="squeeze"
+                // A 12px cell is a tile-sized default. In a panel the
+                // curator can drag wider, a 32-sample matrix hit that
+                // cap at ~380px and left the rest of the panel empty —
+                // enlarging the window did nothing for it. Cells may go
+                // to 28px here; a large matrix is limited by the width
+                // long before this and is unaffected. Both are still
+                // adjustable under Options.
+                defaultMaxHeight={28}
+                defaultMaxWidth={28}
                 downloadFilenameStem={`sample-correlation-${experimentId}`}
               />
             </div>

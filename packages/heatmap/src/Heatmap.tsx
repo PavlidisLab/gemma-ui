@@ -187,6 +187,16 @@ export function Heatmap({
   );
   const colLabelsTextVisible =
     colLabelsRequested && initialLayout.cellW >= COL_LABEL_MIN_CELL_W;
+  // The same gate for ROWS, which never had one. Row-label font size is
+  // `max(7, cellH - 1)` — it floors at 7px because below that the text is
+  // unreadable — while `cell.minHeight` is 2. So a 224-row matrix paints
+  // 7px of text into 6px rows, 224 times, and the gutter fills with
+  // vertical smear that is not a label and is not a picture. Below the
+  // threshold the rows stay (hover still names the sample, via `title`
+  // or `rowLabelTooltip`) and nothing is painted.
+  const ROW_LABEL_MIN_CELL_H = 8;
+  const rowLabelsTextVisible =
+    wantsRowLabels && initialLayout.cellH >= ROW_LABEL_MIN_CELL_H;
   // Adaptive gutter: size to the longest label's rendered length instead
   // of always reserving `maxColLabelPx`. With short labels (e.g. `gene_007`)
   // the old fixed gutter left a huge empty band above the labels (they
@@ -496,7 +506,46 @@ export function Heatmap({
             also opens for the strip names, and keying the row labels off
             its width alone stacked 60 sample names into it as vertical
             smear on a tile that had asked for no row labels at all. */}
-        {wantsRowLabels &&
+        {wantsRowLabels && !rowLabelsTextVisible ? (
+          // Rows too short to letter. Kept as hoverable strips of the
+          // right height so the tooltip still answers "which sample is
+          // this", and so the gutter's own contents (the strip names)
+          // keep their vertical origin.
+          <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 6 }}>
+            {Array.from({ length: layout.numRows }, (_, i) => {
+              const hasTip = !!rowLabelTooltip;
+              const fallback =
+                data.rowLabels?.[i] ?? data.rowLabelColumns?.[i]?.join(' · ');
+              return (
+                <div
+                  key={i}
+                  title={hasTip ? undefined : fallback}
+                  onMouseEnter={
+                    hasTip
+                      ? (e) => {
+                          cancelHide();
+                          const rect = (
+                            e.currentTarget as HTMLDivElement
+                          ).getBoundingClientRect();
+                          setLabelHover({
+                            row: i,
+                            top: rect.top,
+                            left: rect.right + 6,
+                          });
+                        }
+                      : undefined
+                  }
+                  onMouseLeave={hasTip ? scheduleHide : undefined}
+                  style={{
+                    height: layout.cellH,
+                    cursor: hasTip || fallback ? 'help' : 'default',
+                  }}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+        {rowLabelsTextVisible &&
           (data.rowLabelColumns && data.rowLabelColumns.length > 0 ? (
           <div
             style={{
