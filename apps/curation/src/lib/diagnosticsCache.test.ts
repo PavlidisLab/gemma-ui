@@ -78,11 +78,45 @@ describe("diagnosticsCache", () => {
   });
 
   it("declines an oversized entry rather than filling the quota", () => {
-    // The ceiling exists so a handful of very large matrices cannot
-    // evict everything else on the origin. The query still works, it
-    // just refetches.
-    writeDiagnosticsCache("sample-correlation", 9, { blob: "x".repeat(300_000) });
+    // The ceiling exists so one enormous payload cannot evict everything
+    // else on the origin. The query still works, it just refetches.
+    writeDiagnosticsCache("sample-correlation", 9, {
+      blob: "x".repeat(1_100_000),
+    });
     expect(readDiagnosticsCache("sample-correlation", 9)).toBeNull();
+  });
+
+  it("stays inside its total budget by evicting its own oldest first", () => {
+    // Three 900 KB entries cannot coexist under a 2 MB budget. The two
+    // most recent survive; the first is gone. The point is that WE
+    // choose what goes, rather than a QuotaExceededError landing on
+    // whichever write comes next — which could be a curator's draft.
+    const big = { blob: "x".repeat(900_000) };
+    writeDiagnosticsCache("sample-correlation", 101, big);
+    writeDiagnosticsCache("sample-correlation", 102, big);
+    writeDiagnosticsCache("sample-correlation", 103, big);
+
+    expect(readDiagnosticsCache("sample-correlation", 101)).toBeNull();
+    expect(readDiagnosticsCache("sample-correlation", 103)).not.toBeNull();
+    let total = 0;
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k?.startsWith("gemma.diagnosticsCache.")) {
+        total += localStorage.getItem(k)?.length ?? 0;
+      }
+    }
+    expect(total).toBeLessThanOrEqual(2 * 1024 * 1024);
+  });
+
+  it("overwriting an entry costs its size once, not twice", () => {
+    // Two 900 KB entries fit under 2 MB. Rewriting one must not count
+    // the old copy against the new one and evict the other.
+    const big = { blob: "x".repeat(900_000) };
+    writeDiagnosticsCache("sample-correlation", 201, big);
+    writeDiagnosticsCache("sample-correlation", 202, big);
+    writeDiagnosticsCache("sample-correlation", 202, big);
+    expect(readDiagnosticsCache("sample-correlation", 201)).not.toBeNull();
+    expect(readDiagnosticsCache("sample-correlation", 202)).not.toBeNull();
   });
 
   it("rejects a malformed entry instead of handing it to a render", () => {

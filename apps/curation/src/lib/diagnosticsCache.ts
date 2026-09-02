@@ -42,10 +42,18 @@ export const DIAGNOSTICS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
  * numbers compress far better than full-precision ones.
  *
  * Measured on gemma2 `db182e86a6`, `len(json.dumps(...))` on the parsed
- * body: 8.7 KB at 34 samples, 76 KB at 103, **527 KB at 278**. That is
- * about 7 bytes a cell, so this ceiling covers datasets up to roughly
- * 193 samples — 418 of the 23,545 on gemma2 are above it and go
- * uncached.
+ * body. Sample correlation: 8.7 KB at 34 samples, 76 KB at 103, 527 KB
+ * at 278 — about 7 bytes a cell. Mean-variance is the big one: 451 KB
+ * at 11,776 probes, 883 KB at 22,283, 1.6 MB at 41,015, and 4
+ * significant digits takes those to roughly 346 KB / 640 KB.
+ *
+ * 1 MB per entry covers the correlation matrix for all but the largest
+ * datasets and mean-variance for most. It is deliberately not sized to
+ * fit every mean-variance payload: gembro measured that 93% of those
+ * points land on a pixel already painted, so server-side decimation
+ * takes the whole scatter to ~1,500 points and the question stops being
+ * about storage. Raising this further would be paying megabytes to
+ * cache data that is about to stop being sent.
  *
  * (For contrast, the same three gzipped are 1.6 / 16 / 104 KB.
  * `db182e86a6`'s 3-decimal rounding cut the wire 5.6x and the stored
@@ -55,7 +63,19 @@ export const DIAGNOSTICS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
  * Above this an entry is simply not stored — the query still works, it
  * just re-fetches next reload, which is the pre-existing behaviour.
  */
-const MAX_ENTRY_BYTES = 256 * 1024;
+const MAX_ENTRY_BYTES = 1024 * 1024;
+
+/** Ceiling on what this cache holds in total, enforced before every
+ *  write by evicting its own oldest entries.
+ *
+ *  🛑 The per-entry limit alone was never enough. localStorage's ~5 MB
+ *  is one budget shared with the term cache and, more importantly, with
+ *  curator DRAFTS — and a quota error does not politely land on the
+ *  write that overflowed, it lands on whichever write comes next. An
+ *  unbounded diagnostics cache would eventually be the reason someone's
+ *  draft failed to save. Two megabytes is roughly two experiments'
+ *  worth of panels; the rest of the origin stays theirs. */
+const TOTAL_BUDGET_BYTES = 2 * 1024 * 1024;
 
 export type DiagnosticsKind =
   | "svd"
@@ -134,6 +154,10 @@ export function writeDiagnosticsCache<T>(
     // the ceiling is for.
     if (body.length > MAX_ENTRY_BYTES) return;
     const key = storageKey(kind, experimentId, variant);
+    // Make room under our own budget first — an eviction we chose beats
+    // a QuotaExceededError we caught, because the error might just as
+    // easily have hit a draft.
+    makeRoomFor(key, body.length);
     try {
       localStorage.setItem(key, body);
     } catch {
@@ -171,6 +195,32 @@ function entryTimestamp(key: string): number {
     return typeof parsed.ts === "number" ? parsed.ts : 0;
   } catch {
     return 0;
+  }
+}
+
+/** Evict this cache's oldest entries until `incoming` bytes fit inside
+ *  TOTAL_BUDGET_BYTES. The key being written is excluded from the tally
+ *  and dropped first, so overwriting an entry costs its own size once
+ *  rather than twice. */
+function makeRoomFor(key: string, incoming: number): void {
+  const entries = ownKeys().filter((e) => e.key !== key);
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+  let used = entries.reduce(
+    (n, e) => n + (localStorage.getItem(e.key)?.length ?? 0),
+    0,
+  );
+  for (const e of entries) {
+    if (used + incoming <= TOTAL_BUDGET_BYTES) return;
+    used -= localStorage.getItem(e.key)?.length ?? 0;
+    try {
+      localStorage.removeItem(e.key);
+    } catch {
+      // ignore
+    }
   }
 }
 
