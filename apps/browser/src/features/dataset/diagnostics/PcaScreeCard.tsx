@@ -26,6 +26,7 @@ import {
 } from "@/api/endpoints";
 import { ProbeRowTooltip } from "@/features/dataset/ProbeRowTooltip";
 import { restUrl } from "@/api/base";
+import { useEscapeKey } from "@gemma/ui";
 
 export function PcaScreeCard({ datasetId }: { datasetId: number }) {
   const { data, isLoading, error } = useQuery({
@@ -113,6 +114,8 @@ function PcLoadingsPopup({
   pc: number;
   onClose: () => void;
 }) {
+  // The popup is only mounted while open, so the listener is too.
+  useEscapeKey(true, onClose);
   const { data, isLoading, error } = useQuery({
     queryKey: ["pc-loadings", datasetId, pc],
     queryFn: ({ signal }) => getPcLoadings(datasetId, pc, { top: 50, signal }),

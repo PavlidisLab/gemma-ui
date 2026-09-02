@@ -47,6 +47,7 @@ import {
 } from "@/features/tickets/nextStage";
 import { TriageCloseDialog } from "./TriageCloseDialog";
 import { navigate } from "@/routes";
+import { useEscapeKey } from "@gemma/ui";
 import {
   decisionLabels,
   parsePayload,
@@ -1077,6 +1078,7 @@ function CandidateCard({
 }) {
   const patch = usePatchTicketTarget(ticketId);
   const [preview, setPreview] = useState(false);
+  useEscapeKey(preview, () => setPreview(false));
   const fields = meta?.display_fields ?? [];
   const accession = meta?.accession ?? `target ${target.target_id}`;
   const studyTitle = (

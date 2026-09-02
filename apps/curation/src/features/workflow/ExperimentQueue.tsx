@@ -49,6 +49,7 @@ import { useStickyState } from "@/lib/useStickyState";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import { maxDatasetPageSize } from "@/api/workflow";
 import { rememberTicketMemberOrder } from "@/features/tickets/ticketMemberOrder";
+import { useEscapeKey } from "@gemma/ui";
 
 /** Default page size + user-settable picker options.
  *
@@ -559,6 +560,7 @@ function FinalizeSetButton({ group }: { group: Group }) {
   const finalize = useFinalizeGroup(group.id);
   const reopen = useReopenGroup(group.id);
   const [confirming, setConfirming] = useState<"finalize" | null>(null);
+  useEscapeKey(confirming !== null, () => setConfirming(null));
   const [notes, setNotes] = useState("");
   const isFinalized = !!group.finalized_at;
   const saving = finalize.isPending || reopen.isPending;

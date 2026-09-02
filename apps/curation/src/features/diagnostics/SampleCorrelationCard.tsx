@@ -29,6 +29,7 @@ import {
 import { useSampleCorrelation } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { buildDesignHeatmapPayload } from "./heatmapPayload";
+import { useEscapeKey } from "@gemma/ui";
 
 /** Masking every sample leaves no scale to compute — below this many
  *  survivors the matrix arrives unmasked and the toggle is refused. */
@@ -120,6 +121,8 @@ export function SampleCorrelationCard({
   // auto-pick", and the first pick it reports back becomes the shared
   // value, so both stay on it.
   const [groupBy, setGroupBy] = useState<number | null>(null);
+  // Only while the zoom is open, so the key is free the rest of the time.
+  useEscapeKey(zoomed, () => setZoomed(false));
 
   const outlierIds = useMemo(
     () =>
@@ -183,6 +186,10 @@ export function SampleCorrelationCard({
       bioAssayIds: adapted.bioAssayIds,
       values: built.values,
       colLabels: built.colLabels ?? [],
+      // Rows are SAMPLES here, and the same ones as the columns. Named
+      // explicitly because a payload row defaults to a probe, and this
+      // matrix has none.
+      rows: (built.rowLabels ?? []).map((l) => ({ symbol: l, name: "" })),
       datasetId: Number(experimentId) || 0,
     });
     if (!p) return null;
@@ -206,6 +213,9 @@ export function SampleCorrelationCard({
     if (columnOrder.every((c, i) => c === i)) return p;
     return {
       ...p,
+      // The row LABELS travel with the rows they name, or the gutter
+      // would read the original order against reordered data.
+      rows: columnOrder.map((r) => p.rows[r]),
       matrix: {
         ...p.matrix,
         values: columnOrder.map((r) => p.matrix.values[r]),

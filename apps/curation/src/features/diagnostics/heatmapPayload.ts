@@ -127,6 +127,11 @@ export function buildDesignHeatmapPayload(args: {
     // symbols in the loadings popup) and the payload's row identity is
     // about probes, which neither matrix has.
     rows: values.map((_, i) => ({
+      // 🛑 The gutter falls back to `probe ${designElementId}` when a
+      // row carries no label, which printed "probe 0, probe 1, …" down
+      // the side of the sample-correlation matrix — whose rows are
+      // SAMPLES and have no probes at all. The fix is to NAME the rows
+      // (`labelSymbol` below); this id is only ever the fallback.
       designElementId: rows?.[i]?.designElementId ?? i,
       designElementName: rows?.[i]?.symbol ?? "",
       geneIds: [],

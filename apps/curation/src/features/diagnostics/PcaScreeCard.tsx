@@ -20,6 +20,7 @@ import {
 import { useDatasetSvd, usePcLoadings, type PcLoadings } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { buildDesignHeatmapPayload } from "./heatmapPayload";
+import { useEscapeKey } from "@gemma/ui";
 
 export function PcaScreeCard({
   experimentId,
@@ -109,6 +110,8 @@ function PcLoadingsPopup({
   // so the strips show what the curator is looking at.
   const { draft } = useDesignDraft();
   const [groupBy, setGroupBy] = useState<number | null>(null);
+  // The popup is only mounted while open, so the listener is too.
+  useEscapeKey(true, onClose);
 
   const heatmap = useMemo<HeatmapData | null>(
     () => (data ? buildProjectionHeatmap(data) : null),
