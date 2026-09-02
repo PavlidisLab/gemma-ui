@@ -154,10 +154,14 @@ export function Heatmap({
   // width away from the matrix — a square matrix then shrinks in both
   // directions and leaves the panel half empty. The correlation tile
   // names its grouping factor in its own footer control instead.
+  // The gutter carries two different things: the row labels, and the
+  // annotation strips' NAMES. It opens for either.
+  const wantsRowLabels =
+    !!(data.rowLabels || data.rowLabelColumns) &&
+    resolved.showRowLabels !== false;
+  const hasStripNames = (data.colAnnotations?.length ?? 0) > 0;
   const rowLabelGutter =
-    (data.rowLabels || data.rowLabelColumns) && resolved.showRowLabels !== false
-      ? (rowLabelGutterWidth ?? 100)
-      : 0;
+    wantsRowLabels || hasStripNames ? (rowLabelGutterWidth ?? 100) : 0;
   // Reserve top gutter for column labels. Hide the rotated text (but keep
   // a thin hover-only bar) when cells are too narrow for the rotated text
   // to fit — at narrower widths labels would just smudge into each other.
@@ -488,7 +492,11 @@ export function Heatmap({
               - rowLabelColumns: CSS grid so columns auto-align across
                 rows (gene · name · …).
               - rowLabels (string-only legacy): single column per row. */}
-        {rowLabelGutter > 0 &&
+        {/* 🛑 `wantsRowLabels`, not `rowLabelGutter > 0`. The gutter
+            also opens for the strip names, and keying the row labels off
+            its width alone stacked 60 sample names into it as vertical
+            smear on a tile that had asked for no row labels at all. */}
+        {wantsRowLabels &&
           (data.rowLabelColumns && data.rowLabelColumns.length > 0 ? (
           <div
             style={{

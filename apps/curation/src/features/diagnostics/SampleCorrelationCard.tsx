@@ -295,6 +295,14 @@ export function SampleCorrelationCard({
         defaultRowScale={false}
         defaultSquareCells={true}
         defaultShowRowLabels={false}
+        // Just wide enough for a factor name. Row labels stay off, so
+        // this holds only the strip names — which are what you click to
+        // change the ordering.
+        rowLabelGutterWidth={104}
+        // The hover tooltip says everything the pinned panels would,
+        // and the panels were swallowing the click that switches the
+        // grouping.
+        showDetailPanel={false}
         defaultShowColLabels={false}
         defaultMaxHeight={cellPx}
         defaultMaxWidth={cellPx}
@@ -323,34 +331,6 @@ export function SampleCorrelationCard({
             <span>
               {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
             </span>
-            {/* 🛑 A real control, not a hint. Clicking a strip has
-                always worked and the ▶ marks the active one, but
-                neither says the ordering CAN be changed — asked three
-                times where to click. The strips stay clickable; this
-                is the affordance that says so. In the footer because
-                the widget's own Options popover only comes with a
-                header band, and that band pushed the matrix off the
-                bottom of the panel. */}
-            {payload && payload.factors.length > 1 ? (
-              <label className="flex items-center gap-1">
-                <span className="text-slate-500 dark:text-slate-400">
-                  order by
-                </span>
-                <select
-                  value={groupBy ?? ""}
-                  onChange={(e) =>
-                    setGroupBy(e.target.value ? Number(e.target.value) : null)
-                  }
-                  className="bg-transparent border border-slate-300 dark:border-slate-600 rounded px-1 py-0.5 text-[11px] text-slate-700 dark:text-slate-200"
-                >
-                  {payload.factors.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
             {outliers ? (
               <span
                 className={

@@ -146,6 +146,15 @@ export interface HeatmapWidgetProps {
    *  fixed box should say how tall it is rather than trying to express
    *  that as a cell dimension. */
   matrixMaxHeight?: number;
+  /** Pin a detail panel when a cell or strip is clicked. Default
+   *  `true`.
+   *
+   *  🛑 Off where the hover tooltip already says everything the panel
+   *  would. On a small diagnostics tile the panel covers the matrix it
+   *  is describing, and — worse — it swallowed the click that changes
+   *  the grouping, so the strips looked inert (Paul: "I don't need
+   *  strip detail or cell detail at all, the tooltip is plenty"). */
+  showDetailPanel?: boolean;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -255,6 +264,7 @@ export function HeatmapWidget({
   showGroupGaps = true,
   onMainGroupingFactorChange,
   matrixMaxHeight,
+  showDetailPanel = true,
 }: HeatmapWidgetProps): JSX.Element {
   // Root ref — used by the download-image button to locate the
   // rendered canvas inside the matrix wrapper. Avoids threading a
@@ -866,6 +876,7 @@ export function HeatmapWidget({
                       if (e.kind === 'cell') {
                         const sourceCol =
                           built.columnOrder[e.hit.col] ?? e.hit.col;
+                        if (!showDetailPanel) return;
                         setPinned({
                           kind: 'cell',
                           row: e.hit.row,
@@ -876,6 +887,7 @@ export function HeatmapWidget({
                       } else {
                         const sourceCol =
                           built.columnOrder[e.hit.col] ?? e.hit.col;
+                        if (!showDetailPanel) return;
                         setPinned({
                           kind: 'strip',
                           stripIndex: e.hit.stripIndex,
