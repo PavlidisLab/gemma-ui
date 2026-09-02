@@ -1458,46 +1458,168 @@ function groupTagsByCategoryLabel(
  *  experiment-level tags need the same expressiveness as FV-level
  *  statements (e.g. ``genotype · Abca4 · has_genotype · Homozygous
  *  negative`` for a knockout applying to all samples). */
-function TagStatementInline({ statements }: { statements: Statement[] }) {
+/** The tag chip's inline CURIE styling — one definition, so the
+ *  single-value path and the statement path can never drift apart. */
+export const TAG_CURIE_CLS =
+  "font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline";
+
+const STMT_SEP_CLS = "text-emerald-900/40 dark:text-emerald-200/40";
+const STMT_PRED_CLS =
+  "font-mono text-[10px] text-emerald-900/75 dark:text-emerald-200/75";
+
+type StmtTerm = Statement["subject"];
+
+/** Identity for folding. A URI is the identity when there is one; a
+ *  bare label only ever matches another bare label, so two terms
+ *  spelled alike but grounded differently never collapse into one. */
+function termKey(t: StmtTerm | null | undefined): string {
+  if (!t) return "";
+  return t.uri ? `uri:${t.uri}` : `lbl:${(t.label ?? "").toLowerCase()}`;
+}
+
+/** Consecutive statements that share a subject, each holding its
+ *  predicate/object pairs grouped by predicate. Runs are CONSECUTIVE
+ *  only — statement order is data, and reordering to gather a
+ *  non-adjacent match would say something the payload does not. */
+interface SubjectFold {
+  subject: StmtTerm | null;
+  runs: { predicate: StmtTerm | null; objects: StmtTerm[] }[];
+  /** Rows folded in, for the single-statement fast path below. */
+  count: number;
+}
+
+export function foldTagStatements(statements: Statement[]): SubjectFold[] {
+  const out: SubjectFold[] = [];
+  for (const s of statements) {
+    const subject = s.subject ?? null;
+    const predicate = s.predicate ?? null;
+    const object = s.object ?? null;
+    const last = out[out.length - 1];
+    // Rows sharing a `gemma_id` ARE one statement's pairs — that is
+    // the unit Gemma's two-pair ceiling applies to, so it is the
+    // grouping the payload already asserts. Curator-made rows carry
+    // no id yet; there, a shared subject is the signal.
+    const sameSubject = last && termKey(last.subject) === termKey(subject);
+    if (last && sameSubject && subject) {
+      const lastRun = last.runs[last.runs.length - 1];
+      if (lastRun && termKey(lastRun.predicate) === termKey(predicate)) {
+        if (object?.label) lastRun.objects.push(object);
+      } else {
+        last.runs.push({ predicate, objects: object?.label ? [object] : [] });
+      }
+      last.count += 1;
+      continue;
+    }
+    out.push({
+      subject,
+      runs: [{ predicate, objects: object?.label ? [object] : [] }],
+      count: 1,
+    });
+  }
+  return out;
+}
+
+export function TagStatementInline({ statements }: { statements: Statement[] }) {
+  const folds = foldTagStatements(statements);
   return (
     <span className="inline-flex flex-col gap-0.5 items-baseline">
-      {statements.map((s, i) => (
-        <span
-          key={i}
-          className="inline-flex items-baseline gap-1 whitespace-normal"
-        >
-          {s.subject?.label ? (
-            <TagInnerTerm
-              label={s.subject.label}
-              uri={s.subject.uri ?? null}
-            />
-          ) : null}
-          {s.predicate?.label ? (
-            <>
-              <span className="text-emerald-900/40 dark:text-emerald-200/40">
-                ·
-              </span>
-              <span
-                className="font-mono text-[10px] text-emerald-900/75 dark:text-emerald-200/75"
-                title={s.predicate.uri || undefined}
-              >
-                {s.predicate.label}
-              </span>
-            </>
-          ) : null}
-          {s.object?.label ? (
-            <>
-              <span className="text-emerald-900/40 dark:text-emerald-200/40">
-                ·
-              </span>
+      {folds.map((fold, i) => {
+        // One statement under this subject — render exactly as before,
+        // on a single line. The stacked form below exists to stop a
+        // shared subject repeating; imposing it on the common case
+        // would cost two lines and say nothing.
+        if (fold.count === 1) {
+          const run = fold.runs[0];
+          return (
+            <span
+              key={i}
+              className="inline-flex items-baseline gap-1 whitespace-normal"
+            >
+              {fold.subject?.label ? (
+                <TagInnerTerm
+                  label={fold.subject.label}
+                  uri={fold.subject.uri ?? null}
+                />
+              ) : null}
+              {run?.predicate?.label ? (
+                <>
+                  <span className={STMT_SEP_CLS}>·</span>
+                  <span
+                    className={STMT_PRED_CLS}
+                    title={run.predicate.uri || undefined}
+                  >
+                    {run.predicate.label}
+                  </span>
+                </>
+              ) : null}
+              {run?.objects[0]?.label ? (
+                <>
+                  <span className={STMT_SEP_CLS}>·</span>
+                  <TagInnerTerm
+                    label={run.objects[0].label}
+                    uri={run.objects[0].uri ?? null}
+                  />
+                </>
+              ) : null}
+            </span>
+          );
+        }
+        // Shared subject — print it once, then walk its predicates
+        // beneath it. A predicate that repeats across the run is
+        // printed once too, with its objects listed under it; one
+        // that does not repeat keeps its object on the same line, so
+        // the indent never implies a grouping the data lacks.
+        return (
+          <span key={i} className="inline-flex flex-col gap-0.5 items-baseline">
+            {fold.subject?.label ? (
               <TagInnerTerm
-                label={s.object.label}
-                uri={s.object.uri ?? null}
+                label={fold.subject.label}
+                uri={fold.subject.uri ?? null}
               />
-            </>
-          ) : null}
-        </span>
-      ))}
+            ) : null}
+            {fold.runs.map((run, j) => (
+              <span
+                key={j}
+                className="inline-flex flex-col gap-0.5 items-baseline pl-2"
+              >
+                <span className="inline-flex items-baseline gap-1 whitespace-normal">
+                  {run.predicate?.label ? (
+                    <>
+                      <span className={STMT_SEP_CLS}>·</span>
+                      <span
+                        className={STMT_PRED_CLS}
+                        title={run.predicate.uri || undefined}
+                      >
+                        {run.predicate.label}
+                      </span>
+                    </>
+                  ) : null}
+                  {run.objects.length === 1 && run.objects[0].label ? (
+                    <>
+                      <span className={STMT_SEP_CLS}>·</span>
+                      <TagInnerTerm
+                        label={run.objects[0].label}
+                        uri={run.objects[0].uri ?? null}
+                      />
+                    </>
+                  ) : null}
+                </span>
+                {run.objects.length > 1
+                  ? run.objects.map((o, k) => (
+                      <span
+                        key={k}
+                        className="inline-flex items-baseline gap-1 whitespace-normal pl-3"
+                      >
+                        <span className={STMT_SEP_CLS}>·</span>
+                        <TagInnerTerm label={o.label} uri={o.uri ?? null} />
+                      </span>
+                    ))
+                  : null}
+              </span>
+            ))}
+          </span>
+        );
+      })}
     </span>
   );
 }
@@ -1511,11 +1633,18 @@ function TagStatementInline({ statements }: { statements: Statement[] }) {
 /** A term inside a tag chip.
  *
  *  🛑 Deliberately NOT a ``Term``: the TagBar convention is one frame
- *  per chip, so an inner term carries no border, no prefix and no
- *  inline CURIE. That is a styling decision and it must not become a
- *  behaviour decision — genes still show the SYMBOL and a species
- *  mark here, exactly as they do in a full ``Term``, sourced from the
- *  same helpers rather than re-derived.
+ *  per chip, so an inner term carries no border and no prefix. That is
+ *  a styling decision and it must not become a behaviour decision —
+ *  genes still show the SYMBOL and a species mark here, exactly as
+ *  they do in a full ``Term``, sourced from the same helpers rather
+ *  than re-derived.
+ *
+ *  The inline CURIE is NOT part of that exclusion any more. It was,
+ *  until a statement-structured tag ended up the only place in the
+ *  chip without one: the single-value path beside it has rendered a
+ *  ``CurieLink`` since 2026-06-15, so `strain · C57BL/6J` showed its
+ *  term id and `mixed … · derives from · C57BL/6J` did not. Both paths
+ *  now share ``TAG_CURIE_CLS`` (Paul, 2026-09-01).
  */
 function TagInnerTerm({
   label,
@@ -1553,6 +1682,7 @@ function TagInnerTerm({
           datasetTaxon={datasetTaxon}
         />
       ) : null}
+      <CurieLink uri={uri} className={TAG_CURIE_CLS} />
     </span>
   );
 }
@@ -1734,10 +1864,7 @@ function EditableDirectGroupChip({
                 button). Inline ↗ external link removed 2026-06-17
                 (design review: misclick penalty + clutter). */}
             {tag.value.uri ? (
-              <CurieLink
-                uri={tag.value.uri}
-                className="font-mono text-[10px] text-emerald-700/70 dark:text-emerald-300/70 hover:text-emerald-900 dark:hover:text-emerald-100 whitespace-nowrap bg-transparent border-0 p-0 cursor-pointer no-underline hover:underline"
-              />
+              <CurieLink uri={tag.value.uri} className={TAG_CURIE_CLS} />
             ) : null}
             {groundingMark}
           </>
