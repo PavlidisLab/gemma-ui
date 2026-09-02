@@ -11,7 +11,11 @@
  */
 
 import { useMemo, useState } from "react";
-import { HeatmapWidget, serializeHeatmapDataAsTsv } from "@gemma/heatmap";
+import {
+  HeatmapWidget,
+  computeColumnOrder,
+  serializeHeatmapDataAsTsv,
+} from "@gemma/heatmap";
 import {
   PanelCard,
   PanelEmpty,
@@ -23,6 +27,8 @@ import {
   sampleCorrelationCellPx,
 } from "@gemma/diagnostics";
 import { useSampleCorrelation } from "@/api/diagnostics";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { buildDesignHeatmapPayload } from "./heatmapPayload";
 
 /** Masking every sample leaves no scale to compute — below this many
  *  survivors the matrix arrives unmasked and the toggle is refused. */
@@ -87,6 +93,10 @@ export function SampleCorrelationCard({
 }) {
   const { data: result, isLoading, error } = useSampleCorrelation(experimentId);
   const data = result?.matrix ?? null;
+  // Design-data panels read the DRAFT, not the saved server design —
+  // the strips must show what the curator is looking at, including
+  // uncommitted edits (feedback_design_panels_must_read_draft).
+  const { draft } = useDesignDraft();
 
   // Gemma serves this matrix unmasked and names the outliers separately
   // — `1fa3c4cd68` stopped masking at compute time because the matrix is
@@ -151,6 +161,46 @@ export function SampleCorrelationCard({
     () => buildSampleCorrelationHeatmapData(adapted),
     [adapted],
   );
+
+  // The payload path is what gives the matrix its annotation strips,
+  // its design-ordered columns and the gaps between groups — the
+  // widget draws all three, but only when it is handed factors. Falls
+  // back to the bare matrix when the design cannot place the columns.
+  const payload = useMemo(() => {
+    if (!built || !adapted) return null;
+    const p = buildDesignHeatmapPayload({
+      design: draft,
+      bioAssayIds: adapted.bioAssayIds,
+      values: built.values,
+      colLabels: built.colLabels ?? [],
+      datasetId: Number(experimentId) || 0,
+    });
+    if (!p) return null;
+
+    // 🛑 A correlation matrix is SYMMETRIC, and the widget orders only
+    // COLUMNS. The payload alone regrouped the columns by design and
+    // left the rows in wire order, which breaks the one invariant this
+    // picture has: cell (i, j) stops being sample i against sample j,
+    // and the r=1 diagonal scatters. The diagonal is how a reader
+    // checks the two axes agree, so losing it loses the thing that says
+    // the matrix is being read correctly at all.
+    //
+    // Apply the SAME permutation to both axes here and hand over an
+    // already-grouped payload; the widget's own ordering then finds the
+    // columns in group order already and is a no-op.
+    const { columnOrder } = computeColumnOrder(p, null);
+    if (columnOrder.every((c, i) => c === i)) return p;
+    return {
+      ...p,
+      columns: columnOrder.map((c) => p.columns[c]),
+      matrix: {
+        ...p.matrix,
+        values: columnOrder.map((r) =>
+          columnOrder.map((c) => p.matrix.values[r][c]),
+        ),
+      },
+    };
+  }, [built, adapted, draft, experimentId]);
   // 🛑 Computed from the VISIBLE values, so the scale follows the
   // toggle. The lower bound hugs the observed off-diagonal minimum and
   // an outlier is usually what sets that minimum, so this is the whole
@@ -164,6 +214,8 @@ export function SampleCorrelationCard({
   // Size each square cell so the matrix fills the panel body regardless
   // of sample count — few-sample datasets otherwise leave the box empty.
   const cellPx = sampleCorrelationCellPx(data?.bio_assay_ids.length);
+
+  const [zoomed, setZoomed] = useState(false);
 
   let body;
   if (isLoading) {
@@ -184,8 +236,19 @@ export function SampleCorrelationCard({
     );
   } else {
     body = (
-      <HeatmapWidget
-        data={built}
+      <button
+        type="button"
+        onClick={() => setZoomed(true)}
+        title="Open a larger view — with the grouping picker"
+        className="block w-full h-full cursor-zoom-in appearance-none bg-transparent p-0 text-left"
+      >
+        <HeatmapWidget
+        {...(payload ? { payload } : { data: built })}
+        // 🛑 No group gutters here. Every cell of a correlation matrix
+        // exists — it is sample x sample — so a blank column reads as
+        // "no value" when it only means "a group ends here". The
+        // grouping is still legible from the strips above.
+        showGroupGaps={false}
         chrome={false}
         showControls={false}
         showLegend={true}
@@ -202,7 +265,8 @@ export function SampleCorrelationCard({
         defaultMaxHeight={cellPx}
         defaultMaxWidth={cellPx}
         defaultFitMode="squeeze"
-      />
+        />
+      </button>
     );
   }
 
@@ -284,6 +348,63 @@ export function SampleCorrelationCard({
       }
     >
       {body}
+      {zoomed && built ? (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-6"
+          onClick={() => setZoomed(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 rounded shadow-lg max-w-[95vw] max-h-[90vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+              <span className="font-semibold text-slate-800 dark:text-slate-100">
+                Sample correlation
+                <span className="ml-2 text-[11px] font-normal text-slate-500 dark:text-slate-400">
+                  · {data?.bio_assay_ids.length} samples ·{" "}
+                  {payload
+                    ? "grouped by design — change it under Options"
+                    : "no design grouping available"}
+                </span>
+              </span>
+              <button
+                type="button"
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                onClick={() => setZoomed(false)}
+                aria-label="close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex-1 min-h-[400px] overflow-auto p-3">
+              <HeatmapWidget
+                {...(payload ? { payload } : { data: built })}
+                chrome={false}
+                // Controls ON here, off on the tile. The Options
+                // popover is where the grouping factor is chosen, and a
+                // 300px tile has no room for it — but the question
+                // "which factor is this ordered by, and can I change
+                // it" only comes up once the matrix is big enough to
+                // read.
+                showControls
+                showLegend
+                showTooltip
+                showDownload
+                showGroupGaps={false}
+                defaultPalette="blackbody"
+                defaultClip={1}
+                defaultDomain={seqDomain}
+                defaultRowScale={false}
+                defaultSquareCells
+                defaultShowRowLabels
+                defaultShowColLabels
+                defaultFitMode="squeeze"
+                downloadFilenameStem={`sample-correlation-${experimentId}`}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </PanelCard>
   );
 }

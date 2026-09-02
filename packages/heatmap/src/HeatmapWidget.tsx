@@ -119,6 +119,15 @@ export interface HeatmapWidgetProps {
    *  Falls back to the auto-pick when null / not among the payload's
    *  factors. */
   defaultMainGroupingFactorId?: number | null;
+  /** Draw the blank gutters `computeColumnOrder` opens between design
+   *  groups. Default `true`.
+   *
+   *  🛑 Set `false` where a gap can be misread as missing data. On a
+   *  correlation matrix every cell exists — it is sample x sample — so
+   *  a blank column reads as "no value here" when it only means "a
+   *  group ends here". The grouping is still visible: it is what the
+   *  annotation strips above the matrix are for. */
+  showGroupGaps?: boolean;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -225,6 +234,7 @@ export function HeatmapWidget({
   rowLabelTooltip,
   rowLabelGutterWidth,
   defaultMainGroupingFactorId,
+  showGroupGaps = true,
 }: HeatmapWidgetProps): JSX.Element {
   // Root ref — used by the download-image button to locate the
   // rendered canvas inside the matrix wrapper. Avoids threading a
@@ -320,13 +330,14 @@ export function HeatmapWidget({
   // supplied. v2 (payload) takes precedence; v1 (data) is the
   // fallback for legacy / synthetic callers.
   const built = useMemo(() => {
-    if (payload) {
-      return buildHeatmapDataFromPayload(payload, {
-        mainGroupingFactorId,
-      });
-    }
-    return null;
-  }, [payload, mainGroupingFactorId]);
+    if (!payload) return null;
+    const b = buildHeatmapDataFromPayload(payload, { mainGroupingFactorId });
+    if (showGroupGaps) return b;
+    // Drop the gutters, keep the ORDER. The grouping still shows —
+    // that is what the strips above the matrix are for — but no blank
+    // column is left where a reader could take it for missing data.
+    return { ...b, data: { ...b.data, colGapsBefore: undefined } };
+  }, [payload, mainGroupingFactorId, showGroupGaps]);
   const rawData: HeatmapData = built?.data ?? data ?? EMPTY_DATA;
 
   // Factors in the SAME order the strips are built + rendered in

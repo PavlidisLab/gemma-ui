@@ -250,8 +250,21 @@ export interface PcLoadingsRow {
   /** Probe / design-element name. */
   design_element_name?: string | null;
   /** Reserved — gene-symbol enrichment via CompositeSequence → Gene
-   *  is deferred. Currently always null. */
+   *  is deferred. Currently always null; prefer `genes`. */
   gene_symbol?: string | null;
+  /** The genes this probe maps to. The route has served these all
+   *  along — the browser's copy of this panel renders symbols from
+   *  them — and only curation's mirror of the type was missing it,
+   *  which is why this panel showed bare probe ids while the browser's
+   *  showed `App`, `Rab6a`, `Ndfip1`. Snake_case here because
+   *  `client.ts` snakeifies the response; `probeRowLabel` wants the
+   *  camel shape, so the popup maps across. */
+  genes?: Array<{
+    id?: number | null;
+    ncbi_id?: number | null;
+    official_symbol?: string | null;
+    official_name?: string | null;
+  }> | null;
   /** Loading on this PC. Sign is meaningful — `direction=both` sorts
    *  by `|loading|` desc; `positive` / `negative` filter and sort
    *  signed. */

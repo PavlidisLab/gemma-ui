@@ -14,7 +14,15 @@ export interface HeatmapProps {
   /**
    * Fixed height in CSS pixels. Optional — if omitted, height equals
    * `numRows * cell.maxHeight` (rows render at their max height).
-   */
+   *
+ * 🛑 Every label here draws in `currentColor`, never a fixed grey.
+ * This package ships no Tailwind and cannot write a `dark:` rule, so
+ * the host surface owns the text colour and these inherit it. Six
+ * hardcoded near-blacks (#1f2937 / #374151 / #6b7280) used to sit here
+ * and were invisible on the dark diagnostics panel — the annotation
+ * strip names among them. A fixed colour cannot be right in both
+ * themes; if a label needs to recede, use opacity.
+ */
   height?: number;
   /**
    * Pointer-over callback. Fires whenever the cursor moves over the
@@ -350,7 +358,7 @@ export function Heatmap({
                         whiteSpace: 'nowrap',
                         fontSize,
                         lineHeight: 1,
-                        color: '#1f2937',
+                        color: 'currentColor',
                       }}
                     >
                       {label}
@@ -387,7 +395,7 @@ export function Heatmap({
             justifyContent: 'flex-start',
             paddingLeft: 10,
             fontSize: 12,
-            color: '#374151',
+            color: 'currentColor',
           }}
         >
           {annotations.map((a, i) => {
@@ -491,7 +499,7 @@ export function Heatmap({
               alignContent: 'start',
               paddingLeft: 10,
               fontSize: Math.min(11, Math.max(7, layout.cellH - 1)),
-              color: '#1f2937',
+              color: 'currentColor',
             }}
           >
             {data.rowLabelColumns.map((cols, i) => {
@@ -575,7 +583,11 @@ export function Heatmap({
                             : undefined,
                           fontVariantNumeric: isNum ? 'tabular-nums' : undefined,
                           textAlign: isNum ? 'right' : undefined,
-                          color: isPrimary ? '#1f2937' : '#6b7280',
+                          color: 'currentColor',
+                          // Secondary column steps back with opacity, not
+                          // with a grey of its own — a fixed grey cannot be
+                          // right in both themes.
+                          opacity: isPrimary ? 1 : 0.65,
                           maxWidth: isNum ? 72 : isPrimary ? 120 : 200,
                         }}
                       >
@@ -615,7 +627,7 @@ export function Heatmap({
                     height: layout.cellH,
                     lineHeight: `${layout.cellH}px`,
                     fontSize: Math.min(11, Math.max(7, layout.cellH - 1)),
-                    color: '#1f2937',
+                    color: 'currentColor',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -644,7 +656,7 @@ export function Heatmap({
             boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
             padding: '6px 8px',
             fontSize: 11,
-            color: '#1f2937',
+            color: 'currentColor',
             maxWidth: 320,
             // Keep the tooltip inside the viewport. A row's content is
             // unbounded — a probe mapping to ten genes renders ten
