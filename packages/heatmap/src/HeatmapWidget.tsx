@@ -128,6 +128,14 @@ export interface HeatmapWidgetProps {
    *  group ends here". The grouping is still visible: it is what the
    *  annotation strips above the matrix are for. */
   showGroupGaps?: boolean;
+  /** Fired when the reader picks a different grouping factor.
+   *
+   *  🛑 Needed whenever the same matrix is shown twice — a tile and its
+   *  popped-out view, say. The selection is widget state, so without
+   *  this the two auto-pick independently and can disagree, and a
+   *  change made in the popup is lost the moment it closes. Lift the
+   *  value into the caller and feed both from it. */
+  onMainGroupingFactorChange?: (id: number | null) => void;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -235,6 +243,7 @@ export function HeatmapWidget({
   rowLabelGutterWidth,
   defaultMainGroupingFactorId,
   showGroupGaps = true,
+  onMainGroupingFactorChange,
 }: HeatmapWidgetProps): JSX.Element {
   // Root ref — used by the download-image button to locate the
   // rendered canvas inside the matrix wrapper. Avoids threading a
@@ -313,7 +322,14 @@ export function HeatmapWidget({
     updater: number | null | ((prev: number | null) => number | null),
   ) => {
     userTouchedGroupingRef.current = true;
-    setMainGroupingFactorId(updater as never);
+    setMainGroupingFactorId((prev) => {
+      const next =
+        typeof updater === 'function'
+          ? (updater as (p: number | null) => number | null)(prev)
+          : updater;
+      onMainGroupingFactorChange?.(next);
+      return next;
+    });
   };
   // v2 tooltip + side-panel state.
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);

@@ -263,7 +263,10 @@ export interface PcLoadingsRow {
     id?: number | null;
     ncbi_id?: number | null;
     official_symbol?: string | null;
-    official_name?: string | null;
+    /** The gene's full name. Gemma calls it `name`, not
+     *  `officialName` — verified on the wire, eid 40086 PC1:
+     *  `{id, officialSymbol, name, ncbiId}`. */
+    name?: string | null;
   }> | null;
   /** Loading on this PC. Sign is meaningful — `direction=both` sorts
    *  by `|loading|` desc; `positive` / `negative` filter and sort

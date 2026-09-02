@@ -53,9 +53,17 @@ export function buildDesignHeatmapPayload(args: {
   values: Array<Array<number | null>>;
   /** Per-column display name, parallel to `bioAssayIds`. */
   colLabels: string[];
+  /** Optional per-row identity, parallel to `values`.
+   *
+   *  🛑 Needed whenever the caller wants row labels AND strips. When a
+   *  payload is supplied the widget builds its matrix from it and
+   *  ignores the sibling `data`, so row labels passed only on `data`
+   *  vanish the moment annotations are switched on — the gene gutter
+   *  in the PC-loadings popup did exactly that. */
+  rows?: Array<{ symbol: string; name: string; designElementId?: number | null }>;
   datasetId: number;
 }): HeatmapPayload | null {
-  const { design, bioAssayIds, values, colLabels, datasetId } = args;
+  const { design, bioAssayIds, values, colLabels, rows, datasetId } = args;
   if (!design || !design.factors?.length || !bioAssayIds.length) return null;
 
   const shortNameOf = assayToShortName(design);
@@ -119,10 +127,13 @@ export function buildDesignHeatmapPayload(args: {
     // symbols in the loadings popup) and the payload's row identity is
     // about probes, which neither matrix has.
     rows: values.map((_, i) => ({
-      designElementId: i,
-      designElementName: "",
+      designElementId: rows?.[i]?.designElementId ?? i,
+      designElementName: rows?.[i]?.symbol ?? "",
       geneIds: [],
-      geneSymbols: [],
+      geneSymbols: rows?.[i]?.symbol ? [rows[i].symbol] : [],
+      geneNames: rows?.[i] ? [rows[i].name] : undefined,
+      labelSymbol: rows?.[i]?.symbol,
+      labelName: rows?.[i]?.name,
     })),
     columns,
     // Passed through as-is: the payload's `Factor` is the SAME

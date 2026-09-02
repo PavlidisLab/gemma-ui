@@ -97,6 +97,27 @@ describe("buildDesignHeatmapPayload", () => {
     ).toBeNull();
   });
 
+  it("carries row labels into the payload, where the gutter reads them", () => {
+    // 🛑 The widget builds its matrix from a payload and ignores the
+    // sibling `data`, so labels passed only on `data` disappear the
+    // moment strips are switched on. The PC-loadings gutter did
+    // exactly that.
+    const p = buildDesignHeatmapPayload({
+      design,
+      bioAssayIds: [101, 102],
+      values,
+      colLabels: ["a", "b"],
+      rows: [
+        { symbol: "App", name: "amyloid beta precursor protein", designElementId: 9 },
+        { symbol: "Rab6a", name: "RAB6A", designElementId: 10 },
+      ],
+      datasetId: 5,
+    });
+    expect(p?.rows.map((r) => r.labelSymbol)).toEqual(["App", "Rab6a"]);
+    expect(p?.rows[0].labelName).toBe("amyloid beta precursor protein");
+    expect(p?.rows[0].designElementId).toBe(9);
+  });
+
   it("keeps a column the design does not place, rather than dropping it", () => {
     // Dropping it would silently shrink the matrix and misalign every
     // value after it against its row.

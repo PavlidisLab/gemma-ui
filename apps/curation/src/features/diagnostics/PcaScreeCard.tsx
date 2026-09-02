@@ -7,7 +7,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { HeatmapWidget } from "@gemma/heatmap";
+import { HeatmapWidget, probeRowLabel } from "@gemma/heatmap";
 import type { HeatmapData } from "@gemma/heatmap";
 import {
   PanelCard,
@@ -16,10 +16,10 @@ import {
   PanelError,
   ScreeChart,
   MAX_LOADED_PC,
-  GeneRowsTable,
-  type GeneRow,
 } from "@gemma/diagnostics";
 import { useDatasetSvd, usePcLoadings, type PcLoadings } from "@/api/diagnostics";
+import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { buildDesignHeatmapPayload } from "./heatmapPayload";
 
 export function PcaScreeCard({
   experimentId,
@@ -105,26 +105,40 @@ function PcLoadingsPopup({
   onClose: () => void;
 }) {
   const { data, isLoading, error } = usePcLoadings(experimentId, pc, 50);
+  // Same source of truth as every other design-data panel: the draft,
+  // so the strips show what the curator is looking at.
+  const { draft } = useDesignDraft();
+  const [groupBy, setGroupBy] = useState<number | null>(null);
 
   const heatmap = useMemo<HeatmapData | null>(
     () => (data ? buildProjectionHeatmap(data) : null),
     [data],
   );
 
-  const geneRows = useMemo<GeneRow[]>(() => {
-    if (!data) return [];
-    return data.rows.map((r, i) => ({
-      index: i + 1,
-      geneSymbol: r.gene_symbol,
-      // Gene name / NCBI id pending backend enrichment of
-      // /svd/loadings.
-      geneOfficialName: null,
-      geneNcbiId: null,
-      geneId: null,
-      designElementId: r.design_element_id,
-      designElementName: r.design_element_name,
-    }));
-  }, [data]);
+  // Columns here are bioAssays, exactly as on the correlation matrix,
+  // so the same builder annotates them. Rows are probes and are ordered
+  // by |loading| — that ordering is the point of the panel and the
+  // widget never touches rows, so unlike the correlation matrix there
+  // is no second axis to keep in step.
+  const payload = useMemo(() => {
+    if (!heatmap || !data) return null;
+    return buildDesignHeatmapPayload({
+      design: draft,
+      bioAssayIds: Object.keys(data.bio_assay_scores),
+      values: heatmap.values,
+      colLabels: heatmap.colLabels ?? [],
+      // The gutter has to travel INSIDE the payload: the widget builds
+      // its matrix from a payload and ignores the sibling `data`, so
+      // labels passed only on `data` disappear as soon as strips are on.
+      rows: (heatmap.rowLabelColumns ?? []).map((c, i) => ({
+        symbol: c[0] ?? "",
+        name: c[1] ?? "",
+        designElementId: data.rows[i]?.design_element_id ?? null,
+      })),
+      datasetId: Number(experimentId) || 0,
+    });
+  }, [heatmap, data, draft, experimentId]);
+
 
   return (
     <div
@@ -163,10 +177,14 @@ function PcLoadingsPopup({
               No SVD loadings available for this experiment yet.
             </div>
           ) : (
-            <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(0,360px)] gap-3 h-full">
+            // One column now. The probe list used to sit beside the
+            // matrix repeating what the row gutter says; with real gene
+            // labels in the gutter it was the same 50 names twice, and
+            // the half-width it cost was coming out of the matrix.
+            <div className="h-full">
               <div className="min-w-0">
                 <HeatmapWidget
-                  data={heatmap}
+                  {...(payload ? { payload } : { data: heatmap })}
                   chrome={false}
                   showControls
                   showLegend
@@ -177,31 +195,27 @@ function PcLoadingsPopup({
                     Math.max(...heatmap.values.flat().map((v) => Math.abs(v ?? 0))) || 1
                   }
                   defaultRowScale={false}
-                  defaultMaxHeight={14}
-                  defaultMaxWidth={14}
+                  // Cells big enough to read beside a gene gutter,
+                  // matching the browser's copy of this popup. At 14px
+                  // with no labels this was 50 anonymous stripes.
+                  defaultMaxHeight={22}
+                  defaultMaxWidth={18}
+                  rowLabelGutterWidth={260}
+                  // Every cell of a rank-1 projection exists, so a
+                  // blank gutter between design groups would read as
+                  // missing data. Same call as the correlation matrix.
+                  showGroupGaps={false}
+                  // Strip stacking is deterministic
+                  // (`orderFactorsForDisplay`), so the two panels agree
+                  // on the order for free; the SELECTION is state, and
+                  // this popup owns its own — there is no sibling view
+                  // of the same matrix to drift from.
+                  defaultMainGroupingFactorId={groupBy}
+                  onMainGroupingFactorChange={setGroupBy}
                   defaultFitMode="squeeze"
                   downloadFilenameStem={`pc${pc}-loadings`}
                 />
               </div>
-              <GeneRowsTable
-                rows={geneRows}
-                caption={`${geneRows.length} probes · ordered by |loading| on PC${pc}`}
-                maxHeightClass="max-h-[70vh]"
-                // Curation talks to whichever Gemma instance is configured
-                // for the session; the legacy gene page URL is universal.
-                geneHref={(r) =>
-                  r.geneNcbiId != null
-                    ? `/gene/showGene.html?ncbiId=${r.geneNcbiId}`
-                    : r.geneId != null
-                      ? `/gene/showGene.html?id=${r.geneId}`
-                      : null
-                }
-                probeHref={(r) =>
-                  r.designElementId != null
-                    ? `/arrays/compositeSequence/show.html?id=${r.designElementId}`
-                    : null
-                }
-              />
             </div>
           )}
         </div>
@@ -216,16 +230,28 @@ function buildProjectionHeatmap(d: PcLoadings): HeatmapData {
   const sampleEntries = Object.entries(d.bio_assay_scores);
   const colLabels = sampleEntries.map(([id]) => id);
   const sampleScores = sampleEntries.map(([, score]) => score);
-  const rowLabels = d.rows.map(
-    (r, i) =>
-      r.gene_symbol ||
-      r.design_element_name ||
-      (r.design_element_id != null
-        ? `probe ${r.design_element_id}`
-        : `row ${i + 1}`),
+  // `probeRowLabel` is the shared resolver the browser's copy of this
+  // popup and the expression heatmap both use — one place decides how a
+  // probe is named, so the same probe cannot read three ways in three
+  // panels. It wants the camel shape and `client.ts` snakeifies the
+  // response, so the genes are mapped across rather than a second
+  // labelling rule being written beside it.
+  const labels = d.rows.map((r) =>
+    probeRowLabel({
+      genes: (r.genes ?? []).map((g) => ({
+        id: g.id ?? 0,
+        officialSymbol: g.official_symbol ?? null,
+        name: g.name ?? null,
+        ncbiId: g.ncbi_id ?? null,
+      })),
+      designElementName: r.design_element_name ?? null,
+      designElementId: r.design_element_id ?? null,
+    }),
   );
+  const rowLabels = labels.map((l) => l.symbol);
+  const rowLabelColumns = labels.map((l) => [l.symbol, l.name]);
   const values: (number | null)[][] = d.rows.map((r) =>
     sampleScores.map((s) => r.loading * s),
   );
-  return { rowLabels, colLabels, values };
+  return { rowLabels, rowLabelColumns, colLabels, values };
 }

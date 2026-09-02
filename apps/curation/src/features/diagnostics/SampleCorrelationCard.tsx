@@ -216,6 +216,14 @@ export function SampleCorrelationCard({
   const cellPx = sampleCorrelationCellPx(data?.bio_assay_ids.length);
 
   const [zoomed, setZoomed] = useState(false);
+  // 🛑 One selection, two widgets. The tile and the popped-out view
+  // render the same matrix, and the grouping factor is widget state —
+  // so without lifting it they auto-pick independently, can disagree
+  // about which strip the columns are ordered by, and a change made in
+  // the popup is lost when it closes. `null` means "let the widget
+  // auto-pick", and the first pick it reports back becomes the shared
+  // value, so both stay on it.
+  const [groupBy, setGroupBy] = useState<number | null>(null);
 
   let body;
   if (isLoading) {
@@ -249,6 +257,8 @@ export function SampleCorrelationCard({
         // "no value" when it only means "a group ends here". The
         // grouping is still legible from the strips above.
         showGroupGaps={false}
+        defaultMainGroupingFactorId={groupBy}
+        onMainGroupingFactorChange={setGroupBy}
         chrome={false}
         showControls={false}
         showLegend={true}
@@ -391,6 +401,8 @@ export function SampleCorrelationCard({
                 showTooltip
                 showDownload
                 showGroupGaps={false}
+                defaultMainGroupingFactorId={groupBy}
+                onMainGroupingFactorChange={setGroupBy}
                 defaultPalette="blackbody"
                 defaultClip={1}
                 defaultDomain={seqDomain}
