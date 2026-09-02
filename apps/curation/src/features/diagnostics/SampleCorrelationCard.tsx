@@ -251,13 +251,7 @@ export function SampleCorrelationCard({
     );
   } else {
     body = (
-      <button
-        type="button"
-        onClick={() => setZoomed(true)}
-        title="Open a larger view — with the grouping picker"
-        className="block w-full h-full cursor-zoom-in appearance-none bg-transparent p-0 text-left"
-      >
-        <HeatmapWidget
+      <HeatmapWidget
         {...(payload ? { payload } : { data: built })}
         // 🛑 No group gutters here. Every cell of a correlation matrix
         // exists — it is sample x sample — so a blank column reads as
@@ -289,8 +283,7 @@ export function SampleCorrelationCard({
         defaultMaxHeight={cellPx}
         defaultMaxWidth={cellPx}
         defaultFitMode="squeeze"
-        />
-      </button>
+      />
     );
   }
 
@@ -357,7 +350,15 @@ export function SampleCorrelationCard({
                 is the agent's to make, not ours. The shared package
                 stays affordance-free so the public browse wrapper
                 isn't forced to pull in mutating UI. */}
-            <span className="ml-auto">
+            <span className="ml-auto flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setZoomed(true)}
+                className="text-blue-700 dark:text-blue-300 hover:underline"
+                title="Open a larger view"
+              >
+                enlarge ⤢
+              </button>
               <button
                 type="button"
                 onClick={() => downloadMatrixTsv(experimentId, data)}
