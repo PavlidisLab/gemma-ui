@@ -62,3 +62,4 @@ export {
   fmtNum,
   truncate,
 } from "./math";
+export { useContainerSize } from "./useContainerSize";

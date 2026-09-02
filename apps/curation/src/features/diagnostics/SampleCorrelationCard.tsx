@@ -24,8 +24,8 @@ import {
   buildSampleCorrelationHeatmapData,
   computeSampleCorrelationDomain,
   summariseOutliers,
-  sampleCorrelationCellPx,
   sampleCorrelationMatrixPx,
+  useContainerSize,
 } from "@gemma/diagnostics";
 import { useSampleCorrelation } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -122,6 +122,14 @@ export function SampleCorrelationCard({
   // auto-pick", and the first pick it reports back becomes the shared
   // value, so both stay on it.
   const [groupBy, setGroupBy] = useState<number | null>(null);
+  // 🛑 MEASURE the box, do not assume it. The panel body has a fixed
+  // height in its own stylesheet, but the four tiles sit in a grid row
+  // that stretches to the tallest of them, so the space actually
+  // available here is whatever this dataset's neighbours made it. Every
+  // constant I derived from DIAGNOSTICS_PANEL_BODY_PX was wrong in one
+  // direction or the other: too big and the matrix was clipped, too
+  // small and it sat in a quarter of the panel.
+  const { ref: boxRef, height: boxH } = useContainerSize<HTMLDivElement>();
   // Only while the zoom is open, so the key is free the rest of the time.
   useEscapeKey(zoomed, () => setZoomed(false));
 
@@ -237,10 +245,15 @@ export function SampleCorrelationCard({
   // of sample count — few-sample datasets otherwise leave the box empty.
   // One strip per factor the payload carries — that is what the widget
   // will draw above the matrix, and it comes out of the same box.
-  const cellPx = sampleCorrelationCellPx(
-    data?.bio_assay_ids.length,
-    payload ? payload.factors.length : 0,
-  );
+  // What the matrix may occupy: the measured box, less the widget's own
+  // padding and the strips above it. Falls back to the fixed-panel
+  // figure until the first measurement lands.
+  const stripCount = payload ? payload.factors.length : 0;
+  const matrixBoxPx =
+    boxH > 0
+      ? Math.max(40, boxH - 30 - (stripCount > 0 ? stripCount * 14 + 4 : 0))
+      : sampleCorrelationMatrixPx(stripCount);
+  const cellPx = Math.max(2, matrixBoxPx / (data?.bio_assay_ids.length || 1));
 
 
   let body;
@@ -262,7 +275,8 @@ export function SampleCorrelationCard({
     );
   } else {
     body = (
-      <HeatmapWidget
+      <div ref={boxRef} className="w-full h-full min-h-0">
+        <HeatmapWidget
         {...(payload ? { payload } : { data: built })}
         // 🛑 No group gutters here. Every cell of a correlation matrix
         // exists — it is sample x sample — so a blank column reads as
@@ -309,9 +323,10 @@ export function SampleCorrelationCard({
         // The real constraint: how tall the matrix may be. A cell cap
         // cannot say this, because a square matrix takes its size from
         // the width and grows past the box.
-        matrixMaxHeight={sampleCorrelationMatrixPx(payload ? payload.factors.length : 0)}
-        defaultFitMode="squeeze"
-      />
+          matrixMaxHeight={matrixBoxPx}
+          defaultFitMode="squeeze"
+        />
+      </div>
     );
   }
 
