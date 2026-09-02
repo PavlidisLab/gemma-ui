@@ -30,12 +30,18 @@ export const DIAGNOSTICS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
 
 /**
  * 🛑 Per-entry ceiling, and it is not theoretical. A sample-correlation
- * matrix is quadratic in sample count — measured on gemma2 2026-09-01,
- * decompressed JSON: 6.7 KB at 34 samples, 82 KB at 103, **577 KB at
- * 278**. localStorage is ~5 MB for the whole origin, shared with the
- * term cache and every draft. A handful of large datasets would evict
- * things that matter far more than a diagnostics panel that costs one
- * refetch.
+ * matrix is quadratic in sample count, and localStorage is ~5 MB for
+ * the whole origin, shared with the term cache and every draft — a
+ * handful of large datasets would evict things that matter far more
+ * than a diagnostics panel that costs one refetch.
+ *
+ * Measured on gemma2, decompressed JSON, **after** `db182e86a6` rounded
+ * the correlations to three decimals: 1.6 KB at 34 samples, 16 KB at
+ * 103, 104 KB at 278. That rounding cut the payload 5.6x — the same
+ * three were 6.7 KB / 82 KB / 577 KB the day before — so this ceiling
+ * now covers datasets up to roughly 437 samples, which is all but 96 of
+ * the 23,545 on gemma2. Re-measure before moving it; the old numbers
+ * are what made a second storage layer look necessary.
  *
  * Above this an entry is simply not stored — the query still works, it
  * just re-fetches next reload, which is the pre-existing behaviour.

@@ -78,9 +78,9 @@ describe("diagnosticsCache", () => {
   });
 
   it("declines an oversized entry rather than filling the quota", () => {
-    // A 278-sample correlation matrix is ~577 KB of JSON; the ceiling
-    // exists so a handful of those cannot evict everything else on the
-    // origin. The query still works, it just refetches.
+    // The ceiling exists so a handful of very large matrices cannot
+    // evict everything else on the origin. The query still works, it
+    // just refetches.
     writeDiagnosticsCache("sample-correlation", 9, { blob: "x".repeat(300_000) });
     expect(readDiagnosticsCache("sample-correlation", 9)).toBeNull();
   });
