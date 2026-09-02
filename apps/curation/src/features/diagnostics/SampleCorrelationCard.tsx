@@ -271,14 +271,19 @@ export function SampleCorrelationCard({
         defaultMainGroupingFactorId={groupBy}
         onMainGroupingFactorChange={setGroupBy}
         chrome={false}
-        // 🛑 Controls ON at tile size. They were off on the argument
-        // that a 300px tile has no room for the Options popover — but
-        // the popover floats over the panel, and "which factor is this
-        // ordered by, and can I change it" is a question the tile
-        // raises the moment it grows annotation strips. Making the
-        // curator open a modal to answer it is the wrong trade
-        // (Paul, 2026-09-02).
-        showControls
+        // 🛑 Controls OFF at tile size, and the header goes with them.
+        // Turning them on added a whole header row — "Options" and the
+        // 60x60 dimension caption — INSIDE the panel's fixed 308px
+        // body, so the matrix started that much lower and the same
+        // amount of it fell off the bottom, which is overflow:hidden.
+        // The picker was never worth a band of chrome above the plot.
+        //
+        // Switching the grouping still works here: clicking an
+        // annotation strip groups by it, and the ▶ marker shows which
+        // one is active. That only became reachable once the tile
+        // stopped being wrapped in a button that ate the click. The
+        // popped-out view keeps the full Options popover.
+        showControls={false}
         showLegend={true}
         legendPlacement="side"
         showTooltip={true}
