@@ -118,6 +118,37 @@ export function useDatasetSvd(experimentId: number | string) {
   });
 }
 
+/**
+ * bioAssay id → scan date, for the PC × "Date run" association.
+ *
+ * `/samples` carries `processingDate` per assay — the scan date Gemma
+ * derives batch information from. It is the covariate Gemma 1.0's QC
+ * panel correlated against the components, and it is served today, so
+ * nothing new is needed on the Gemma side.
+ *
+ * Tolerates absence: a backend that does not report the field yields an
+ * empty map and the caller simply omits the row.
+ */
+export function useScanDates(experimentId: number | string) {
+  return useQuery({
+    queryKey: ["diagnostics", "scan-dates", experimentId],
+    queryFn: async () => {
+      const rows = await getOrNull<
+        { id?: number; processing_date?: string | null }[]
+      >(`/rest/v2/datasets/${experimentId}/samples`);
+      const out = new Map<number, number>();
+      for (const r of rows ?? []) {
+        if (r.id == null || !r.processing_date) continue;
+        const t = Date.parse(r.processing_date);
+        if (Number.isFinite(t)) out.set(r.id, t);
+      }
+      return out;
+    },
+    enabled: Boolean(experimentId),
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
 // ─── /sample-correlation ───────────────────────────────────────────
 
 export interface SampleCorrelationMatrix {

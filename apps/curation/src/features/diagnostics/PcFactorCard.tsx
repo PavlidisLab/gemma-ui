@@ -22,7 +22,7 @@ import {
   type CategoricalLevel,
   type ContinuousLevel,
 } from "@gemma/diagnostics";
-import { useDatasetSvd, bioAssayScoresFromSvd } from "@/api/diagnostics";
+import { useDatasetSvd, bioAssayScoresFromSvd, useScanDates } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import type { Design } from "@/features/experiment/types";
 
@@ -35,13 +35,19 @@ export function PcFactorCard({
 }) {
   const { data: svd, isLoading, error } = useDatasetSvd(experimentId);
   const { draft } = useDesignDraft();
+  const { data: scanDates } = useScanDates(experimentId);
 
   const rows = useMemo(() => {
     const scores = bioAssayScoresFromSvd(svd);
     if (!scores || !draft) return null;
     const { samples, factors } = normaliseCurationDraft(scores, draft);
-    return computePcFactorAssociations(samples, factors, N_PCS);
-  }, [svd, draft]);
+    const dateRun = scanDateFactor(draft, scanDates);
+    return computePcFactorAssociations(
+      samples,
+      dateRun ? [...factors, dateRun] : factors,
+      N_PCS,
+    );
+  }, [svd, draft, scanDates]);
 
   let body;
   if (isLoading) {
@@ -68,7 +74,7 @@ export function PcFactorCard({
     <PanelCard
       title="PC × factor"
       footer={
-        <span>top {N_PCS} PCs · η² for categorical, |r| for continuous</span>
+        <span>top {N_PCS} PCs · rank correlation, as Gemma computes it</span>
       }
     >
       {body}
@@ -117,11 +123,45 @@ function normaliseCurationDraft(
       });
       return { label, type: "continuous", levels };
     }
-    const levels: CategoricalLevel[] = factor.factor_values.map((fv) => ({
+    // Gemma codes a level by its factor-value id; a draft value does
+    // not reliably carry one, so its position in the factor stands in.
+    // Both are arbitrary orderings of an unordered factor, and the
+    // Kruskal–Wallis branch inside the statistic is what catches the
+    // case where the ordering carries no signal.
+    const levels: CategoricalLevel[] = factor.factor_values.map((fv, i) => ({
       sampleKeys: fv.biomaterial_short_names,
+      code: i,
     }));
     return { label, type: "categorical", levels };
   });
 
   return { samples, factors };
+}
+
+/**
+ * "Date run" as a continuous factor: one level per sample, its `x` the
+ * scan timestamp. Gemma 1.0 carried this row and it is often the
+ * strongest thing on the chart — on GSE143419 it reads 0.72 against
+ * PC3 — because a component that tracks the order samples went through
+ * the scanner is a processing artefact, not biology.
+ *
+ * Returns null when no assay reports a date, so the row is absent
+ * rather than flat.
+ */
+function scanDateFactor(
+  design: Design,
+  scanDates: Map<number, number> | undefined,
+): AssocFactor | null {
+  if (!scanDates || scanDates.size === 0) return null;
+  const levels: ContinuousLevel[] = [];
+  for (const bm of design.biomaterials) {
+    for (const ba of bm.bio_assays ?? []) {
+      const t = ba.bio_assay_id == null ? undefined : scanDates.get(ba.bio_assay_id);
+      if (t == null) continue;
+      levels.push({ x: t, sampleKeys: [bm.short_name] });
+      break;
+    }
+  }
+  if (levels.length < 2) return null;
+  return { label: "Date run", type: "continuous", levels };
 }

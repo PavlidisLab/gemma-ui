@@ -15,17 +15,28 @@
  *      continuous-factor levels carry a numeric `x` per level alongside.
  *
  * Output: one row per factor with a `values[]` array of length nPcs
- * carrying either η² (categorical) or |Pearson r| (continuous). Both
- * metrics live in [0, 1] so the PcFactorBars chart can compare across
- * factors without re-scaling.
+ * carrying Gemma's own association statistic, in [0, 1].
+ *
+ * 🛑 This used to be η² for categorical factors and |Pearson r| for
+ * continuous ones. Both are defensible and neither was Gemma's, so the
+ * same dataset scored differently in the two places a curator can look
+ * at it. It is now a faithful port of
+ * `SVDServiceImpl.getSvdFactorAnalysis` — see `gemmaStats.ts` for the
+ * rule and for the two documented departures.
  */
 
-import { mean, pearson } from "./math";
+import { pcFactorAssociation } from "./gemmaStats";
 
 export interface CategoricalLevel {
   /** Sample keys (anything stringy — bioMaterial id, short_name, etc.)
    *  carrying this level. */
   sampleKeys: string[];
+  /** Numeric code for the level. Gemma uses the factor-value id; the
+   *  level's position in the factor is the caller's fallback when no id
+   *  is available. Only the Spearman branch reads it, and the
+   *  Kruskal–Wallis branch exists to override that branch when the
+   *  ordering turns out to carry nothing. Defaults to the index. */
+  code?: number;
 }
 
 export interface ContinuousLevel {
@@ -58,49 +69,32 @@ export function computePcFactorAssociations(
 ): PcFactorAssoc[] {
   const out: PcFactorAssoc[] = [];
   for (const factor of factors) {
+    // One (score-vector, covariate) pair per sample, in a stable order.
+    // The covariate is the measurement for a continuous factor and the
+    // level's code for a categorical one.
+    const rows: { scores: number[]; code: number }[] = [];
+    factor.levels.forEach((lvl, i) => {
+      const code =
+        factor.type === "continuous"
+          ? (lvl as ContinuousLevel).x
+          : ((lvl as CategoricalLevel).code ?? i);
+      if (!Number.isFinite(code)) return;
+      for (const sk of lvl.sampleKeys) {
+        const scores = samples.get(sk);
+        if (scores) rows.push({ scores, code });
+      }
+    });
+    if (rows.length < 2) continue;
+
+    const codes = rows.map((r) => r.code);
     const values: number[] = [];
-    if (factor.type === "continuous") {
-      const points: { score: number[]; x: number }[] = [];
-      for (const lvl of factor.levels as ContinuousLevel[]) {
-        if (!Number.isFinite(lvl.x)) continue;
-        for (const sk of lvl.sampleKeys) {
-          const score = samples.get(sk);
-          if (score) points.push({ score, x: lvl.x });
-        }
-      }
-      for (let pc = 0; pc < nPcs; pc++) {
-        const xs = points.map((p) => p.x);
-        const ys = points.map((p) => p.score[pc] ?? 0);
-        values.push(Math.abs(pearson(xs, ys)));
-      }
-    } else {
-      // Categorical: η² = SS_between / SS_total.
-      const groups: number[][][] = []; // [levelIdx][pc] -> scores
-      for (const lvl of factor.levels as CategoricalLevel[]) {
-        const arr: number[][] = Array.from({ length: nPcs }, () => []);
-        for (const sk of lvl.sampleKeys) {
-          const score = samples.get(sk);
-          if (!score) continue;
-          for (let pc = 0; pc < nPcs; pc++) {
-            arr[pc].push(score[pc] ?? 0);
-          }
-        }
-        groups.push(arr);
-      }
-      for (let pc = 0; pc < nPcs; pc++) {
-        const allScores: number[] = [];
-        for (const g of groups) allScores.push(...g[pc]);
-        const grand = mean(allScores);
-        let ssTotal = 0;
-        for (const s of allScores) ssTotal += (s - grand) ** 2;
-        let ssBetween = 0;
-        for (const g of groups) {
-          if (g[pc].length === 0) continue;
-          const gm = mean(g[pc]);
-          ssBetween += g[pc].length * (gm - grand) ** 2;
-        }
-        values.push(ssTotal > 0 ? Math.min(1, ssBetween / ssTotal) : 0);
-      }
+    for (let pc = 0; pc < nPcs; pc++) {
+      const v = pcFactorAssociation(
+        rows.map((r) => r.scores[pc] ?? 0),
+        codes,
+        factor.type,
+      );
+      values.push(Number.isFinite(v) ? v : 0);
     }
     if (values.some((v) => v > 0)) {
       out.push({ label: factor.label, values });
