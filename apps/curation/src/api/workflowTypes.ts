@@ -177,9 +177,6 @@ export interface DifferentialAnalysisRunRequest {
 // Outlier / QT write shapes
 // ---------------------------------------------------------------------------
 
-export interface OutlierPatch {
-  outlier: boolean;
-}
 
 /** 🛑 The two backends name this field differently, and `is_preferred`
  *  — what this carried until 2026-09-01 — is neither of them:

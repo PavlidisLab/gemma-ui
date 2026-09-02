@@ -34,6 +34,8 @@ import {
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { buildDesignHeatmapPayload } from "./heatmapPayload";
 import { useEscapeKey } from "@gemma/ui";
+import { useBatchOutliers } from "@/api/workflow";
+import { usePipelineStatus } from "@/api/workflow";
 
 /** Masking every sample leaves no scale to compute — below this many
  *  survivors the matrix arrives unmasked and the toggle is refused. */
@@ -129,6 +131,59 @@ export function SampleCorrelationCard({
   // matrix reads as one flat colour. Unmasking is how you see what those
   // numbers actually are, with the scale opened up to fit them.
   const [unmasked, setUnmasked] = useState(false);
+  /**
+   * Outlier flags the curator has clicked but not yet sent. Two disjoint
+   * sets, mirroring the endpoint's own `{mark, unmark}` delta — an id in
+   * both is a 400 that mutates nothing, so `stageAssay` moves an id
+   * between them rather than adding to either blindly.
+   *
+   * Staged, not sent, because flagging is not a label: it writes NaN
+   * into the processed vectors and leaves every derived analysis stale.
+   * One request per curator decision, not one per click.
+   */
+  const [pendingMark, setPendingMark] = useState<number[]>([]);
+  const [pendingUnmark, setPendingUnmark] = useState<number[]>([]);
+  const batchOutliers = useBatchOutliers(experimentId);
+  const { data: pipeline } = usePipelineStatus(experimentId);
+
+  /** Clicking a sample toggles it toward the opposite of its CURRENT
+   *  server state, and clicking again takes the staging back off. */
+  const stageAssay = (assayId: number) => {
+    const alreadyFlagged = (data?.actual_outlier_bio_assay_ids ?? []).includes(
+      assayId,
+    );
+    if (alreadyFlagged) {
+      setPendingMark((m) => m.filter((x) => x !== assayId));
+      setPendingUnmark((u) =>
+        u.includes(assayId) ? u.filter((x) => x !== assayId) : [...u, assayId],
+      );
+    } else {
+      setPendingUnmark((u) => u.filter((x) => x !== assayId));
+      setPendingMark((m) =>
+        m.includes(assayId) ? m.filter((x) => x !== assayId) : [...m, assayId],
+      );
+    }
+  };
+
+  const assayLabel = (assayId: number) => {
+    const i = data?.bio_assay_ids.indexOf(assayId) ?? -1;
+    return (i >= 0 ? data?.bio_assay_short_names[i] : null) || `assay ${assayId}`;
+  };
+
+  /** The steps this write will knock out of date: whatever Gemma
+   *  currently reports as `ok`. A step already `stale` or `not_run`
+   *  loses nothing, so naming it would overstate the cost. */
+  const willInvalidate = useMemo(() => {
+    const a = pipeline?.analysis;
+    if (!a) return [] as string[];
+    const rows: Array<[string, { status: string } | undefined]> = [
+      ["Preprocessing", a.preprocessing],
+      ["Diagnostics (PCA / GEEQ)", a.diagnostics],
+      ["Differential expression", a.dea],
+    ];
+    return rows.filter(([, st]) => st?.status === "ok").map(([label]) => label);
+  }, [pipeline]);
+
 
   const [zoomed, setZoomed] = useState(false);
   /** Whether the in-flight click started on the zoom backdrop. See the
@@ -208,8 +263,16 @@ export function SampleCorrelationCard({
   // its design-ordered columns and the gaps between groups — the
   // widget draws all three, but only when it is handed factors. Falls
   // back to the bare matrix when the design cannot place the columns.
-  const payload = useMemo(() => {
-    if (!built || !adapted) return null;
+  //
+  // Returns the row order's bioAssay ids alongside the payload. A click
+  // on a row label names a RENDERED row, and the rows below are
+  // permuted — resolving the id from the unpermuted list would flag a
+  // different sample than the one the curator pointed at.
+  const { payload, rowAssayIds } = useMemo<{
+    payload: ReturnType<typeof buildDesignHeatmapPayload> | null;
+    rowAssayIds: number[];
+  }>(() => {
+    if (!built || !adapted) return { payload: null, rowAssayIds: [] };
     const p = buildDesignHeatmapPayload({
       design: draft,
       bioAssayIds: adapted.bioAssayIds,
@@ -221,7 +284,7 @@ export function SampleCorrelationCard({
       rows: (built.rowLabels ?? []).map((l) => ({ symbol: l, name: "" })),
       datasetId: Number(experimentId) || 0,
     });
-    if (!p) return null;
+    if (!p) return { payload: null, rowAssayIds: adapted.bioAssayIds };
 
     // 🛑 A correlation matrix is SYMMETRIC and the widget orders only
     // COLUMNS, so the rows have to be permuted to match or cell (i, j)
@@ -239,8 +302,10 @@ export function SampleCorrelationCard({
     // and apply the same permutation to the rows here so the two
     // compose to the identity.
     const { columnOrder } = computeColumnOrder(p, groupBy);
-    if (columnOrder.every((c, i) => c === i)) return p;
-    return {
+    if (columnOrder.every((c, i) => c === i)) {
+      return { payload: p, rowAssayIds: adapted.bioAssayIds };
+    }
+    const permuted = {
       ...p,
       // The row LABELS travel with the rows they name, or the gutter
       // would read the original order against reordered data.
@@ -249,6 +314,10 @@ export function SampleCorrelationCard({
         ...p.matrix,
         values: columnOrder.map((r) => p.matrix.values[r]),
       },
+    };
+    return {
+      payload: permuted,
+      rowAssayIds: columnOrder.map((r) => adapted.bioAssayIds[r]),
     };
   }, [built, adapted, draft, experimentId, groupBy]);
   // 🛑 Computed from the VISIBLE values, so the scale follows the
@@ -557,6 +626,13 @@ export function SampleCorrelationCard({
                 defaultShowRowLabels
                 defaultShowColLabels
                 defaultFitMode="squeeze"
+                // Flagging lives here and not on the tile: at tile size
+                // a row is a couple of pixels tall and the sample it
+                // names is not readable, so a click would be a guess.
+                onRowLabelClick={(i) => {
+                  const id = rowAssayIds[i];
+                  if (id != null) stageAssay(id);
+                }}
                 // A 12px cell is a tile-sized default. In a panel the
                 // curator can drag wider, a 32-sample matrix hit that
                 // cap at ~380px and left the rest of the panel empty —
@@ -569,9 +645,152 @@ export function SampleCorrelationCard({
                 downloadFilenameStem={`sample-correlation-${experimentId}`}
               />
             </div>
+            <OutlierCommitBar
+              mark={pendingMark}
+              unmark={pendingUnmark}
+              label={assayLabel}
+              willInvalidate={willInvalidate}
+              busy={batchOutliers.isPending}
+              error={batchOutliers.error as Error | null}
+              onUnstage={stageAssay}
+              onDiscard={() => {
+                setPendingMark([]);
+                setPendingUnmark([]);
+              }}
+              onCommit={() =>
+                batchOutliers.mutate(
+                  { mark: pendingMark, unmark: pendingUnmark },
+                  {
+                    onSuccess: () => {
+                      setPendingMark([]);
+                      setPendingUnmark([]);
+                    },
+                  },
+                )
+              }
+            />
           </div>
         </div>
       ) : null}
     </PanelCard>
+  );
+}
+
+/**
+ * What is staged, what it will cost, and the one button that sends it.
+ *
+ * 🛑 Flagging is not a label. `markAsMissing` writes NaN into the
+ * assay's processed vectors as the request is served; nothing is
+ * recomputed, so every derived analysis keeps numbers computed against
+ * data that no longer exists. The bar says which steps that is — read
+ * from `pipeline-status`, not guessed — because a curator cannot see
+ * that consequence anywhere on this panel.
+ *
+ * It does NOT offer to re-run them. Paul, 2026-09-02: flagging is a
+ * curation judgement and scheduling a preprocessing run is a separate
+ * decision that should not ride along with a click. The Pipeline tab
+ * already has the buttons.
+ *
+ * Renders nothing when nothing is staged — a permanently visible action
+ * bar under a diagnostic plot reads as something you are expected to
+ * do.
+ */
+function OutlierCommitBar({
+  mark,
+  unmark,
+  label,
+  willInvalidate,
+  busy,
+  error,
+  onUnstage,
+  onDiscard,
+  onCommit,
+}: {
+  mark: number[];
+  unmark: number[];
+  label: (assayId: number) => string;
+  willInvalidate: string[];
+  busy: boolean;
+  error: Error | null;
+  onUnstage: (assayId: number) => void;
+  onDiscard: () => void;
+  onCommit: () => void;
+}) {
+  if (mark.length === 0 && unmark.length === 0) return null;
+  const chip = (assayId: number, kind: "mark" | "unmark") => (
+    <button
+      key={`${kind}-${assayId}`}
+      type="button"
+      onClick={() => onUnstage(assayId)}
+      title="Unstage this sample"
+      className={
+        "px-1.5 py-0.5 rounded text-[11px] " +
+        (kind === "mark"
+          ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+          : "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300")
+      }
+    >
+      {label(assayId)} ×
+    </button>
+  );
+  return (
+    <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 text-xs space-y-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        {mark.length > 0 ? (
+          <span className="text-slate-500 dark:text-slate-400">
+            flag {mark.length}:
+          </span>
+        ) : null}
+        {mark.map((id) => chip(id, "mark"))}
+        {unmark.length > 0 ? (
+          <span className="text-slate-500 dark:text-slate-400">
+            unflag {unmark.length}:
+          </span>
+        ) : null}
+        {unmark.map((id) => chip(id, "unmark"))}
+      </div>
+      <div className="text-slate-500 dark:text-slate-400 leading-snug">
+        Flagging blanks a sample&rsquo;s processed data immediately, and
+        unflagging restores it. Nothing is recomputed
+        {willInvalidate.length > 0 ? (
+          <>
+            , so{" "}
+            <span className="text-amber-700 dark:text-amber-300">
+              {willInvalidate.join(", ")}
+            </span>{" "}
+            {willInvalidate.length === 1 ? "goes" : "go"} stale until re-run
+            from the Pipeline tab.
+          </>
+        ) : (
+          " — no completed analysis is affected."
+        )}
+      </div>
+      {error ? (
+        <div className="text-rose-700 dark:text-rose-300">
+          {/* The server's sentence, not ours: a 400 here names the
+              offending assay id, which is the only thing that tells a
+              curator what to do next. */}
+          {error.message}
+        </div>
+      ) : null}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onCommit}
+          disabled={busy}
+          className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-medium"
+        >
+          {busy ? "saving…" : "Save outlier changes"}
+        </button>
+        <button
+          type="button"
+          onClick={onDiscard}
+          disabled={busy}
+          className="text-slate-500 dark:text-slate-400 hover:underline disabled:opacity-50"
+        >
+          discard
+        </button>
+      </div>
+    </div>
   );
 }

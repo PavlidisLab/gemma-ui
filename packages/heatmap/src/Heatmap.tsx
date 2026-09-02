@@ -59,6 +59,10 @@ export interface HeatmapProps {
    *  cursor is inside either the label or the popover (so links
    *  rendered inside it remain clickable). */
   rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
+  /** Click on a row's label gutter. Mirrors `onStripGutterClick` for
+   *  the other axis. Unlike a cell click this names ONE sample rather
+   *  than a pair, which is what a per-sample action needs. */
+  onRowLabelClick?: (rowIndex: number) => void;
   /** Width (in CSS px) reserved for the row-label gutter on the
    *  right. Defaults to 100, which fits a single ~14ch column. Pass
    *  a larger value when using ``data.rowLabelColumns`` for
@@ -97,6 +101,7 @@ export function Heatmap({
   selectedStripIndex,
   className,
   rowLabelTooltip,
+  onRowLabelClick,
   rowLabelGutterWidth,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -536,9 +541,14 @@ export function Heatmap({
                       : undefined
                   }
                   onMouseLeave={hasTip ? scheduleHide : undefined}
+                  onClick={onRowLabelClick ? () => onRowLabelClick(i) : undefined}
                   style={{
                     height: layout.cellH,
-                    cursor: hasTip || fallback ? 'help' : 'default',
+                    cursor: onRowLabelClick
+                      ? 'pointer'
+                      : hasTip || fallback
+                        ? 'help'
+                        : 'default',
                   }}
                 />
               );
@@ -686,6 +696,7 @@ export function Heatmap({
                       : undefined
                   }
                   onMouseLeave={hasTip ? scheduleHide : undefined}
+                  onClick={onRowLabelClick ? () => onRowLabelClick(i) : undefined}
                   style={{
                     height: layout.cellH,
                     lineHeight: `${layout.cellH}px`,
@@ -694,7 +705,7 @@ export function Heatmap({
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    cursor: hasTip ? 'help' : 'default',
+                    cursor: onRowLabelClick ? 'pointer' : hasTip ? 'help' : 'default',
                   }}
                 >
                   {lbl}

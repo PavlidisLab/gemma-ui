@@ -120,6 +120,8 @@ export interface HeatmapWidgetProps {
    *  cursor is inside either the label or the popover (so links
    *  rendered inside it remain clickable). */
   rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
+  /** Click on a row's label. Passed straight through to `Heatmap`. */
+  onRowLabelClick?: (rowIndex: number) => void;
   /** Width (in CSS px) reserved for the row-label gutter. Defaults
    *  to 100 — fits a single ~14ch column. Pass a larger value (e.g.
    *  220) when ``data.rowLabelColumns`` is used so the auto-sized
@@ -273,6 +275,7 @@ export function HeatmapWidget({
   downloadFilenameStem = 'heatmap',
   showDownload = true,
   rowLabelTooltip,
+  onRowLabelClick,
   rowLabelGutterWidth,
   defaultMainGroupingFactorId,
   showGroupGaps = true,
@@ -840,6 +843,7 @@ export function HeatmapWidget({
               height={matrixMaxHeight}
               selectedStripIndex={selectedStripIndex}
               rowLabelTooltip={rowLabelTooltip}
+              onRowLabelClick={onRowLabelClick}
               rowLabelGutterWidth={rowLabelGutterWidth}
               onStripGutterClick={
                 payload
