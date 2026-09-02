@@ -143,27 +143,24 @@ function StripRows({
     const value = continuousValueOf(factor, col);
     const unit = parseFactorUnit(factor.name);
     return (
-      <table style={{ borderSpacing: 0, fontSize: 11 }}>
-        <tbody>
-          <Row label="FACTOR">
-            {factor.name}{' '}
-            <span style={{ color: '#9ca3af' }}>
-              ({factor.category.label}, continuous)
-            </span>
-          </Row>
-          <Row label="SAMPLE">{col.name}</Row>
-          <Row label="VALUE">
-            {value == null ? (
-              <em style={{ color: '#9ca3af' }}>—</em>
-            ) : (
-              <span style={{ fontFamily: MONO }}>
-                {value}
-                {unit ? ` ${unit}` : ''}
-              </span>
-            )}
-          </Row>
-        </tbody>
-      </table>
+      <div style={{ fontSize: 11, maxWidth: 320 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, fontFamily: MONO }}>
+          {value == null ? (
+            <em style={{ opacity: 0.6, fontFamily: 'inherit' }}>—</em>
+          ) : (
+            <>
+              {value}
+              {unit ? ` ${unit}` : ''}
+            </>
+          )}
+        </div>
+        <div style={{ opacity: 0.6, marginTop: 2 }}>
+          {factor.name === factor.category.label
+            ? factor.name
+            : `${factor.name} · ${factor.category.label}`}
+          {col.name ? ` · ${col.name}` : ''}
+        </div>
+      </div>
     );
   }
   // Categorical.
@@ -172,42 +169,38 @@ function StripRows({
     fvId != null
       ? factor.factor_values.find((v) => v.id === fvId)
       : undefined;
+  // 🛑 The VALUE leads, unlabelled. This is what the reader hovered a
+  // coloured cell to find out; FACTOR / SAMPLE / VALUE in a labelled
+  // three-row table made them read three field names to reach it, and
+  // the factor row printed its own name beside its category — usually
+  // the same word twice ("organism part (organism part)"). Context
+  // belongs under the answer, quietly, not above it.
+  const factorLine =
+    factor.name === factor.category.label
+      ? factor.name
+      : `${factor.name} · ${factor.category.label}`;
   return (
-    <table style={{ borderSpacing: 0, fontSize: 11 }}>
-      <tbody>
-        <Row label="FACTOR">
-          {factor.name}{' '}
-          <span style={{ color: '#9ca3af' }}>({factor.category.label})</span>
-        </Row>
-        <Row label="SAMPLE">{col?.name ?? '—'}</Row>
-        <Row label="VALUE">
-          {!fv ? (
-            <em style={{ color: '#9ca3af' }}>unassigned</em>
-          ) : (
-            <>
-              {fv.free_text_label}
-              {fv.statements[0]?.subject?.label &&
-              fv.statements[0].subject.label !== fv.free_text_label ? (
-                <div style={{ color: '#9ca3af', marginTop: 2 }}>
-                  ↳ subject: {fv.statements[0].subject.label}
-                  {fv.statements[0].subject.uri ? (
-                    <span style={{ color: '#6b7280' }}>
-                      {' '}
-                      ({truncateUri(fv.statements[0].subject.uri)})
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {fv.is_baseline && (
-                <div style={{ color: '#fbbf24', marginTop: 2 }}>
-                  ↳ baseline FV
-                </div>
-              )}
-            </>
-          )}
-        </Row>
-      </tbody>
-    </table>
+    <div style={{ fontSize: 11, maxWidth: 320 }}>
+      <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3 }}>
+        {fv ? fv.free_text_label : <em style={{ opacity: 0.6 }}>unassigned</em>}
+      </div>
+      <div style={{ opacity: 0.6, marginTop: 2 }}>
+        {factorLine}
+        {col?.name ? ` · ${col.name}` : ''}
+      </div>
+      {fv?.statements[0]?.subject?.label &&
+      fv.statements[0].subject.label !== fv.free_text_label ? (
+        <div style={{ opacity: 0.6, marginTop: 3 }}>
+          ↳ {fv.statements[0].subject.label}
+          {fv.statements[0].subject.uri
+            ? ` (${truncateUri(fv.statements[0].subject.uri)})`
+            : ''}
+        </div>
+      ) : null}
+      {fv?.is_baseline ? (
+        <div style={{ color: '#fbbf24', marginTop: 3 }}>baseline</div>
+      ) : null}
+    </div>
   );
 }
 
