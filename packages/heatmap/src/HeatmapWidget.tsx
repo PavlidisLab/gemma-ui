@@ -318,18 +318,27 @@ export function HeatmapWidget({
     if (userTouchedGroupingRef.current) return;
     setMainGroupingFactorId(initialGroupingFactorId);
   }, [initialGroupingFactorId]);
+
+  // 🛑 Report the AUTO-PICK too, not just a user's choice. A caller
+  // that needs to know how the columns are ordered — to permute the
+  // rows of a symmetric matrix to match, say — otherwise has to guess,
+  // and guessing `null` gets a different order than the one actually
+  // drawn. Reported through a ref-guarded effect so it fires once per
+  // real change and cannot loop when the caller feeds the value back
+  // in as `defaultMainGroupingFactorId`.
+  const reportedGroupingRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    if (reportedGroupingRef.current === mainGroupingFactorId) return;
+    reportedGroupingRef.current = mainGroupingFactorId;
+    onMainGroupingFactorChange?.(mainGroupingFactorId);
+  }, [mainGroupingFactorId, onMainGroupingFactorChange]);
   const setMainGroupingFactorIdWithTouch = (
     updater: number | null | ((prev: number | null) => number | null),
   ) => {
     userTouchedGroupingRef.current = true;
-    setMainGroupingFactorId((prev) => {
-      const next =
-        typeof updater === 'function'
-          ? (updater as (p: number | null) => number | null)(prev)
-          : updater;
-      onMainGroupingFactorChange?.(next);
-      return next;
-    });
+    // The effect above reports it; doing it here as well would fire
+    // twice for one change.
+    setMainGroupingFactorId(updater as never);
   };
   // v2 tooltip + side-panel state.
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
