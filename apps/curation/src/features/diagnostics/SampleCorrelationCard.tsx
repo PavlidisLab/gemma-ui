@@ -249,9 +249,14 @@ export function SampleCorrelationCard({
   // padding and the strips above it. Falls back to the fixed-panel
   // figure until the first measurement lands.
   const stripCount = payload ? payload.factors.length : 0;
+  // 🛑 Subtract NOTHING but the strips. The observer is on the box the
+  // widget is given, and the widget's own padding is inside that box —
+  // taking it off again double-counted, which is why the matrix came
+  // out ~100px short of the space it had. The strips are the one thing
+  // above the canvas that is not already accounted for.
   const matrixBoxPx =
     boxH > 0
-      ? Math.max(40, boxH - 30 - (stripCount > 0 ? stripCount * 14 + 4 : 0))
+      ? Math.max(40, boxH - (stripCount > 0 ? stripCount * 14 + 4 : 0))
       : sampleCorrelationMatrixPx(stripCount);
   const cellPx = Math.max(2, matrixBoxPx / (data?.bio_assay_ids.length || 1));
 

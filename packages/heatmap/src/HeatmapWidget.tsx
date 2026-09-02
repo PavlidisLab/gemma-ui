@@ -775,15 +775,26 @@ export function HeatmapWidget({
               but the wrapper still caps the width sensibly. */}
           <div
             style={{
-              // 🛑 Do not GROW when the legend is a side rail. The rail
-              // is the next flex child, so a growing matrix column
-              // pushes it out to the far edge of the panel where it
-              // reads as unrelated furniture rather than as this
-              // matrix's scale.
-              flex: legendPlacement === 'side' ? '0 1 auto' : '1 1 auto',
+              // 🛑 Always GROW. This was `0 1 auto` when the legend is a
+              // side rail, to keep the rail snug against the matrix
+              // instead of drifting to the panel edge — and it collapsed
+              // the matrix. `0 1 auto` sizes this column to its CONTENT,
+              // the canvas measures that container to pick a cell size,
+              // and with square cells the collapsed width caps the
+              // height too: a 60x60 matrix rendered 140px wide in a
+              // 608px card, with the rest of the card empty. A legend
+              // that sits further right is the smaller problem.
+              flex: '1 1 auto',
               minWidth: 0,
+              // 🛑 Reserve the side rail's width. The rail is the next
+              // flex child, but the canvas picks its size from THIS
+              // column's measured width — which, before the rail has
+              // been laid out, is the whole row. A square matrix then
+              // grows into the rail and the scale's numbers sit on top
+              // of the cells. 52px is the bar plus its two labels.
+              maxWidth:
+                legendPlacement === 'side' ? 'calc(100% - 52px)' : '100%',
               overflow: fitMode === 'expand' ? 'auto' : 'visible',
-              maxWidth: '100%',
               // A faint inner border in Expand mode hints at the scroll region.
               border:
                 fitMode === 'expand' ? `1px solid ${BORDER}` : '1px solid transparent',
