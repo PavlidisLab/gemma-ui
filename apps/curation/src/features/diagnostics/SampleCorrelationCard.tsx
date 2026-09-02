@@ -318,13 +318,33 @@ export function SampleCorrelationCard({
             <span>
               {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
             </span>
-            {/* The ▶ beside the strips marks the active grouping, but a
-                marker is not an invitation — nothing said the strips
-                could be clicked, so the ordering looked fixed. */}
+            {/* 🛑 A real control, not a hint. Clicking a strip has
+                always worked and the ▶ marks the active one, but
+                neither says the ordering CAN be changed — asked three
+                times where to click. The strips stay clickable; this
+                is the affordance that says so. In the footer because
+                the widget's own Options popover only comes with a
+                header band, and that band pushed the matrix off the
+                bottom of the panel. */}
             {payload && payload.factors.length > 1 ? (
-              <span className="text-slate-500 dark:text-slate-400">
-                click a strip to order by it
-              </span>
+              <label className="flex items-center gap-1">
+                <span className="text-slate-500 dark:text-slate-400">
+                  order by
+                </span>
+                <select
+                  value={groupBy ?? ""}
+                  onChange={(e) =>
+                    setGroupBy(e.target.value ? Number(e.target.value) : null)
+                  }
+                  className="bg-transparent border border-slate-300 dark:border-slate-600 rounded px-1 py-0.5 text-[11px] text-slate-700 dark:text-slate-200"
+                >
+                  {payload.factors.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ) : null}
             {outliers ? (
               <span
