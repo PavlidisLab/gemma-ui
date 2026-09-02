@@ -128,6 +128,8 @@ export interface HeatmapWidgetProps {
   rowLabelTitle?: (rowIndex: number) => string | undefined;
   /** Rows to veil as a proposed change; see `HeatmapData.dimRows`. */
   dimRows?: boolean[];
+  /** Rows to tint as flagged; see `HeatmapData.markRows`. */
+  markRows?: boolean[];
   /** Width (in CSS px) reserved for the row-label gutter. Defaults
    *  to 100 — fits a single ~14ch column. Pass a larger value (e.g.
    *  220) when ``data.rowLabelColumns`` is used so the auto-sized
@@ -284,6 +286,7 @@ export function HeatmapWidget({
   onRowLabelClick,
   rowLabelTitle,
   dimRows,
+  markRows,
   rowLabelGutterWidth,
   defaultMainGroupingFactorId,
   showGroupGaps = true,
@@ -447,8 +450,9 @@ export function HeatmapWidget({
     // PROPOSED for a change is caller state that changes on every
     // click, and it has no business round-tripping through the wire
     // shape the payload path describes.
-    return dimRows ? { ...base, dimRows } : base;
-  }, [rawData, rowScale, dimRows]);
+    if (!dimRows && !markRows) return base;
+    return { ...base, dimRows, markRows };
+  }, [rawData, rowScale, dimRows, markRows]);
 
   // Pinned-strip index is derived from the main-grouping factor id;
   // factors render one strip each in `orderedFactors` (display) order,

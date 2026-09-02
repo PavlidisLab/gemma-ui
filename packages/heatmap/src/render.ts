@@ -134,6 +134,66 @@ export function renderMatrix(
     }
   }
 
+  // --- Flagged rows: marked whether or not they are masked ---
+  //
+  // 🛑 Paul, 2026-09-02: *"even when outliers are 'unmasked', they
+  // should be marked clearly, especially in the curation interface."*
+  // Unmasking put the real correlations back and took away every trace
+  // that the sample was flagged, so the one view a curator opens to
+  // JUDGE a flag was the view that stopped showing it.
+  //
+  // A tint, not a wash: the whole point of unmasking is to read those
+  // values, so the mark has to be visible without competing with them.
+  // Over a masked (grey) row it still reads, and says the grey is a
+  // flagged sample rather than missing data.
+  const marked = data.markRows;
+  if (marked && marked.some(Boolean)) {
+    ctx.save();
+    ctx.fillStyle = resolved.markColor;
+    for (let i = 0; i < layout.numRows; i++) {
+      if (!marked[i]) continue;
+      ctx.fillRect(0, matrixY + i * layout.cellH, totalW, layout.cellH);
+    }
+    for (let r = 0; r < layout.columns.length; r++) {
+      if (!marked[layout.columns[r].srcStart]) continue;
+      ctx.fillRect(xs[r], matrixY, layout.cellW, layout.numRows * layout.cellH);
+    }
+    // 🛑 A tint alone is a colour among colours. Paul, 2026-09-02:
+    // *"there should be some kind of marker on the row/column of the
+    // outlier, so it is always clearly marked. Put some glyph or
+    // arrowhead."* An arrowhead has a shape the palette cannot
+    // accidentally produce, and it survives the cell shrinking to a
+    // couple of pixels, where a tint of a couple of pixels does not.
+    //
+    // Both axes, pointing INTO the row and column they name. Solid, at
+    // full opacity, drawn over the outermost cells — a few pixels of a
+    // matrix hundreds wide, against being unable to tell a flagged
+    // sample from an orange one.
+    ctx.fillStyle = resolved.markGlyphColor;
+    const g = Math.max(5, Math.min(10, Math.max(layout.cellH, layout.cellW)));
+    for (let i = 0; i < layout.numRows; i++) {
+      if (!marked[i]) continue;
+      const cy = matrixY + i * layout.cellH + layout.cellH / 2;
+      ctx.beginPath();
+      ctx.moveTo(0, cy - g / 2);
+      ctx.lineTo(g, cy);
+      ctx.lineTo(0, cy + g / 2);
+      ctx.closePath();
+      ctx.fill();
+    }
+    for (let r = 0; r < layout.columns.length; r++) {
+      if (!marked[layout.columns[r].srcStart]) continue;
+      const cx = xs[r] + layout.cellW / 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - g / 2, matrixY);
+      ctx.lineTo(cx, matrixY + g);
+      ctx.lineTo(cx + g / 2, matrixY);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   // --- Proposed rows: a veil, not a blanking ---
   //
   // 🛑 A PROPOSAL is not a fact. Blanking a row says the sample is

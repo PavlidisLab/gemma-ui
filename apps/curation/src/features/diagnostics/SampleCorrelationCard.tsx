@@ -332,6 +332,18 @@ export function SampleCorrelationCard({
    *  the widget draws. Both directions are veiled: a staged flag so you
    *  can see what you are about to remove, and a staged unflag so the
    *  row you just brought back is still marked as unsaved. */
+  /** Which rendered rows are FLAGGED on the server — tinted amber
+   *  whether or not they are masked, so unmasking to read an outlier's
+   *  real correlations does not also erase the fact that it is one. A
+   *  staged unflag drops out immediately: that is what saving will do. */
+  const markRowFlags = useMemo(
+    () =>
+      rowAssayIds.map(
+        (id) => outlierIds.has(id) && !pendingUnmark.includes(id),
+      ),
+    [rowAssayIds, outlierIds, pendingUnmark],
+  );
+
   const dimRowFlags = useMemo(
     () =>
       rowAssayIds.map(
@@ -436,6 +448,10 @@ export function SampleCorrelationCard({
         // and the panels were swallowing the click that switches the
         // grouping.
         showDetailPanel={false}
+        // Same fact on both surfaces: a flagged sample is marked here
+        // too, so the tile does not quietly disagree with the view the
+        // curator opens from it.
+        markRows={markRowFlags}
         defaultShowColLabels={false}
         defaultMaxHeight={cellPx}
         defaultMaxWidth={cellPx}
@@ -695,6 +711,7 @@ export function SampleCorrelationCard({
                 // a row is a couple of pixels tall and the sample it
                 // names is not readable, so a click would be a guess.
                 dimRows={dimRowFlags}
+                markRows={markRowFlags}
                 onRowLabelClick={(i) => {
                   const id = rowAssayIds[i];
                   if (id != null) stageAssay(id);

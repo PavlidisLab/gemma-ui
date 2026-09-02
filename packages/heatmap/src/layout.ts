@@ -30,6 +30,8 @@ export function resolveConfig(data: HeatmapData, config: HeatmapConfig | undefin
     domain,
     nanColor: c.nanColor ?? '#9ca3af',
     dimColor: c.dimColor ?? 'rgba(100, 116, 139, 0.62)',
+    markColor: c.markColor ?? 'rgba(245, 158, 11, 0.22)',
+    markGlyphColor: c.markGlyphColor ?? '#f59e0b',
     showRowLabels: c.showRowLabels ?? 'auto',
     showColLabels: c.showColLabels ?? 'auto',
     cell,
