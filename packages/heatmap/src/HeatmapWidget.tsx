@@ -136,6 +136,16 @@ export interface HeatmapWidgetProps {
    *  change made in the popup is lost the moment it closes. Lift the
    *  value into the caller and feed both from it. */
   onMainGroupingFactorChange?: (id: number | null) => void;
+  /** Hard ceiling on the matrix's drawn height, in CSS px.
+   *
+   *  🛑 Without this the widget passes no height down at all, so
+   *  `computeLayout` gets `availableH: null` and sizes cells from the
+   *  WIDTH alone — a square matrix then grows past the bottom of a
+   *  fixed-height container and is clipped, and no cell-size cap can
+   *  prevent it because the width is what sets the size. Callers with a
+   *  fixed box should say how tall it is rather than trying to express
+   *  that as a cell dimension. */
+  matrixMaxHeight?: number;
 }
 
 // Pavlab-style palette tokens (per CLAUDE.md).
@@ -244,6 +254,7 @@ export function HeatmapWidget({
   defaultMainGroupingFactorId,
   showGroupGaps = true,
   onMainGroupingFactorChange,
+  matrixMaxHeight,
 }: HeatmapWidgetProps): JSX.Element {
   // Root ref — used by the download-image button to locate the
   // rendered canvas inside the matrix wrapper. Avoids threading a
@@ -773,6 +784,7 @@ export function HeatmapWidget({
             <Heatmap
               data={scaledData}
               config={config}
+              height={matrixMaxHeight}
               selectedStripIndex={selectedStripIndex}
               rowLabelTooltip={rowLabelTooltip}
               rowLabelGutterWidth={rowLabelGutterWidth}

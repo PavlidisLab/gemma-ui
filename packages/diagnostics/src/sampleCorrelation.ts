@@ -20,6 +20,21 @@ import { DIAGNOSTICS_PANEL_BODY_PX, HEATMAP_LEGEND_ZONE_PX } from "./PanelCard";
  * widget still clamps width-first, so the square just shrinks (leaving
  * vertical slack) rather than overflowing.
  */
+/** The height the matrix itself may occupy inside a diagnostics tile:
+ *  the fixed body less the widget's padding and the annotation strips
+ *  above it. Hand this to `HeatmapWidget`'s `matrixMaxHeight` — a cell
+ *  cap cannot express it, because a square matrix takes its size from
+ *  the width. */
+export function sampleCorrelationMatrixPx(stripCount = 0): number {
+  const stripsPx =
+    stripCount > 0
+      ? stripCount * ANNOTATION_STRIP_PX +
+        (stripCount - 1) * ANNOTATION_STRIP_GAP_PX +
+        STRIP_TO_MATRIX_GAP_PX
+      : 0;
+  return Math.max(40, DIAGNOSTICS_PANEL_BODY_PX - HEATMAP_LEGEND_ZONE_PX - stripsPx);
+}
+
 export function sampleCorrelationCellPx(
   sampleCount: number | undefined | null,
   /** How many annotation strips sit above the matrix. Each costs

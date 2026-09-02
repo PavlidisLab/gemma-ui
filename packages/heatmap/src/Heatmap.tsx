@@ -148,6 +148,12 @@ export function Heatmap({
   // Reserve right-side gutter for row labels (in CSS px). Picked to fit ~16
   // characters of typical gene-symbol labels at 7–9px font; the consumer can
   // override via CSS on the wrapper.
+  // 🛑 Opening this gutter for the strip NAMES alone was tried and
+  // reverted: the gutter also carries the ROW labels, and at tile size
+  // that stacked 60 sample names into 110px of smear while taking the
+  // width away from the matrix — a square matrix then shrinks in both
+  // directions and leaves the panel half empty. The correlation tile
+  // names its grouping factor in its own footer control instead.
   const rowLabelGutter =
     (data.rowLabels || data.rowLabelColumns) && resolved.showRowLabels !== false
       ? (rowLabelGutterWidth ?? 100)

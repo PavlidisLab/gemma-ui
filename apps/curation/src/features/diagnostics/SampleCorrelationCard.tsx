@@ -25,6 +25,7 @@ import {
   computeSampleCorrelationDomain,
   summariseOutliers,
   sampleCorrelationCellPx,
+  sampleCorrelationMatrixPx,
 } from "@gemma/diagnostics";
 import { useSampleCorrelation } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -297,6 +298,10 @@ export function SampleCorrelationCard({
         defaultShowColLabels={false}
         defaultMaxHeight={cellPx}
         defaultMaxWidth={cellPx}
+        // The real constraint: how tall the matrix may be. A cell cap
+        // cannot say this, because a square matrix takes its size from
+        // the width and grows past the box.
+        matrixMaxHeight={sampleCorrelationMatrixPx(payload ? payload.factors.length : 0)}
         defaultFitMode="squeeze"
       />
     );

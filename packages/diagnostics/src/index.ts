@@ -48,6 +48,7 @@ export {
   computeSampleCorrelationDomain,
   summariseOutliers,
   sampleCorrelationCellPx,
+  sampleCorrelationMatrixPx,
   type SampleCorrelationInput,
 } from "./sampleCorrelation";
 
