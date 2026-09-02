@@ -147,15 +147,22 @@ function ownKeys(): { key: string; ts: number }[] {
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k || !k.startsWith(`${KEY_PREFIX}:`)) continue;
-    let ts = 0;
-    try {
-      ts = (JSON.parse(localStorage.getItem(k) ?? "{}") as StoredEntry<unknown>).ts ?? 0;
-    } catch {
-      ts = 0;
-    }
-    out.push({ key: k, ts });
+    out.push({ key: k, ts: entryTimestamp(k) });
   }
   return out.sort((a, b) => a.ts - b.ts);
+}
+
+/** An entry's write time, or 0 when it cannot be read — which sorts it
+ *  first, so a corrupt entry is the first thing evicted. */
+function entryTimestamp(key: string): number {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(key) ?? "{}",
+    ) as StoredEntry<unknown>;
+    return typeof parsed.ts === "number" ? parsed.ts : 0;
+  } catch {
+    return 0;
+  }
 }
 
 function countEntries(): number {
