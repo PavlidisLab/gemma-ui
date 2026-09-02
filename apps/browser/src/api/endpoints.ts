@@ -5,6 +5,7 @@
 import { apiGet, ApiError, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
 import { negativeCategoryClause, quoteIfNecessary } from "@/lib/filter";
+import type { PlatformAnnotationFileType } from "@/lib/platformConstants";
 import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
   AnnotationSearchResult,
@@ -757,6 +758,64 @@ export async function getPlatforms(args: PlatformsArgs, signal?: AbortSignal) {
   return apiGet<PaginatedResponse<Platform>>(`${BASE}/datasets/platforms`, { params, signal });
 }
 
+/**
+ * The platforms that datasets *originally* run on `platformId` are
+ * quantified on today — i.e. what Gemma switched them onto.
+ *
+ * This is the honest way to answer "which generic platform corresponds
+ * to this sequencing platform": ask what its own datasets actually sit
+ * on, rather than assuming the taxon-matched generic. Measured across
+ * every sequencing platform with data on 2.9.4 (66 of 91, 2026-09-01),
+ * the two answers agree 64 times — and the one disagreement is the
+ * reason to ask: GPL20797 is a *Rattus rattus* platform whose dataset
+ * was quantified onto `Generic_rat_ncbiIds`, which is *Rattus
+ * norvegicus*. A taxon table shows nothing there; this shows the file
+ * that actually applies.
+ *
+ * 🛑 Not `getPlatforms` — that one deliberately STRIPS every
+ * `bioAssays.originalPlatform.*` clause from the filter (the browse
+ * facet must not narrow itself by the pick being made), which is
+ * exactly the clause this query is about.
+ *
+ * The facet is empty for a platform with no datasets — 25 of the 91,
+ * `mouse_illumina_rnaseq` among them. That is a "nothing to go on",
+ * not "no such platform"; callers fall back to the taxon-matched
+ * generic. See `pickGenericPlatform`.
+ */
+export async function getSwitchedToPlatforms(
+  platformId: number,
+  signal?: AbortSignal,
+): Promise<Platform[]> {
+  const filter = await compressFilter([
+    [`bioAssays.originalPlatform.id = ${platformId}`],
+  ]);
+  const r = await apiGet<PaginatedResponse<Platform>>(
+    `${BASE}/datasets/platforms`,
+    { params: { filter, limit: 100 }, signal },
+  );
+  return r.data ?? [];
+}
+
+/**
+ * Every gene-list ("generic") platform Gemma publishes — four of them
+ * on 2.9.4: human, rat, and mouse twice (NCBI ids and Ensembl ids).
+ *
+ * One tiny request, so it is the cheap fallback when
+ * `getSwitchedToPlatforms` has nothing to go on. Filtering by
+ * technology type rather than by a `Generic_%` name: the name is a
+ * convention, the type is the fact, and all four GENELIST platforms on
+ * 2.9.4 are exactly the four generics.
+ */
+export async function getGenericPlatforms(
+  signal?: AbortSignal,
+): Promise<Platform[]> {
+  const r = await getAllPlatforms(
+    { filter: [[`technologyType = "GENELIST"`]] },
+    signal,
+  );
+  return r.data ?? [];
+}
+
 export interface TaxaArgs {
   query?: string;
   filter: string[][];
@@ -1164,15 +1223,30 @@ export function datasetDataDownloadUrl(
  * a link that fails — see `AnnotationFileCard`.
  *
  * 🛑 Do NOT add a `limit` (or any other) parameter. The route accepts
- * `download` and `force` and rejects everything else with a 400 — which
- * is exactly how the old `getPlatformAnnotations` was broken from the
- * day it landed: it sent `limit=500`, so the platform page's annotation
- * section never once rendered (`1797aea` → removed in `0e36b02`).
+ * `download`, `force` and `type`, and rejects everything else with a
+ * 400 — which is exactly how the old `getPlatformAnnotations` was
+ * broken from the day it landed: it sent `limit=500`, so the platform
+ * page's annotation section never once rendered (`1797aea` → removed in
+ * `0e36b02`).
+ *
+ * `type` is the one addition (2.9.4): `standard` | `bioProcess` |
+ * `noParents`, and an unknown value is a 400 of its own. It picks
+ * between three files that differ ONLY in the `GOTerms` column and nest
+ * exactly — see `PLATFORM_ANNOTATION_FILE_VARIANTS` for the
+ * measurements. Everything above holds for all three: same
+ * `Content-Encoding: gzip` + `text/tab-separated-values`, same
+ * attachment disposition (the variants add a suffix —
+ * `GPL96_bioProcess.an.txt`), and the same 404 on SEQUENCING platforms,
+ * HEAD-checked per type on GPL16791. `standard` is the server's default
+ * and is sent as a bare URL, so the no-parameter form above stays the
+ * one most clicks use.
  */
 export function platformAnnotationsDownloadUrl(
   idOrShortName: number | string,
+  type: PlatformAnnotationFileType = "standard",
 ): string {
-  return `${BASE}/platforms/${idOrShortName}/annotations`;
+  const url = `${BASE}/platforms/${idOrShortName}/annotations`;
+  return type === "standard" ? url : `${url}?type=${type}`;
 }
 
 /**

@@ -29,6 +29,8 @@ import {
   getPlatformByShortName,
   getPlatformElementCount,
   getPlatformElements,
+  getGenericPlatforms,
+  getSwitchedToPlatforms,
   platformAnnotationsDownloadUrl,
 } from "@/api/endpoints";
 import type { PlatformElement } from "@/api/endpoints";
@@ -47,6 +49,8 @@ import {
 } from "./probeDetail";
 import { PageMask } from "@gemma/ui";
 import {
+  PLATFORM_ANNOTATION_FILE_VARIANTS,
+  pickGenericPlatform,
   platformHasAnnotationFile,
   platformRouteParam,
 } from "@/lib/platformConstants";
@@ -313,40 +317,125 @@ function Stat({
  * lived here until `0e36b02`; a link is what the route actually
  * supports, and what the file is useful as.
  *
- * Hidden for SEQUENCING platforms, which have no element set and so no
- * file — the URL 404s for them. See `platformAnnotationsDownloadUrl`
- * for the per-technology-type measurements behind that.
+ * SEQUENCING platforms have no element set and so no file of their own
+ * — the URL 404s for them, for every one of the three types. They are
+ * not left blank: their data is quantified onto a generic gene-list
+ * platform, whose annotation file IS the mapping that applies, so the
+ * card points there instead. See `SwitchedAnnotationFileCard`.
+ *
+ * Three links rather than one because the route now serves three files
+ * (`type=standard|bioProcess|noParents`) that differ only in how much
+ * of the GO closure the `GOTerms` column carries — a 20.9 MB / 5.8 MB /
+ * 3.7 MB spread on GPL96. Each is a real choice for a reader, so each
+ * gets a row saying what it holds; a picker would hide two of the three
+ * behind a click for no gain.
  */
 function AnnotationFileCard({ platform: p }: { platform: Platform }) {
-  if (!platformHasAnnotationFile(p.technologyType)) return null;
+  if (!platformHasAnnotationFile(p.technologyType)) {
+    return <SwitchedAnnotationFileCard platform={p} />;
+  }
   const id = p.shortName ?? p.id;
   return (
-    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-2">
+    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-3">
       <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
-        Annotation file
+        Annotation files
       </div>
-      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+      <ul className="space-y-2 text-sm">
         {/* Served with `Content-Disposition: attachment`, so a plain
             anchor saves the file — no JS, and the big generic
-            platforms never pass through memory. One link, because the
-            route's `download=true` variant transfers the identical
-            gzip bytes and only differs in handing over a `.gz` to
-            unzip; see `platformAnnotationsDownloadUrl`. */}
-        <a
-          className="text-gemma-accent hover:underline"
-          href={platformAnnotationsDownloadUrl(id)}
-        >
-          Download annotations (TSV)
-        </a>
-      </div>
+            platforms never pass through memory. No `download=true`
+            variants here: that form transfers the identical gzip bytes
+            and only differs in handing over a `.gz` to unzip; see
+            `platformAnnotationsDownloadUrl`. */}
+        {PLATFORM_ANNOTATION_FILE_VARIANTS.map((v) => (
+          <li key={v.type}>
+            <a
+              className="text-gemma-accent hover:underline"
+              href={platformAnnotationsDownloadUrl(id, v.type)}
+            >
+              {v.label} (TSV)
+            </a>
+            <div className="text-[11px] text-gemma-subtle">{v.description}</div>
+          </li>
+        ))}
+      </ul>
       <div className="text-[11px] text-gemma-subtle">
-        One row per element: <span className="font-mono">ElementName</span>,{" "}
+        All three have the same rows and the same columns — one row per
+        element: <span className="font-mono">ElementName</span>,{" "}
         <span className="font-mono">GeneSymbols</span>,{" "}
         <span className="font-mono">GeneNames</span>,{" "}
         <span className="font-mono">GOTerms</span>,{" "}
         <span className="font-mono">GemmaIDs</span>,{" "}
         <span className="font-mono">NCBIids</span>,{" "}
-        <span className="font-mono">EnsemblIds</span>.
+        <span className="font-mono">EnsemblIds</span>. Only{" "}
+        <span className="font-mono">GOTerms</span> differs.
+      </div>
+    </section>
+  );
+}
+
+/**
+ * What a SEQUENCING platform offers in place of an annotation file:
+ * a link to the generic platform its data is quantified onto.
+ *
+ * The mapping a reader wants — element → gene, with GO terms — exists
+ * for these datasets, just not under this platform's name. Gemma
+ * switches RNA-seq data onto a generic gene-list platform (GPL16791's
+ * 749 datasets all sit on `Generic_human_ncbiIds`), and that platform's
+ * three annotation files are the ones that apply. One hop rather than
+ * three download links here: the files belong to the generic platform,
+ * and showing them under this header would claim they describe
+ * GPL16791's elements, which it has none of.
+ *
+ * Which generic is asked, not assumed — `getSwitchedToPlatforms` reads
+ * it off this platform's own datasets, which is how a *Rattus rattus*
+ * platform correctly lands on the *Rattus norvegicus* generic. The
+ * taxon-matched fallback only runs when that came back empty, which
+ * means the platform has no datasets at all (25 of 91 on 2.9.4), and it
+ * is `enabled` off until then rather than fired alongside.
+ *
+ * When neither answers — a taxon with no generic, 15 of those 91 — the
+ * card still says why there is no file. Silence would read as a missing
+ * feature; the sentence is the answer.
+ */
+function SwitchedAnnotationFileCard({ platform: p }: { platform: Platform }) {
+  const switchedQ = useQuery({
+    queryKey: ["platform", p.id, "switched-to"],
+    queryFn: ({ signal }) => getSwitchedToPlatforms(p.id, signal),
+  });
+  const fromDatasets = pickGenericPlatform(switchedQ.data);
+
+  const genericsQ = useQuery({
+    queryKey: ["platforms", "generic"],
+    queryFn: ({ signal }) => getGenericPlatforms(signal),
+    enabled: switchedQ.isSuccess && !fromDatasets,
+    staleTime: Infinity, // four rows that change when Gemma adds a taxon
+  });
+  const generic = fromDatasets ?? pickGenericPlatform(genericsQ.data, p.taxon?.id);
+
+  const settled =
+    switchedQ.isSuccess && (!!fromDatasets || !genericsQ.isFetching);
+
+  return (
+    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-2">
+      <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
+        Annotation files
+      </div>
+      <div className="text-sm text-gemma-ink">
+        {!settled ? (
+          <span className="text-gemma-subtle">Finding the mapping…</span>
+        ) : generic ? (
+          <>
+            All sequencing platforms use the species specific annotation files. Refer to{" "}
+            <PlatformRef target={generic} /> for the mapping
+          </>
+        ) : (
+          <span className="text-gemma-subtle">
+            Sequencing platforms carry no elements of their own, so this one
+            publishes no annotation file, and no generic platform for its taxon
+            publishes one either.
+          </span>
+        )}
       </div>
     </section>
   );

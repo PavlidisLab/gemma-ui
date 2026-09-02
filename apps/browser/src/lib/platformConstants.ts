@@ -198,3 +198,109 @@ export function platformHasAnnotationFile(
   if (!t) return true;
   return !RNA_SEQ_TECHNOLOGY_TYPES.includes(t);
 }
+
+/**
+ * Pick the generic (gene-list) platform out of a set of candidates —
+ * the platform whose annotation file stands in for one that has none.
+ *
+ * A sequencing platform carries no element set, so it publishes no
+ * annotation file (`platformHasAnnotationFile` above). What its data is
+ * quantified onto does: Gemma switches RNA-seq datasets onto a generic
+ * gene-list platform, and that platform's element → gene mapping is the
+ * one that applies. So the sequencing platform page links there instead
+ * of showing nothing.
+ *
+ * Feed it either set and it answers the same way:
+ *
+ *   - the platforms this platform's datasets actually sit on
+ *     (`getSwitchedToPlatforms`) — the factual answer, no `taxonId`;
+ *   - every generic Gemma publishes (`getGenericPlatforms`) restricted
+ *     to `taxonId` — the fallback when the platform has no datasets.
+ *
+ * 🛑 Do NOT pass `taxonId` alongside the switched-onto set. It would
+ * discard the one case the query exists to catch: GPL20797 (*Rattus
+ * rattus*) is quantified onto `Generic_rat_ncbiIds` (*Rattus
+ * norvegicus*), a different taxon and a perfectly correct answer.
+ *
+ * Most datasets wins when a taxon has more than one generic — mouse
+ * has `Generic_mouse_ncbiIds` (7529 datasets) and
+ * `Generic_mouse_ensemblIds` (1) — with the lower id breaking a tie so
+ * the pick is stable across renders. Null when nothing qualifies:
+ * measured on 2.9.4, 15 sequencing platforms are of taxa with no
+ * generic at all, and inventing a link for them would be worse than
+ * the sentence that stands in its place.
+ */
+export interface GenericPlatformCandidate {
+  id: number;
+  technologyType?: string | null;
+  taxon?: { id?: number | null } | null;
+  numberOfExpressionExperiments?: number | null;
+}
+
+export function pickGenericPlatform<P extends GenericPlatformCandidate>(
+  candidates: readonly P[] | null | undefined,
+  taxonId?: number | null,
+): P | null {
+  const eligible = (candidates ?? []).filter((c) => {
+    if ((c.technologyType ?? "").trim().toUpperCase() !== "GENELIST") return false;
+    return taxonId == null || c.taxon?.id === taxonId;
+  });
+  if (eligible.length === 0) return null;
+  return [...eligible].sort(
+    (a, b) =>
+      (b.numberOfExpressionExperiments ?? 0) - (a.numberOfExpressionExperiments ?? 0) ||
+      a.id - b.id,
+  )[0];
+}
+
+/**
+ * Which of the three annotation files to serve — the route's `type`
+ * parameter. Spellings are the server's own; it rejects anything else
+ * with `Unknown annotation file type 'x'. Expected one of: standard,
+ * bioProcess, noParents.`
+ */
+export type PlatformAnnotationFileType = "standard" | "bioProcess" | "noParents";
+
+export interface PlatformAnnotationFileVariant {
+  type: PlatformAnnotationFileType;
+  label: string;
+  /** What the GOTerms column holds — the only column that differs. */
+  description: string;
+}
+
+/**
+ * The three annotation files, widest first.
+ *
+ * Only the `GOTerms` column differs; every file has the same rows and
+ * the same seven columns, so a reader picks purely on how much GO they
+ * want. Measured on GPL96 / gemma2 2.9.4 (2026-09-01), all 22283
+ * elements, mean GO terms per element:
+ *
+ *   standard    78.4   20.9 MB   every term, inferred ancestors included
+ *   noParents   17.0    5.8 MB   direct annotations only
+ *   bioProcess   8.3    3.7 MB   direct annotations, biological process only
+ *
+ * They nest exactly — bioProcess ⊆ noParents ⊆ standard, checked
+ * element-by-element across the whole platform — so "narrower" is the
+ * honest way to describe them, not "different".
+ */
+export const PLATFORM_ANNOTATION_FILE_VARIANTS: readonly PlatformAnnotationFileVariant[] = [
+  {
+    type: "standard",
+    label: "All GO terms",
+    description:
+      "Every GO term, including the ancestors inferred from each direct annotation.",
+  },
+  {
+    type: "noParents",
+    label: "Direct terms only",
+    description:
+      "Only the terms annotated directly — no inferred ancestors. ~5× smaller.",
+  },
+  {
+    type: "bioProcess",
+    label: "Biological process only",
+    description:
+      "Direct terms from the biological process aspect alone — no molecular function, no cellular component.",
+  },
+];
