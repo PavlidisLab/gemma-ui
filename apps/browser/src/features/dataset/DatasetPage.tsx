@@ -43,6 +43,8 @@ import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
+import { splitBySampleScope } from "@/lib/annotationScope";
+import { AnnotationStatementChip } from "@/components/AnnotationStatementChip";
 import { tintForIndex, compareValuesNatural, compareSortColumn } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
@@ -621,12 +623,25 @@ function DescriptionSection({ dataset }: { dataset: Dataset }) {
 }
 
 function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnnotation[]; loading: boolean }) {
-  // Drop baseline / reference-level placeholders ("reference subject
-  // role" etc.) — they mark a factor's control level in curation and
-  // carry nothing for a browsing reader. Same rule the Design tab uses.
-  const visible = useMemo(
-    () => annotations.filter((a) => !isBaselineTerm(a.termName, a.termUri)),
+  // Two filters, in order.
+  //
+  // Experiment tags and factor values are statements about the study;
+  // a BioMaterial row is one sample's characteristic projected into
+  // the same flat list, so the same fact can appear twice and the
+  // submitter's own bookkeeping (`BioSource`, `group`) lands beside
+  // real annotations. Those belong on the samples, not here.
+  //
+  // Then drop baseline / reference-level placeholders ("reference
+  // subject role" etc.) — they mark a factor's control level in
+  // curation and carry nothing for a browsing reader. Same rule the
+  // Design tab uses.
+  const { experimentLevel, perSample } = useMemo(
+    () => splitBySampleScope(annotations),
     [annotations],
+  );
+  const visible = useMemo(
+    () => experimentLevel.filter((a) => !isBaselineTerm(a.termName, a.termUri)),
+    [experimentLevel],
   );
   const grouped = useMemo(() => {
     const m = new Map<string, DatasetAnnotation[]>();
@@ -641,7 +656,17 @@ function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnno
 
   return (
     <SectionCard title="Annotations"
-      subtitle={loading ? "loading…" : `${visible.length} term${visible.length === 1 ? "" : "s"}`}>
+      subtitle={
+        loading
+          ? "loading…"
+          : // Say what was set aside rather than just showing a smaller
+            // number — a reader who knows the dataset has more terms
+            // should be able to see where they went.
+            `${visible.length} term${visible.length === 1 ? "" : "s"}` +
+            (perSample.length > 0
+              ? ` · ${perSample.length} sample-level not shown`
+              : "")
+      }>
       {loading ? <div className="h-6 w-2/3 bg-slate-200 rounded animate-pulse" /> :
        visible.length === 0 ? <Empty msg="no annotations" /> : (
         <div className="space-y-2">
@@ -649,15 +674,40 @@ function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnno
             <div key={cat} className="flex items-baseline gap-2 flex-wrap">
               <span className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{cat}</span>
               {terms.map((t, i) => (
-                <OntologyTermChip key={`${t.termUri ?? t.termName}-${i}`} uri={t.termUri}>
-                  {t.termName}
-                </OntologyTermChip>
+                <AnnotationTermLine
+                  key={`${t.termUri ?? t.termName}-${i}`}
+                  annotation={t}
+                />
               ))}
             </div>
           ))}
         </div>
       )}
     </SectionCard>
+  );
+}
+
+/** One annotation: the term, plus whatever is said about it.
+ *
+ *  A bare term is one chip. A term carrying predicate/object pairs is
+ *  still ONE chip — see ``AnnotationStatementChip`` for why the parts
+ *  must not be split into separate frames.
+ *
+ *  The statements matter more than they look. Dataset 27773 has two
+ *  `Tardbp` treatments and two `tetO-hTDP43∆NLS` genotypes; without
+ *  their statements each pair renders as the same chip twice and reads
+ *  as a duplicate, when in fact one treatment is `peptide 15` and the
+ *  other `peptides 10 and 12`, and one genotype additionally carries
+ *  `has role → control`. */
+function AnnotationTermLine({ annotation }: { annotation: DatasetAnnotation }) {
+  return (
+    <AnnotationStatementChip
+      termName={annotation.termName}
+      termUri={annotation.termUri}
+      categoryLabel={annotation.className}
+      categoryUri={annotation.classUri}
+      statements={annotation.statements}
+    />
   );
 }
 

@@ -14,6 +14,7 @@ import type {
   CategoryWithChildren,
   Dataset,
   DatasetAnnotation,
+  DatasetAnnotationPair,
   PaginatedResponse,
   Platform,
   Taxon,
@@ -864,6 +865,14 @@ interface WireDatasetAnnotation extends Partial<DatasetAnnotation> {
   categoryUri?: string | null;
   value?: string | null;
   valueUri?: string | null;
+  predicate?: string | null;
+  predicateUri?: string | null;
+  object?: string | null;
+  objectUri?: string | null;
+  secondPredicate?: string | null;
+  secondPredicateUri?: string | null;
+  secondObject?: string | null;
+  secondObjectUri?: string | null;
 }
 
 /**
@@ -904,6 +913,28 @@ export async function getDatasetAnnotations(datasetId: number, signal?: AbortSig
 export function normalizeDatasetAnnotation(
   a: WireDatasetAnnotation,
 ): DatasetAnnotation {
+  // Gemma flattens an annotation's statement into two numbered slots
+  // rather than a list. A slot counts only when it says something — a
+  // predicate with neither an object nor a name is not a statement.
+  const statements: DatasetAnnotationPair[] = [];
+  for (const [predicate, predicateUri, object, objectUri] of [
+    [a.predicate, a.predicateUri, a.object, a.objectUri],
+    [
+      a.secondPredicate,
+      a.secondPredicateUri,
+      a.secondObject,
+      a.secondObjectUri,
+    ],
+  ] as const) {
+    if (predicate || object) {
+      statements.push({
+        predicate: predicate ?? null,
+        predicateUri: predicateUri ?? null,
+        object: object ?? null,
+        objectUri: objectUri ?? null,
+      });
+    }
+  }
   return {
     objectClass: a.objectClass ?? "",
     className: a.category ?? a.className ?? "",
@@ -913,6 +944,7 @@ export function normalizeDatasetAnnotation(
     // ungrounded annotation looks like, not a missing field. The chip
     // renders it as "free text" and it stays unclickable.
     termUri: a.valueUri ?? a.termUri ?? null,
+    statements,
   };
 }
 

@@ -70,6 +70,7 @@ describe("normalizeDatasetAnnotation", () => {
   it("never yields undefined where the type promises a string", () => {
     const a = normalizeDatasetAnnotation({});
     expect(a).toEqual({
+      statements: [],
       objectClass: "",
       className: "",
       classUri: null,
@@ -122,5 +123,72 @@ describe("getDatasetAnnotations", () => {
     );
     const r = await getDatasetAnnotations(1);
     expect(r.data).toEqual([]);
+  });
+});
+
+describe("normalizeDatasetAnnotation — statements", () => {
+  it("keeps both of Gemma's numbered pairs, in order", () => {
+    // eid 27773's control genotype: the second pair is the ONLY thing
+    // distinguishing it from the other tetO-hTDP43∆NLS value.
+    const a = normalizeDatasetAnnotation({
+      objectClass: "FactorValue",
+      category: "genotype",
+      value: "tetO-hTDP43\u2206NLS",
+      predicate: "has_genotype",
+      predicateUri: "http://purl.obolibrary.org/obo/GENO_0000222",
+      object: "Heterozygous",
+      objectUri: "http://purl.obolibrary.org/obo/GENO_0000135",
+      secondPredicate: "has role",
+      secondPredicateUri: "http://purl.obolibrary.org/obo/RO_0000087",
+      secondObject: "control",
+      secondObjectUri: "http://www.ebi.ac.uk/efo/EFO_0001461",
+    });
+    expect(a.statements).toHaveLength(2);
+    expect(a.statements[0].predicate).toBe("has_genotype");
+    expect(a.statements[1].object).toBe("control");
+  });
+
+  it("keeps a single pair", () => {
+    const a = normalizeDatasetAnnotation({
+      objectClass: "FactorValue",
+      value: "Tardbp [mouse] TAR DNA binding protein",
+      predicate: "has modifier",
+      object: "peptide 15",
+    });
+    expect(a.statements).toEqual([
+      {
+        predicate: "has modifier",
+        predicateUri: null,
+        object: "peptide 15",
+        objectUri: null,
+      },
+    ]);
+  });
+
+  it("yields no statement for a bare term", () => {
+    expect(
+      normalizeDatasetAnnotation({ objectClass: "ExperimentTag", value: "x" })
+        .statements,
+    ).toEqual([]);
+  });
+
+  it("keeps an object with no predicate, and a predicate with no object", () => {
+    // Half a pair is still something the payload said; dropping it
+    // would hide a curator's partial statement.
+    expect(
+      normalizeDatasetAnnotation({ object: "control" }).statements,
+    ).toHaveLength(1);
+    expect(
+      normalizeDatasetAnnotation({ predicate: "has role" }).statements,
+    ).toHaveLength(1);
+  });
+
+  it("does not promote the second slot when the first is empty", () => {
+    const a = normalizeDatasetAnnotation({
+      secondPredicate: "has role",
+      secondObject: "control",
+    });
+    expect(a.statements).toHaveLength(1);
+    expect(a.statements[0].predicate).toBe("has role");
   });
 });
