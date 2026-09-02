@@ -19,6 +19,10 @@
  */
 
 import { useState } from "react";
+import {
+  hasDiagnosticsOptIn,
+  setDiagnosticsOptIn,
+} from "@/lib/diagnosticsCache";
 import { SampleCorrelationCard } from "./SampleCorrelationCard";
 import { PcaScreeCard } from "./PcaScreeCard";
 import { PcFactorCard } from "./PcFactorCard";
@@ -33,7 +37,20 @@ import { useGemmaMode } from "@/lib/gemmaMode";
 // goes away.
 export function DiagnosticsPanel({ experimentId }: { experimentId: number | string }) {
   const { mode } = useGemmaMode();
-  const [fetched, setFetched] = useState(false);
+  // 🛑 Not per-mount state. It was, and navigating away then back put
+  // the tab into "Diagnostics are not loaded yet" with the data still
+  // in TanStack's cache — nothing had been dropped, the panel had just
+  // forgotten it had asked, and the button re-fetched nothing (Paul,
+  // 2026-09-01). The flag is per EXPERIMENT because the cost the gate
+  // guards against is real again on a different dataset, and because
+  // it makes a scoped clear possible (`paperDismissal.ts` convention).
+  // Read, never latched: walking to a sibling experiment keeps this tab
+  // mounted (feedback_walk_between_experiments_keeps_the_tab), so a
+  // `useState` initializer would carry the previous dataset's opt-in
+  // across and fire four requests the curator never asked for here.
+  const [optedInThisMount, setOptedInThisMount] = useState<string | null>(null);
+  const key = String(experimentId);
+  const fetched = optedInThisMount === key || hasDiagnosticsOptIn(experimentId);
   // Local mode runs against local_api which doesn't compute SVD /
   // sample-correlation / mean-variance — those are gemma-rest only.
   // Render an explicit unavailable state instead of letting the
@@ -72,7 +89,10 @@ export function DiagnosticsPanel({ experimentId }: { experimentId: number | stri
           </span>
           <button
             type="button"
-            onClick={() => setFetched(true)}
+            onClick={() => {
+              setDiagnosticsOptIn(experimentId);
+              setOptedInThisMount(key);
+            }}
             className="mt-1 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium"
           >
             Fetch diagnostics

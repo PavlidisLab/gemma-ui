@@ -17,6 +17,12 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
+import {
+  readDiagnosticsCache,
+  writeDiagnosticsCache,
+  type DiagnosticsKind,
+} from "@/lib/diagnosticsCache";
 import { api, ApiError } from "./client";
 
 // ─── Shared swallow-404 helper ────────────────────────────────────
@@ -71,18 +77,44 @@ export function bioAssayScoresFromSvd(
   return out;
 }
 
+
+/** Seed a diagnostics query from localStorage.
+ *
+ *  A within-TTL entry is handed to TanStack as `initialData` WITH its
+ *  original timestamp, so the query counts as fresh and does not
+ *  refetch — the point being that a reload costs nothing, not merely
+ *  that it renders sooner. See `lib/diagnosticsCache.ts` for the
+ *  generation-bump trap that comes with persisting parse output. */
+function useCacheSeed<T>(
+  kind: DiagnosticsKind,
+  experimentId: number | string,
+  variant?: string,
+) {
+  const hit = useMemo(
+    () => readDiagnosticsCache<T>(kind, experimentId, variant),
+    [kind, experimentId, variant],
+  );
+  return hit
+    ? { initialData: hit.data, initialDataUpdatedAt: hit.updatedAt }
+    : {};
+}
+
 export function useDatasetSvd(experimentId: number | string) {
+  const seed = useCacheSeed<SvdResult | null>("svd", experimentId);
   return useQuery({
     queryKey: ["diagnostics", "svd", experimentId],
     queryFn: async () => {
       // api.get already unwraps Gemma's `{apiVersion, data}`
       // envelope and snakeifies the result, so what we receive
       // is the snake_case SvdResult directly.
-      return await getOrNull<SvdResult>(
+      const r = await getOrNull<SvdResult>(
         `/rest/v2/datasets/${experimentId}/svd`,
       );
+      writeDiagnosticsCache("svd", experimentId, r);
+      return r;
     },
     enabled: Boolean(experimentId),
+    ...seed,
   });
 }
 
@@ -132,6 +164,10 @@ export interface SampleCorrelationResult {
 }
 
 export function useSampleCorrelation(experimentId: number | string) {
+  const seed = useCacheSeed<SampleCorrelationResult>(
+    "sample-correlation",
+    experimentId,
+  );
   return useQuery<SampleCorrelationResult>({
     queryKey: ["diagnostics", "sample-correlation", experimentId],
     queryFn: async () => {
@@ -139,15 +175,24 @@ export function useSampleCorrelation(experimentId: number | string) {
         const matrix = await api.get<SampleCorrelationMatrix>(
           `/rest/v2/datasets/${experimentId}/sample-correlation`,
         );
-        return { matrix, reason: "" };
+        const r = { matrix, reason: "" };
+        writeDiagnosticsCache("sample-correlation", experimentId, r);
+        return r;
       } catch (e) {
         if (e instanceof ApiError && (e.status === 404 || e.status === 204)) {
-          return { matrix: null, reason: e.detail || "" };
+          // Cached too: a 404 here is a real answer about the dataset
+          // (not preprocessed, or single-cell and withheld), and it
+          // carries the server's own sentence. Re-asking every reload
+          // just to be told the same thing helps nobody.
+          const r = { matrix: null, reason: e.detail || "" };
+          writeDiagnosticsCache("sample-correlation", experimentId, r);
+          return r;
         }
         throw e;
       }
     },
     enabled: Boolean(experimentId),
+    ...seed,
   });
 }
 
@@ -176,13 +221,21 @@ export interface MeanVarianceData {
 }
 
 export function useMeanVariance(experimentId: number | string) {
+  const seed = useCacheSeed<MeanVarianceData | null>(
+    "mean-variance",
+    experimentId,
+  );
   return useQuery({
     queryKey: ["diagnostics", "mean-variance", experimentId],
-    queryFn: () =>
-      getOrNull<MeanVarianceData>(
+    queryFn: async () => {
+      const r = await getOrNull<MeanVarianceData>(
         `/rest/v2/datasets/${experimentId}/mean-variance`,
-      ),
+      );
+      writeDiagnosticsCache("mean-variance", experimentId, r);
+      return r;
+    },
     enabled: Boolean(experimentId),
+    ...seed,
   });
 }
 
@@ -222,6 +275,14 @@ export function usePcLoadings(
   top = 50,
   direction: PcLoadingsDirection = "both",
 ) {
+  // The popup varies by PC / depth / direction, so each combination is
+  // its own entry rather than one overwriting the next.
+  const variant = `${pc}:${top}:${direction}`;
+  const seed = useCacheSeed<PcLoadings | null>(
+    "pc-loadings",
+    experimentId,
+    variant,
+  );
   return useQuery({
     queryKey: [
       "diagnostics",
@@ -231,10 +292,14 @@ export function usePcLoadings(
       top,
       direction,
     ],
-    queryFn: () =>
-      getOrNull<PcLoadings>(
+    queryFn: async () => {
+      const r = await getOrNull<PcLoadings>(
         `/rest/v2/datasets/${experimentId}/svd/loadings?pc=${pc}&top=${top}&direction=${direction}`,
-      ),
+      );
+      writeDiagnosticsCache("pc-loadings", experimentId, r, variant);
+      return r;
+    },
     enabled: Boolean(experimentId) && pc !== null,
+    ...seed,
   });
 }
