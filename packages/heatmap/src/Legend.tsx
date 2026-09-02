@@ -50,13 +50,33 @@ export function Legend({
   }, [palette, width, barHeight]);
 
   const [lo, hi] = domain;
+  // Decimals from the SPAN, not a fixed 1. A sample-correlation domain
+  // is 0.96-1.00 — every value rounds to "1.0", so both ends of the bar
+  // printed the same number and the scale said nothing about itself.
+  // Resolve to roughly a twentieth of the span, so the label never
+  // misstates the bound it names: at the span's own precision a
+  // [0.85, 1.0] domain printed its floor as "0.8", which is not where
+  // the scale starts. Capped at 4 so a degenerate span cannot run the
+  // label off the bar.
+  const span = Math.abs(hi - lo);
+  const decimals =
+    span > 0 && Number.isFinite(span)
+      ? Math.min(4, Math.max(1, Math.ceil(-Math.log10(span)) + 1))
+      : 1;
   const fmt = (v: number) =>
-    Math.abs(v) >= 100 || Math.abs(v) < 0.01 ? v.toExponential(1) : v.toFixed(1);
+    Math.abs(v) >= 100 || (v !== 0 && Math.abs(v) < 0.01)
+      ? v.toExponential(1)
+      : v.toFixed(decimals);
 
   return (
     <div className={className} style={{ display: 'inline-block', fontFamily: 'Helvetica, Arial, sans-serif' }}>
       {label && (
-        <div style={{ fontSize: 10, color: '#6b7280', marginBottom: 2 }}>{label}</div>
+        // currentColor, not a fixed grey: this package ships no Tailwind
+        // and #6b7280 / #374151 were invisible on the dark-mode panel.
+        // Both apps set a theme-aware text colour on the surrounding
+        // surface, so inheriting it is correct in either theme; the
+        // label steps back with opacity rather than its own hue.
+        <div style={{ fontSize: 10, color: 'currentColor', opacity: 0.65, marginBottom: 2 }}>{label}</div>
       )}
       <canvas ref={canvasRef} style={{ display: 'block', imageRendering: 'pixelated' }} />
       <div
@@ -64,7 +84,8 @@ export function Legend({
           display: 'flex',
           justifyContent: 'space-between',
           fontSize: 10,
-          color: '#374151',
+          color: 'currentColor',
+          opacity: 0.8,
           marginTop: 2,
           width,
         }}

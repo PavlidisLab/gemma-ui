@@ -24,9 +24,9 @@ import {
 } from "@gemma/diagnostics";
 import { useSampleCorrelation } from "@/api/diagnostics";
 
-/** A matrix this small says nothing — below it the hide is refused
- *  rather than offered and left to draw a 1x1 square. */
-const MIN_SAMPLES_AFTER_HIDE = 3;
+/** Masking every sample leaves no scale to compute — below this many
+ *  survivors the matrix arrives unmasked and the toggle is refused. */
+const MIN_UNMASKED_SAMPLES = 3;
 
 export function SampleCorrelationCard({
   experimentId,
@@ -36,14 +36,18 @@ export function SampleCorrelationCard({
   const { data: result, isLoading, error } = useSampleCorrelation(experimentId);
   const data = result?.matrix ?? null;
 
-  // Gemma serves this matrix UNMASKED on purpose — `1fa3c4cd68`
-  // stopped masking at compute time because the matrix is what a
-  // curator reviews an outlier call AGAINST, and a masked one makes
-  // every correlation involving a flagged sample NaN, so the evidence
-  // for the call cannot be recovered. Hiding is therefore a view, not
-  // a fetch: the unmasked matrix stays in hand and the toggle costs
-  // nothing but a re-slice.
-  const [hidden, setHidden] = useState(false);
+  // Gemma serves this matrix unmasked and names the outliers separately
+  // — `1fa3c4cd68` stopped masking at compute time because the matrix is
+  // what a curator reviews an outlier call AGAINST. Masking is therefore
+  // OURS to apply, and it is a view: the real values stay in hand and
+  // the toggle costs nothing but a recompute.
+  //
+  // Masked is the default because an outlier's correlations are the low
+  // ones, and leaving them in stretches the domain down to meet them —
+  // every other cell then sits in the top sliver of the palette and the
+  // matrix reads as one flat colour. Unmasking is how you see what those
+  // numbers actually are, with the scale opened up to fit them.
+  const [unmasked, setUnmasked] = useState(false);
 
   const outlierIds = useMemo(
     () =>
@@ -53,19 +57,23 @@ export function SampleCorrelationCard({
       ]),
     [data],
   );
-  const hideable = data
+  const maskable = data
     ? data.bio_assay_ids.filter((id) => outlierIds.has(id)).length
     : 0;
-  const remaining = data ? data.bio_assay_ids.length - hideable : 0;
-  const canHide = hideable > 0 && remaining >= MIN_SAMPLES_AFTER_HIDE;
-  // A toggle left on while its subject disappears (another experiment,
-  // a refetch that cleared the flags) would silently show a filtered
-  // matrix labelled as whole.
-  const hiding = hidden && canHide;
+  const remaining = data ? data.bio_assay_ids.length - maskable : 0;
+  const canMask = maskable > 0 && remaining >= MIN_UNMASKED_SAMPLES;
+  // A toggle left set while its subject disappears (another experiment,
+  // a refetch that cleared the flags) would label the matrix wrongly.
+  const masking = canMask && !unmasked;
 
   // Adapt curation's snake_case wire to the camelCase shape the shared
-  // helpers consume, dropping the hidden samples from BOTH axes. The
-  // fields carry the same semantics.
+  // helpers consume, blanking the masked samples' cells. The fields
+  // carry the same semantics.
+  //
+  // 🛑 Masked, not removed: every sample keeps its row and column, so
+  // the two states are the same grid with the same cells in the same
+  // places and the curator can read one against the other. Dropping the
+  // rows would reflow the matrix and make the comparison a puzzle.
   const adapted = useMemo(() => {
     if (!data) return null;
     const whole = {
@@ -73,36 +81,37 @@ export function SampleCorrelationCard({
       bioAssayShortNames: data.bio_assay_short_names,
       values: data.values,
     };
-    if (!hiding) return whole;
-    const keep = data.bio_assay_ids.flatMap((id, i) =>
-      outlierIds.has(id) ? [] : [i],
-    );
+    if (!masking) return whole;
+    const out = data.bio_assay_ids.map((id) => outlierIds.has(id));
     return {
-      bioAssayIds: keep.map((i) => data.bio_assay_ids[i]),
-      bioAssayShortNames: keep.map((i) => data.bio_assay_short_names[i]),
-      // Row AND column: the matrix is symmetric, so dropping a sample
-      // from one axis alone would leave its correlations on the other.
-      values: keep.map((i) => keep.map((j) => data.values[i][j])),
+      ...whole,
+      // Row AND column: the matrix is symmetric, so blanking one axis
+      // alone would leave the sample's correlations on the other. NaN
+      // rather than a sentinel — both shared helpers already skip
+      // non-finite cells, so it masks the colour AND the domain.
+      values: data.values.map((row, i) =>
+        row.map((v, j) => (out[i] || out[j] ? NaN : v)),
+      ),
     };
-  }, [data, hiding, outlierIds]);
+  }, [data, masking, outlierIds]);
 
   const built = useMemo(
     () => buildSampleCorrelationHeatmapData(adapted),
     [adapted],
   );
-  // 🛑 Computed from the VISIBLE values, not the whole matrix. The
-  // lower bound hugs the observed off-diagonal minimum, and an outlier
-  // is usually what sets that minimum — so reusing the unfiltered
-  // domain would leave the scale stretched to accommodate a sample no
-  // longer drawn, and the remaining cells would stay exactly as flat
-  // as before. The hide would look like it had done nothing.
+  // 🛑 Computed from the VISIBLE values, so the scale follows the
+  // toggle. The lower bound hugs the observed off-diagonal minimum and
+  // an outlier is usually what sets that minimum, so this is the whole
+  // point of the control: masked, the palette spends its range on the
+  // samples that agree; unmasked, it opens up to reach the outlier and
+  // you can see how far out it actually sits.
   const seqDomain = useMemo(
     () => computeSampleCorrelationDomain(adapted?.values),
     [adapted],
   );
   // Size each square cell so the matrix fills the panel body regardless
   // of sample count — few-sample datasets otherwise leave the box empty.
-  const cellPx = sampleCorrelationCellPx(adapted?.bioAssayIds.length);
+  const cellPx = sampleCorrelationCellPx(data?.bio_assay_ids.length);
 
   let body;
   if (isLoading) {
@@ -158,10 +167,7 @@ export function SampleCorrelationCard({
         data ? (
           <>
             <span>
-              {hiding
-                ? `${adapted?.bioAssayIds.length} of ${data.bio_assay_ids.length} samples`
-                : `${data.bio_assay_ids.length} samples`}{" "}
-              · {data.method ?? "pearson"}
+              {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
             </span>
             {outliers ? (
               <span
@@ -179,24 +185,28 @@ export function SampleCorrelationCard({
                 {outliers.text}
               </span>
             ) : null}
-            {hideable > 0 ? (
+            {maskable > 0 ? (
               <button
                 type="button"
-                onClick={() => setHidden((h) => !h)}
-                disabled={!canHide}
+                onClick={() => setUnmasked((u) => !u)}
+                disabled={!canMask}
                 className={
                   "underline decoration-dotted underline-offset-2 " +
-                  (canHide
+                  (canMask
                     ? "text-blue-700 dark:text-blue-300 hover:no-underline"
                     : "text-slate-400 dark:text-slate-500 cursor-not-allowed")
                 }
                 title={
-                  canHide
-                    ? "Hide the flagged and predicted outliers and rescale the colour range to what is left"
-                    : `Hiding ${hideable} of ${data.bio_assay_ids.length} samples would leave fewer than ${MIN_SAMPLES_AFTER_HIDE}`
+                  canMask
+                    ? masking
+                      ? `Draw the ${maskable} outlier(s)' real correlations and open the colour range to fit them`
+                      : "Blank the outliers again and rescale to the remaining samples"
+                    : `Masking ${maskable} of ${data.bio_assay_ids.length} samples would leave fewer than ${MIN_UNMASKED_SAMPLES}`
                 }
               >
-                {hiding ? "show all samples" : `hide ${hideable} outlier(s)`}
+                {masking
+                  ? `show ${maskable} outlier(s)`
+                  : `mask ${maskable} outlier(s)`}
               </button>
             ) : null}
             {/* Curator-only affordance — wire a "Mark / Unmark
