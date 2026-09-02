@@ -111,6 +111,16 @@ export function SampleCorrelationCard({
   // numbers actually are, with the scale opened up to fit them.
   const [unmasked, setUnmasked] = useState(false);
 
+  const [zoomed, setZoomed] = useState(false);
+  // 🛑 One selection, two widgets. The tile and the popped-out view
+  // render the same matrix, and the grouping factor is widget state —
+  // so without lifting it they auto-pick independently, can disagree
+  // about which strip the columns are ordered by, and a change made in
+  // the popup is lost when it closes. `null` means "let the widget
+  // auto-pick", and the first pick it reports back becomes the shared
+  // value, so both stay on it.
+  const [groupBy, setGroupBy] = useState<number | null>(null);
+
   const outlierIds = useMemo(
     () =>
       new Set([
@@ -177,30 +187,31 @@ export function SampleCorrelationCard({
     });
     if (!p) return null;
 
-    // 🛑 A correlation matrix is SYMMETRIC, and the widget orders only
-    // COLUMNS. The payload alone regrouped the columns by design and
-    // left the rows in wire order, which breaks the one invariant this
-    // picture has: cell (i, j) stops being sample i against sample j,
-    // and the r=1 diagonal scatters. The diagonal is how a reader
-    // checks the two axes agree, so losing it loses the thing that says
-    // the matrix is being read correctly at all.
+    // 🛑 A correlation matrix is SYMMETRIC and the widget orders only
+    // COLUMNS, so the rows have to be permuted to match or cell (i, j)
+    // stops being sample i against sample j and the r=1 diagonal
+    // scatters into speckle. The diagonal is how a reader checks the
+    // two axes agree, so losing it loses the thing that says the matrix
+    // is being read correctly at all.
     //
-    // Apply the SAME permutation to both axes here and hand over an
-    // already-grouped payload; the widget's own ordering then finds the
-    // columns in group order already and is a no-op.
-    const { columnOrder } = computeColumnOrder(p, null);
+    // 🛑 ROWS ONLY. The first attempt permuted both and handed over an
+    // already-grouped payload, assuming the widget would then find the
+    // columns in order and do nothing — it does not; it applies its
+    // ordering to whatever it is given, so the columns moved TWICE
+    // against rows that moved once, and the diagonal scattered exactly
+    // as before. Leave the columns alone, let the widget order them,
+    // and apply the same permutation to the rows here so the two
+    // compose to the identity.
+    const { columnOrder } = computeColumnOrder(p, groupBy);
     if (columnOrder.every((c, i) => c === i)) return p;
     return {
       ...p,
-      columns: columnOrder.map((c) => p.columns[c]),
       matrix: {
         ...p.matrix,
-        values: columnOrder.map((r) =>
-          columnOrder.map((c) => p.matrix.values[r][c]),
-        ),
+        values: columnOrder.map((r) => p.matrix.values[r]),
       },
     };
-  }, [built, adapted, draft, experimentId]);
+  }, [built, adapted, draft, experimentId, groupBy]);
   // 🛑 Computed from the VISIBLE values, so the scale follows the
   // toggle. The lower bound hugs the observed off-diagonal minimum and
   // an outlier is usually what sets that minimum, so this is the whole
@@ -215,15 +226,6 @@ export function SampleCorrelationCard({
   // of sample count — few-sample datasets otherwise leave the box empty.
   const cellPx = sampleCorrelationCellPx(data?.bio_assay_ids.length);
 
-  const [zoomed, setZoomed] = useState(false);
-  // 🛑 One selection, two widgets. The tile and the popped-out view
-  // render the same matrix, and the grouping factor is widget state —
-  // so without lifting it they auto-pick independently, can disagree
-  // about which strip the columns are ordered by, and a change made in
-  // the popup is lost when it closes. `null` means "let the widget
-  // auto-pick", and the first pick it reports back becomes the shared
-  // value, so both stay on it.
-  const [groupBy, setGroupBy] = useState<number | null>(null);
 
   let body;
   if (isLoading) {
@@ -260,7 +262,14 @@ export function SampleCorrelationCard({
         defaultMainGroupingFactorId={groupBy}
         onMainGroupingFactorChange={setGroupBy}
         chrome={false}
-        showControls={false}
+        // 🛑 Controls ON at tile size. They were off on the argument
+        // that a 300px tile has no room for the Options popover — but
+        // the popover floats over the panel, and "which factor is this
+        // ordered by, and can I change it" is a question the tile
+        // raises the moment it grows annotation strips. Making the
+        // curator open a modal to answer it is the wrong trade
+        // (Paul, 2026-09-02).
+        showControls
         showLegend={true}
         legendPlacement="side"
         showTooltip={true}

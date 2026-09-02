@@ -745,7 +745,12 @@ export function HeatmapWidget({
               but the wrapper still caps the width sensibly. */}
           <div
             style={{
-              flex: '1 1 auto',
+              // 🛑 Do not GROW when the legend is a side rail. The rail
+              // is the next flex child, so a growing matrix column
+              // pushes it out to the far edge of the panel where it
+              // reads as unrelated furniture rather than as this
+              // matrix's scale.
+              flex: legendPlacement === 'side' ? '0 1 auto' : '1 1 auto',
               minWidth: 0,
               overflow: fitMode === 'expand' ? 'auto' : 'visible',
               maxWidth: '100%',
