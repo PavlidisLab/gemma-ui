@@ -122,6 +122,12 @@ export interface HeatmapWidgetProps {
   rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
   /** Click on a row's label. Passed straight through to `Heatmap`. */
   onRowLabelClick?: (rowIndex: number) => void;
+  /** Per-row hover text for the label gutter — say what a click will
+   *  DO, since a clickable row that only names itself gives the curator
+   *  no way to find out. */
+  rowLabelTitle?: (rowIndex: number) => string | undefined;
+  /** Rows to veil as a proposed change; see `HeatmapData.dimRows`. */
+  dimRows?: boolean[];
   /** Width (in CSS px) reserved for the row-label gutter. Defaults
    *  to 100 — fits a single ~14ch column. Pass a larger value (e.g.
    *  220) when ``data.rowLabelColumns`` is used so the auto-sized
@@ -276,6 +282,8 @@ export function HeatmapWidget({
   showDownload = true,
   rowLabelTooltip,
   onRowLabelClick,
+  rowLabelTitle,
+  dimRows,
   rowLabelGutterWidth,
   defaultMainGroupingFactorId,
   showGroupGaps = true,
@@ -431,13 +439,16 @@ export function HeatmapWidget({
     [payload, orderedFactors],
   );
 
-  const scaledData = useMemo<HeatmapData>(
-    () =>
-      rowScale
-        ? { ...rawData, values: rowStandardize(rawData.values) }
-        : rawData,
-    [rawData, rowScale],
-  );
+  const scaledData = useMemo<HeatmapData>(() => {
+    const base = rowScale
+      ? { ...rawData, values: rowStandardize(rawData.values) }
+      : rawData;
+    // Merged here rather than in the payload builder: which rows are
+    // PROPOSED for a change is caller state that changes on every
+    // click, and it has no business round-tripping through the wire
+    // shape the payload path describes.
+    return dimRows ? { ...base, dimRows } : base;
+  }, [rawData, rowScale, dimRows]);
 
   // Pinned-strip index is derived from the main-grouping factor id;
   // factors render one strip each in `orderedFactors` (display) order,
@@ -755,6 +766,7 @@ export function HeatmapWidget({
                     setMaxH={setMaxH}
                     maxW={maxW}
                     setMaxW={setMaxW}
+                    squareCells={defaultSquareCells}
                     fmt={fmt}
                     onClose={() => setControlsOpen(false)}
                   />
@@ -844,6 +856,7 @@ export function HeatmapWidget({
               selectedStripIndex={selectedStripIndex}
               rowLabelTooltip={rowLabelTooltip}
               onRowLabelClick={onRowLabelClick}
+              rowLabelTitle={rowLabelTitle}
               rowLabelGutterWidth={rowLabelGutterWidth}
               onStripGutterClick={
                 payload
@@ -1063,6 +1076,7 @@ function ControlsPopover({
   setMaxH,
   maxW,
   setMaxW,
+  squareCells,
   fmt,
   onClose,
 }: {
@@ -1083,6 +1097,8 @@ function ControlsPopover({
   setMaxH: (v: number) => void;
   maxW: number;
   setMaxW: (v: number) => void;
+  /** Cells are square, so height and width are one number. */
+  squareCells: boolean;
   fmt: (v: number) => string;
   onClose: () => void;
 }) {
@@ -1169,30 +1185,55 @@ function ControlsPopover({
           onChange={setFitMode}
         />
       </ControlRow>
-      <ControlRow label="Cell H">
-        <CompactSlider
-          label=""
-          value={maxH}
-          min={2}
-          max={36}
-          step={1}
-          onChange={setMaxH}
-          display={`${maxH}px`}
-          width={112}
-        />
-      </ControlRow>
-      <ControlRow label="Cell W">
-        <CompactSlider
-          label=""
-          value={maxW}
-          min={2}
-          max={48}
-          step={1}
-          onChange={setMaxW}
-          display={`${maxW}px`}
-          width={112}
-        />
-      </ControlRow>
+      {/* 🛑 One slider when the cells are square. Two independent ones
+          offered a height and a width that the layout then discarded —
+          a square cell takes ONE size — so dragging Cell W moved a
+          control whose number the picture did not obey, and the two
+          readouts disagreed with each other on screen. */}
+      {squareCells ? (
+        <ControlRow label="Cell size">
+          <CompactSlider
+            label=""
+            value={Math.min(maxH, maxW)}
+            min={2}
+            max={36}
+            step={1}
+            onChange={(v) => {
+              setMaxH(v);
+              setMaxW(v);
+            }}
+            display={`${Math.min(maxH, maxW)}px`}
+            width={112}
+          />
+        </ControlRow>
+      ) : (
+        <>
+          <ControlRow label="Cell H">
+            <CompactSlider
+              label=""
+              value={maxH}
+              min={2}
+              max={36}
+              step={1}
+              onChange={setMaxH}
+              display={`${maxH}px`}
+              width={112}
+            />
+          </ControlRow>
+          <ControlRow label="Cell W">
+            <CompactSlider
+              label=""
+              value={maxW}
+              min={2}
+              max={48}
+              step={1}
+              onChange={setMaxW}
+              display={`${maxW}px`}
+              width={112}
+            />
+          </ControlRow>
+        </>
+      )}
     </div>
   );
 }

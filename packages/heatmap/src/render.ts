@@ -134,6 +134,31 @@ export function renderMatrix(
     }
   }
 
+  // --- Proposed rows: a veil, not a blanking ---
+  //
+  // 🛑 A PROPOSAL is not a fact. Blanking a row says the sample is
+  // already excluded; a veil says someone has asked for it and the data
+  // is still there to argue with. Both axes, because the matrix is
+  // symmetric and veiling one would leave the sample's correlations
+  // fully saturated on the other.
+  //
+  // Drawn after the cells and before the labels so it dims the colour
+  // without touching anything a reader needs to stay crisp.
+  const dim = data.dimRows;
+  if (dim && dim.some(Boolean)) {
+    ctx.save();
+    ctx.fillStyle = resolved.dimColor;
+    for (let i = 0; i < layout.numRows; i++) {
+      if (!dim[i]) continue;
+      ctx.fillRect(0, matrixY + i * layout.cellH, totalW, layout.cellH);
+    }
+    for (let r = 0; r < layout.columns.length; r++) {
+      if (!dim[layout.columns[r].srcStart]) continue;
+      ctx.fillRect(xs[r], matrixY, layout.cellW, layout.numRows * layout.cellH);
+    }
+    ctx.restore();
+  }
+
   // --- Outlier indicator ---
   const outliers = data.colOutliers;
   if (outliers && outliers.length > 0) {

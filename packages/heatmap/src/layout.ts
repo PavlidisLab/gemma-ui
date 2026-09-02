@@ -29,6 +29,7 @@ export function resolveConfig(data: HeatmapData, config: HeatmapConfig | undefin
     clip: c.clip ?? 3,
     domain,
     nanColor: c.nanColor ?? '#9ca3af',
+    dimColor: c.dimColor ?? 'rgba(100, 116, 139, 0.62)',
     showRowLabels: c.showRowLabels ?? 'auto',
     showColLabels: c.showColLabels ?? 'auto',
     cell,

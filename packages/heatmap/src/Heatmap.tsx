@@ -63,6 +63,8 @@ export interface HeatmapProps {
    *  the other axis. Unlike a cell click this names ONE sample rather
    *  than a pair, which is what a per-sample action needs. */
   onRowLabelClick?: (rowIndex: number) => void;
+  /** Overrides the row label's hover text. */
+  rowLabelTitle?: (rowIndex: number) => string | undefined;
   /** Width (in CSS px) reserved for the row-label gutter on the
    *  right. Defaults to 100, which fits a single ~14ch column. Pass
    *  a larger value when using ``data.rowLabelColumns`` for
@@ -102,6 +104,7 @@ export function Heatmap({
   className,
   rowLabelTooltip,
   onRowLabelClick,
+  rowLabelTitle,
   rowLabelGutterWidth,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -524,7 +527,7 @@ export function Heatmap({
               return (
                 <div
                   key={i}
-                  title={hasTip ? undefined : fallback}
+                  title={rowLabelTitle?.(i) ?? (hasTip ? undefined : fallback)}
                   onMouseEnter={
                     hasTip
                       ? (e) => {
@@ -679,7 +682,7 @@ export function Heatmap({
               return (
                 <div
                   key={i}
-                  title={hasTip ? undefined : lbl}
+                  title={rowLabelTitle?.(i) ?? (hasTip ? undefined : lbl)}
                   onMouseEnter={
                     hasTip
                       ? (e) => {

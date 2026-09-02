@@ -240,8 +240,15 @@ export function SampleCorrelationCard({
       bioAssayShortNames: data.bio_assay_short_names,
       values: data.values,
     };
-    if (!masking) return whole;
-    const out = data.bio_assay_ids.map((id) => outlierIds.has(id));
+    // 🛑 Only SAVED flags are blanked. A staged one is veiled instead
+    // (see `dimRowFlags`) — blanking says the sample is already out,
+    // and a proposal has not done anything yet. A staged UNflag lifts
+    // the blanking immediately, because that IS what saving will do.
+    const hidden = new Set(
+      [...outlierIds].filter((id) => !pendingUnmark.includes(id)),
+    );
+    if (!masking || hidden.size === 0) return whole;
+    const out = data.bio_assay_ids.map((id) => hidden.has(id));
     return {
       ...whole,
       // Row AND column: the matrix is symmetric, so blanking one axis
@@ -252,7 +259,7 @@ export function SampleCorrelationCard({
         row.map((v, j) => (out[i] || out[j] ? NaN : v)),
       ),
     };
-  }, [data, masking, outlierIds]);
+  }, [data, masking, outlierIds, pendingUnmark]);
 
   const built = useMemo(
     () => buildSampleCorrelationHeatmapData(adapted),
@@ -320,6 +327,18 @@ export function SampleCorrelationCard({
       rowAssayIds: columnOrder.map((r) => adapted.bioAssayIds[r]),
     };
   }, [built, adapted, draft, experimentId, groupBy]);
+
+  /** Which rendered rows carry a proposed change, in the permuted order
+   *  the widget draws. Both directions are veiled: a staged flag so you
+   *  can see what you are about to remove, and a staged unflag so the
+   *  row you just brought back is still marked as unsaved. */
+  const dimRowFlags = useMemo(
+    () =>
+      rowAssayIds.map(
+        (id) => pendingMark.includes(id) || pendingUnmark.includes(id),
+      ),
+    [rowAssayIds, pendingMark, pendingUnmark],
+  );
   // 🛑 Computed from the VISIBLE values, so the scale follows the
   // toggle. The lower bound hugs the observed off-diagonal minimum and
   // an outlier is usually what sets that minimum, so this is the whole
@@ -437,12 +456,15 @@ export function SampleCorrelationCard({
       )
     : null;
 
-  return (
-    <PanelCard
-      title="Sample correlation"
-      footer={
-        data ? (
-          <>
+  /**
+   * Caption plus the two view controls, rendered in the tile footer AND
+   * at the top of the big view — Paul, 2026-09-02: *"the zoomed view
+   * should have the same controls (regressed, mask/show)."* They were
+   * tile-only, so the surface a curator actually works in was the one
+   * that could not change what it was showing.
+   */
+  const matrixControls = data ? (
+    <>
             <span>
               {data.bio_assay_ids.length} samples · {data.method ?? "pearson"}
               {/* What the server BUILT, not what we asked for — `best`
@@ -515,14 +537,25 @@ export function SampleCorrelationCard({
                 is the agent's to make, not ours. The shared package
                 stays affordance-free so the public browse wrapper
                 isn't forced to pull in mutating UI. */}
+                </>
+  ) : null;
+
+
+  return (
+    <PanelCard
+      title="Sample correlation"
+      footer={
+        data ? (
+          <>
+            {matrixControls}
             <span className="ml-auto flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => setZoomed(true)}
                 className="text-blue-700 dark:text-blue-300 hover:underline"
-                title="Open a larger view"
+                title="Open the big view, where samples can be flagged and unflagged as outliers"
               >
-                enlarge ⤢
+                curate outliers ⤢
               </button>
               <button
                 type="button"
@@ -595,6 +628,38 @@ export function SampleCorrelationCard({
                 ×
               </button>
             </div>
+            {/* 🛑 Above the matrix, not below it. Paul, 2026-09-02:
+                *"the 'save' and stuff should probably be at the top."*
+                The body scrolls, and at 224 samples a bar under it is
+                past the fold — the curator stages a change and the
+                control that commits it is somewhere off-screen. */}
+            <div className="px-3 py-1.5 border-b border-slate-200 dark:border-slate-700 flex items-center gap-3 flex-wrap text-xs text-slate-500 dark:text-slate-400">
+              {matrixControls}
+            </div>
+            <OutlierCommitBar
+              mark={pendingMark}
+              unmark={pendingUnmark}
+              label={assayLabel}
+              willInvalidate={willInvalidate}
+              busy={batchOutliers.isPending}
+              error={batchOutliers.error as Error | null}
+              onUnstage={stageAssay}
+              onDiscard={() => {
+                setPendingMark([]);
+                setPendingUnmark([]);
+              }}
+              onCommit={() =>
+                batchOutliers.mutate(
+                  { mark: pendingMark, unmark: pendingUnmark },
+                  {
+                    onSuccess: () => {
+                      setPendingMark([]);
+                      setPendingUnmark([]);
+                    },
+                  },
+                )
+              }
+            />
             <div className="flex-1 min-h-[400px] overflow-auto p-3">
               <HeatmapWidget
                 {...(payload ? { payload } : { data: built })}
@@ -629,9 +694,24 @@ export function SampleCorrelationCard({
                 // Flagging lives here and not on the tile: at tile size
                 // a row is a couple of pixels tall and the sample it
                 // names is not readable, so a click would be a guess.
+                dimRows={dimRowFlags}
                 onRowLabelClick={(i) => {
                   const id = rowAssayIds[i];
                   if (id != null) stageAssay(id);
+                }}
+                rowLabelTitle={(i) => {
+                  const id = rowAssayIds[i];
+                  if (id == null) return undefined;
+                  const name = assayLabel(id);
+                  if (pendingMark.includes(id)) {
+                    return `${name} — staged as an outlier; click to undo`;
+                  }
+                  if (pendingUnmark.includes(id)) {
+                    return `${name} — staged for unflagging; click to undo`;
+                  }
+                  return outlierIds.has(id)
+                    ? `${name} — click to unmark as an outlier`
+                    : `${name} — click to mark as an outlier`;
                 }}
                 // A 12px cell is a tile-sized default. In a panel the
                 // curator can drag wider, a 32-sample matrix hit that
@@ -645,30 +725,6 @@ export function SampleCorrelationCard({
                 downloadFilenameStem={`sample-correlation-${experimentId}`}
               />
             </div>
-            <OutlierCommitBar
-              mark={pendingMark}
-              unmark={pendingUnmark}
-              label={assayLabel}
-              willInvalidate={willInvalidate}
-              busy={batchOutliers.isPending}
-              error={batchOutliers.error as Error | null}
-              onUnstage={stageAssay}
-              onDiscard={() => {
-                setPendingMark([]);
-                setPendingUnmark([]);
-              }}
-              onCommit={() =>
-                batchOutliers.mutate(
-                  { mark: pendingMark, unmark: pendingUnmark },
-                  {
-                    onSuccess: () => {
-                      setPendingMark([]);
-                      setPendingUnmark([]);
-                    },
-                  },
-                )
-              }
-            />
           </div>
         </div>
       ) : null}
@@ -734,7 +790,7 @@ function OutlierCommitBar({
     </button>
   );
   return (
-    <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 text-xs space-y-1.5">
+    <div className="border-b border-slate-200 dark:border-slate-700 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2 text-xs space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
         {mark.length > 0 ? (
           <span className="text-slate-500 dark:text-slate-400">
