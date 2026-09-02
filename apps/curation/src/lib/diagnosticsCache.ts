@@ -35,13 +35,22 @@ export const DIAGNOSTICS_CACHE_TTL_MS = 1000 * 60 * 60 * 24;
  * handful of large datasets would evict things that matter far more
  * than a diagnostics panel that costs one refetch.
  *
- * Measured on gemma2, decompressed JSON, **after** `db182e86a6` rounded
- * the correlations to three decimals: 1.6 KB at 34 samples, 16 KB at
- * 103, 104 KB at 278. That rounding cut the payload 5.6x — the same
- * three were 6.7 KB / 82 KB / 577 KB the day before — so this ceiling
- * now covers datasets up to roughly 437 samples, which is all but 96 of
- * the 23,545 on gemma2. Re-measure before moving it; the old numbers
- * are what made a second storage layer look necessary.
+ * 🛑 **Measure the DECOMPRESSED string, which is what goes in here.**
+ * The route is `@GZIP` and `curl -w '%{size_download}'` reports the
+ * compressed bytes, so the obvious measurement is the wrong one by 3-5x
+ * — and the gap widens exactly where it matters, because rounded
+ * numbers compress far better than full-precision ones.
+ *
+ * Measured on gemma2 `db182e86a6`, `len(json.dumps(...))` on the parsed
+ * body: 8.7 KB at 34 samples, 76 KB at 103, **527 KB at 278**. That is
+ * about 7 bytes a cell, so this ceiling covers datasets up to roughly
+ * 193 samples — 418 of the 23,545 on gemma2 are above it and go
+ * uncached.
+ *
+ * (For contrast, the same three gzipped are 1.6 / 16 / 104 KB.
+ * `db182e86a6`'s 3-decimal rounding cut the wire 5.6x and the stored
+ * string only 2.7x. Both are real; only one is this constant's
+ * business.)
  *
  * Above this an entry is simply not stored — the query still works, it
  * just re-fetches next reload, which is the pre-existing behaviour.
