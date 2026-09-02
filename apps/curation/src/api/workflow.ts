@@ -618,7 +618,7 @@ export function useSetQtPreferred(experimentId: number | string) {
     mutationFn: ({ qtId, isPreferred }: { qtId: number; isPreferred: boolean }) =>
       api.patch<void>(
         `/rest/v2/datasets/${experimentId}/quantitationTypes/${qtId}`,
-        { is_preferred: isPreferred } satisfies QuantitationTypePatch,
+        { preferred: isPreferred } satisfies QuantitationTypePatch,
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY.pipelineStatus(experimentId) });

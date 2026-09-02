@@ -165,8 +165,19 @@ export interface OutlierPatch {
   outlier: boolean;
 }
 
+/** 🛑 The two backends name this field differently, and `is_preferred`
+ *  — what this carried until 2026-09-01 — is neither of them:
+ *
+ *    Gemma  `QuantitationTypePatchRequest`  → `preferred`
+ *    store  `QuantitationTypePatch`         → `isPreferred` (required)
+ *
+ *  Request bodies are NOT case-normalized (`client.ts` snakeifies the
+ *  RESPONSE only), so the spelling written here is what goes on the
+ *  wire. Set to Gemma's, which is where `/rest/v2` is headed; the
+ *  store needs a `preferred` alias before this hook can be wired in
+ *  local mode. */
 export interface QuantitationTypePatch {
-  is_preferred: boolean;
+  preferred: boolean;
 }
 
 // ---------------------------------------------------------------------------
