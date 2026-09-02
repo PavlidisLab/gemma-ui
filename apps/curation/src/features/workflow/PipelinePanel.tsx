@@ -45,7 +45,9 @@ function statusDot(status: StepStatus) {
   }
 }
 
-function statusLabel(status: StepStatus) {
+/** Exported so the Diagnostics footer names a step state in exactly
+ *  the same words and colours this panel does. */
+export function statusLabel(status: StepStatus) {
   const base = "text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded";
   switch (status) {
     case "ok":              return <span className={`${base} bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400`}>ok</span>;
