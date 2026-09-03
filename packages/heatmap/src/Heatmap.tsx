@@ -248,7 +248,8 @@ export function Heatmap({
   }, [layout.columns, data.colGapsBefore]);
   // + the marker gutter, or the canvas overflows this grid column and
   // shoves the row labels across the plot.
-  const matrixRenderW = layout.matrixW + totalColGap + markGutterFor(data);
+  const markGut = markGutterFor(data);
+  const matrixRenderW = layout.matrixW + totalColGap + markGut;
 
   const renderResultRef = useRef<ReturnType<typeof renderMatrix> | null>(null);
 
@@ -328,7 +329,12 @@ export function Heatmap({
           // whole container.
           gridTemplateColumns: `${matrixRenderW}px ${rowLabelGutter}px`,
           width: 'fit-content',
-          gridTemplateRows: `${colLabelGutter}px ${stripsH + gapAfterStrips}px auto`,
+          // 🛑 `markGut` on the strips row. The canvas reserves that
+          // margin INSIDE itself and translates its whole plot into it,
+          // so the strips start that much lower than the grid cell that
+          // names them — the labels sat one strip high until this row
+          // grew to match.
+          gridTemplateRows: `${colLabelGutter}px ${markGut + stripsH + gapAfterStrips}px auto`,
           fontFamily: resolved.fontFamily,
         }}
       >
@@ -340,6 +346,9 @@ export function Heatmap({
             alignItems: 'end',
             overflow: 'hidden',
             height: colLabelGutter,
+            // The canvas's left margin, so a column label stays over its
+            // column rather than 11px to the left of it.
+            paddingLeft: markGut,
           }}
         >
           {colLabelGutter > 0 &&
@@ -424,6 +433,7 @@ export function Heatmap({
             flexDirection: 'column',
             justifyContent: 'flex-start',
             paddingLeft: 10,
+            paddingTop: markGut,
             fontSize: 12,
             color: 'currentColor',
           }}
