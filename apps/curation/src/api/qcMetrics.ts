@@ -131,3 +131,19 @@ const FALLBACK_LABELS: Record<string, string> = {
   uniquely_mapped_percent: "% Aligned",
   percent_duplicates: "% Dups",
 };
+
+
+/**
+ * Base for the synthetic factor ids these strips use.
+ *
+ * 🛑 Negative, like the PC-score strip's `-pc`, because the widget keys
+ * strip identity and grouping off the factor id and a positive one
+ * could collide with a real `ExperimentalFactor`. Offset well past the
+ * PC range so a QC strip and "PC3 score" can coexist on one heatmap.
+ */
+const QC_FACTOR_ID_BASE = -1000;
+
+/** The synthetic factor id for the nth QC strip. */
+export function qcFactorId(index: number): number {
+  return QC_FACTOR_ID_BASE - index;
+}

@@ -32,9 +32,13 @@ import {
   type SampleCorrelationVariant,
 } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
-import { buildDesignHeatmapPayload } from "./heatmapPayload";
+import {
+  buildDesignHeatmapPayload,
+  withQcMetricStrips,
+} from "./heatmapPayload";
 import { useEscapeKey } from "@gemma/ui";
 import { useBatchOutliers } from "@/api/workflow";
+import { useQcMetrics } from "@/api/qcMetrics";
 import { usePipelineStatus } from "@/api/workflow";
 
 /** Masking every sample leaves no scale to compute — below this many
@@ -165,6 +169,10 @@ export function SampleCorrelationCard({
   const [pendingUnmark, setPendingUnmark] = useState<number[]>([]);
   const batchOutliers = useBatchOutliers(experimentId);
   const { data: pipeline } = usePipelineStatus(experimentId);
+  // Sequencing QC rides above the matrix as extra strips — evidence
+  // that owes nothing to expression similarity. Absent for microarray,
+  // where the strips simply do not appear.
+  const { data: qc } = useQcMetrics(experimentId);
 
   /** Clicking a sample toggles it toward the opposite of its CURRENT
    *  server state, and clicking again takes the staging back off. */
@@ -312,6 +320,10 @@ export function SampleCorrelationCard({
       datasetId: Number(experimentId) || 0,
     });
     if (!p) return { payload: null, rowAssayIds: adapted.bioAssayIds };
+    // Before `computeColumnOrder`, so a QC strip is a groupable factor
+    // like any other — clicking "% Aligned" sorts the samples by it.
+    const withQc = withQcMetricStrips(p, qc);
+    if (withQc) Object.assign(p, withQc);
 
     // 🛑 A correlation matrix is SYMMETRIC and the widget orders only
     // COLUMNS, so the rows have to be permuted to match or cell (i, j)
@@ -346,7 +358,7 @@ export function SampleCorrelationCard({
       payload: permuted,
       rowAssayIds: columnOrder.map((r) => adapted.bioAssayIds[r]),
     };
-  }, [built, adapted, draft, experimentId, groupBy]);
+  }, [built, adapted, draft, experimentId, groupBy, qc]);
 
   /** Which rendered rows carry a proposed change, in the permuted order
    *  the widget draws. Both directions are veiled: a staged flag so you

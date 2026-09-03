@@ -20,6 +20,7 @@
 
 import type { HeatmapPayload } from "@gemma/heatmap";
 import type { Design } from "@/features/experiment/types";
+import { qcFactorId, qcStripMetrics, type QcMetrics } from "@/api/qcMetrics";
 
 /** A row is a probe only if the caller gave it a design-element id.
  *  Rows that are samples (the correlation matrix) carry a label and no
@@ -223,4 +224,58 @@ export function continuousFvValue(fv: {
   const m = raw.match(/^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
   const n = m ? Number(m[0]) : Number(raw);
   return Number.isFinite(n) ? n : null;
+}
+
+
+/**
+ * Attach per-sample sequencing QC as continuous strips.
+ *
+ * The correlation matrix answers "which samples resemble each other";
+ * these answer "and how well did each one sequence", against the same
+ * columns in the same order. Mapping rate and duplication owe nothing
+ * to expression similarity, so a sample that is both poorly correlated
+ * AND poorly mapped is a different call from one that is merely
+ * poorly correlated — which was previously unanswerable from this panel
+ * (Paul's idea; gembro's `/qc-metrics`, 2026-09-02).
+ *
+ * Returns the payload untouched when there is nothing to draw, so a
+ * microarray dataset — which never has a MultiQC report — looks exactly
+ * as it did.
+ */
+export function withQcMetricStrips(
+  payload: ReturnType<typeof buildDesignHeatmapPayload>,
+  qc: QcMetrics | null | undefined,
+): ReturnType<typeof buildDesignHeatmapPayload> {
+  if (!payload || !qc || !qc.report_present) return payload;
+  const strips = qcStripMetrics(qc);
+  if (strips.length === 0) return payload;
+
+  const byAssay = new Map(qc.samples.map((s) => [s.bio_assay_id, s]));
+  const added = strips.flatMap((strip, i) => {
+    const measurements: Record<number, number> = {};
+    for (const c of payload.columns) {
+      const v = byAssay.get(Number(c.bioAssayId))?.values?.[strip.name];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        measurements[Number(c.bioAssayId)] = v;
+      }
+    }
+    // Every column or none: a gradient with holes in it cannot be read,
+    // because a missing measurement and a low one look the same.
+    if (Object.keys(measurements).length !== payload.columns.length) return [];
+    return [
+      {
+        id: qcFactorId(i),
+        name: strip.label,
+        description:
+          strip.meta?.description ||
+          `sequencing QC: ${strip.name}${strip.meta?.namespace ? ` (${strip.meta.namespace})` : ""}`,
+        type: "continuous" as const,
+        category: { label: strip.label, uri: null },
+        factor_values: [],
+        continuousMeasurements: measurements,
+      },
+    ];
+  });
+  if (added.length === 0) return payload;
+  return { ...payload, factors: [...payload.factors, ...added] };
 }
