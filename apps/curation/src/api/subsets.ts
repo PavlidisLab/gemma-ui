@@ -31,18 +31,28 @@ import { api, ApiError } from "./client";
  * roughly 77% grounded — the ungrounded remainder being author cluster
  * labels with no CL term (`L4 RSP-ACA glutamatergic neuron`).
  *
- * 🛑 **The row count is not the subset count.** 275 rows resolve to 45
+ * 🛑 **The row count is not the subset count** — 275 rows resolve to 45
  * distinct names on 44580, and 47,143 rows to 19,391 names corpus-wide
- * (2.4×, varying by experiment). Nobody has explained it yet, so
- * `useDatasetSubsets` reports BOTH numbers and the panel says so rather
- * than quietly showing the deduplicated list as if it were the whole
- * truth.
+ * (2.4×, varying by experiment). That 2.4× IS the superseded groups
+ * above. `useDatasetSubsets` still reports both numbers, because a
+ * name can also repeat inside one group.
  *
- * 🛑 **Do not reach for `/subSetGroups` to solve that.** It answers
- * `500 Cannot invoke "java.util.Set.stream()" because "factorValues" is
- * null` on exactly the single-cell datasets this panel exists for
- * (44580), because their subsets have no factor values. It works on the
- * classic ones (38390 → 1 group).
+ * ✅ **`/subSetGroups` is the answer to that, and its 500 is fixed.**
+ * The route used to reply `500 Cannot invoke "java.util.Set.stream()"
+ * because "factorValues" is null` on exactly the single-cell datasets
+ * this panel exists for; re-measured 2026-09-03 on gemma2 `d255303a`,
+ * **100 of 100 single-cell datasets answer 200** (8 legitimately carry
+ * no groups).
+ *
+ * 🛑 **And it explains the duplication: a dataset carries SEVERAL subset
+ * groups, all but one of them a superseded cut.** Census of those 100 —
+ * 92 have groups, **57 of the 92 (62%) have more than one**, 139 extra
+ * groups in all; eid 76967 has 32 (1 live + 31 dead). The dead cut is
+ * routinely BIGGER than the live one (77392: live 8, dead 36), so the
+ * flat `/subSets` list is dominated by rows nobody should act on. On
+ * eid 79038 the two groups are the same ten cell types twice — the live
+ * one grounded to CL, the dead one holding the author's raw strings
+ * (`opc`, `t_cell`, `endothelia`).
  *
  * Gemma-only in both modes, like `sourceMetadata` and the diagnostics
  * routes — the store serves no such path, so a `404` is the ordinary
@@ -170,6 +180,184 @@ export function useDatasetSubsets(
       }
     },
     // Subsets change when an aggregation runs, not while a curator reads.
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Subset GROUPS — which cut is live, and which are superseded.
+ * ------------------------------------------------------------------ */
+
+/** One quantitation type on a subset group, post-`snakeify`. Only
+ *  `is_preferred` is read: it is what separates the live cut from the
+ *  dead ones. */
+export interface SubsetGroupQuantitationType {
+  id?: number | null;
+  name?: string | null;
+  is_preferred?: boolean | null;
+}
+
+/** One row of `/datasets/{id}/subSetGroups`, post-`snakeify`.
+ *
+ *  🛑 **`sub_sets` here comes back with `characteristics: []`** — the
+ *  group route does not populate them. The annotations live on
+ *  `/subSets`, which carries `sub_set_group_ids` to join back. So both
+ *  calls are needed; neither alone answers "what is in this group". */
+export interface SubsetGroup {
+  id: number;
+  name?: string | null;
+  factors?: { id?: number | null; name?: string | null }[] | null;
+  quantitation_types?: SubsetGroupQuantitationType[] | null;
+  sub_sets?: { id: number }[] | null;
+}
+
+/** A group with its subsets joined back in and its liveness decided. */
+export interface SubsetGroupView {
+  id: number;
+  name: string;
+  /** Distinct subsets in this group, collapsed by name. */
+  subsets: DistinctSubset[];
+  /** Rows Gemma returned for this group, before collapsing. */
+  rowCount: number;
+  commonPrefix: string;
+  /** Names of the experimental factors this group is cut on. */
+  factorNames: string[];
+  /** True when any of the group's quantitation types is preferred. */
+  preferred: boolean;
+  /** How many of this group's subsets carry a grounded characteristic. */
+  groundedCount: number;
+  /** Set on every group but the live one. */
+  superseded: boolean;
+}
+
+export interface SubsetGroupsSummary {
+  groups: SubsetGroupView[];
+  /** Subsets belonging to no group at all. Empty on every dataset
+   *  measured so far, but a flat list that silently drops rows is the
+   *  failure this panel exists to stop. */
+  ungrouped: DistinctSubset[];
+  /** True when the live group could not be picked — two groups claim a
+   *  preferred quantitation type, or none does. 2 of 92 datasets
+   *  (65454, 51179). The panel says so instead of guessing. */
+  liveAmbiguous: boolean;
+}
+
+export const NO_SUBSET_GROUPS: SubsetGroupsSummary = {
+  groups: [],
+  ungrouped: [],
+  liveAmbiguous: false,
+};
+
+function isGrounded(s: DistinctSubset): boolean {
+  return s.characteristics.some((c) => !!c.value_uri);
+}
+
+/**
+ * Join `/subSets` rows onto `/subSetGroups` and mark the live cut.
+ *
+ * 🛑 **Liveness is decided by the PREFERRED QUANTITATION TYPE, not by
+ * "has a factor".** Measured over 92 single-cell datasets 2026-09-03:
+ * exactly-one-group-is-preferred holds on **90**, while
+ * exactly-one-group-has-a-factor fails on **10** (75811, 75052, 67057,
+ * 67053 each have two groups that both carry a factor). When the
+ * preferred test does not resolve to exactly one group — 65454 and
+ * 51179 — nothing is marked superseded and `liveAmbiguous` is set, so
+ * the curator sees every group rather than a coin-flip.
+ *
+ * The stronger signal is that the DEA analyses all point at one group
+ * (eid 79038: 10 of 10 on the live group, 0 on the dead one), but that
+ * is another request; this join is free once both lists are in hand.
+ */
+export function summarizeSubsetGroups(
+  rows: DatasetSubset[],
+  groups: SubsetGroup[],
+): SubsetGroupsSummary {
+  const byGroup = new Map<number, DatasetSubset[]>();
+  const orphans: DatasetSubset[] = [];
+  for (const r of rows) {
+    const ids = r.sub_set_group_ids ?? [];
+    if (ids.length === 0) {
+      orphans.push(r);
+      continue;
+    }
+    for (const g of ids) {
+      const list = byGroup.get(g) ?? [];
+      list.push(r);
+      byGroup.set(g, list);
+    }
+  }
+
+  const preferredIds = groups
+    .filter((g) =>
+      (g.quantitation_types ?? []).some((q) => q.is_preferred === true),
+    )
+    .map((g) => g.id);
+  const liveAmbiguous = preferredIds.length !== 1;
+  const liveId = liveAmbiguous ? null : preferredIds[0];
+
+  const views: SubsetGroupView[] = groups.map((g) => {
+    const summary = summarizeSubsets(byGroup.get(g.id) ?? []);
+    return {
+      id: g.id,
+      name: (g.name ?? "").trim(),
+      subsets: summary.subsets,
+      rowCount: summary.rowCount,
+      commonPrefix: summary.commonPrefix,
+      factorNames: (g.factors ?? [])
+        .map((f) => (f.name ?? "").trim())
+        .filter(Boolean),
+      preferred: (g.quantitation_types ?? []).some(
+        (q) => q.is_preferred === true,
+      ),
+      groundedCount: summary.subsets.filter(isGrounded).length,
+      superseded: liveId != null && g.id !== liveId,
+    };
+  });
+
+  // Live cut first; then the superseded ones largest-first, because a
+  // dead cut of 36 is the one a curator will ask about.
+  views.sort((a, b) => {
+    if (a.superseded !== b.superseded) return a.superseded ? 1 : -1;
+    return b.subsets.length - a.subsets.length;
+  });
+
+  return {
+    groups: views,
+    ungrouped: summarizeSubsets(orphans).subsets,
+    liveAmbiguous,
+  };
+}
+
+/** `/datasets/{id}/subSetGroups` joined with `/datasets/{id}/subSets`.
+ *
+ *  Both calls are needed — see `SubsetGroup.sub_sets`. A 404 on either
+ *  is the ordinary local-mode answer and renders as "nothing to show". */
+export function useDatasetSubsetGroups(
+  experimentId: number | string | null | undefined,
+) {
+  return useQuery<SubsetGroupsSummary>({
+    queryKey: ["dataset-subset-groups", String(experimentId ?? "")],
+    enabled: experimentId != null && experimentId !== "",
+    queryFn: async () => {
+      try {
+        const [rows, groups] = await Promise.all([
+          api.get<DatasetSubset[] | null>(
+            `/rest/v2/datasets/${experimentId}/subSets`,
+          ),
+          api.get<SubsetGroup[] | null>(
+            `/rest/v2/datasets/${experimentId}/subSetGroups`,
+          ),
+        ]);
+        return summarizeSubsetGroups(
+          Array.isArray(rows) ? rows : [],
+          Array.isArray(groups) ? groups : [],
+        );
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 404) return NO_SUBSET_GROUPS;
+        throw e;
+      }
+    },
     staleTime: 30 * 60_000,
     retry: false,
   });

@@ -12,8 +12,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   sharedNamePrefix,
+  summarizeSubsetGroups,
   summarizeSubsets,
   type DatasetSubset,
+  type SubsetGroup,
 } from "./subsets";
 
 /** Single-cell: one subset per cell-type assignment, each carrying a
@@ -162,5 +164,149 @@ describe("sharedNamePrefix", () => {
 
   it("returns nothing for a single subset — there is no shared prefix", () => {
     expect(sharedNamePrefix(["Subset for larynx"])).toBe("");
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * Subset GROUPS. The flat list above is a lie on 62% of single-cell
+ * datasets (57 of 92 measured 2026-09-03) because they carry more than
+ * one subset group and all but one is a superseded cut.
+ *
+ * 🛑 Fixtures below are the SHAPE gemma2 returns, not a convenient
+ * reduction of it: `/subSetGroups` sends `sub_sets` with NO
+ * characteristics and the annotations arrive on `/subSets`. A fixture
+ * that put characteristics on the group rows would pass while the join
+ * it exists to cover was broken.
+ *
+ * Numbers come from eid 79038 (Rexach-2024.3), measured 2026-09-03.
+ * ------------------------------------------------------------------ */
+
+function sub(
+  id: number,
+  name: string,
+  groupId: number,
+  value: string,
+  uri: string | null,
+): DatasetSubset {
+  return {
+    id,
+    name,
+    characteristics: [
+      { id: id * 10, category: "cell type", value, value_uri: uri },
+    ],
+    sub_set_group_ids: [groupId],
+  };
+}
+
+const CL = "http://purl.obolibrary.org/obo/CL_";
+
+/** The live cut: grounded to CL, owns the `cell type` factor, preferred
+ *  quantitation type. */
+const LIVE: SubsetGroup = {
+  id: 49734,
+  name: "Split part 3 of: … [organism part = visual cortex]",
+  factors: [{ id: 68843, name: "cell type" }],
+  quantitation_types: [
+    { id: 615713, name: "10x MEX aggregated by cell type", is_preferred: true },
+  ],
+  sub_sets: [{ id: 79076 }, { id: 79081 }],
+};
+
+/** The superseded cut: the author's raw strings, no factor, not
+ *  preferred. */
+const DEAD: SubsetGroup = {
+  id: 49732,
+  name: "Split part 3 of: … [organism part = visual cortex]",
+  factors: [],
+  quantitation_types: [
+    { id: 615709, name: "10x MEX aggregated by cell type", is_preferred: false },
+  ],
+  sub_sets: [{ id: 79059 }, { id: 79064 }],
+};
+
+const ROWS: DatasetSubset[] = [
+  sub(79076, "P - astrocyte", 49734, "astrocyte", `${CL}0000127`),
+  sub(79081, "P - opc", 49734, "oligodendrocyte precursor cell", `${CL}0002453`),
+  sub(79059, "P - astrocyte raw", 49732, "astrocyte", null),
+  sub(79064, "P - opc raw", 49732, "opc", null),
+];
+
+describe("summarizeSubsetGroups", () => {
+  it("marks the preferred-quantitation-type group live and the rest superseded", () => {
+    const out = summarizeSubsetGroups(ROWS, [DEAD, LIVE]);
+    expect(out.liveAmbiguous).toBe(false);
+    // Live sorts first regardless of the order the groups arrived in —
+    // gemma2 returns the dead one first on eid 77392.
+    expect(out.groups.map((g) => g.id)).toEqual([49734, 49732]);
+    expect(out.groups[0].superseded).toBe(false);
+    expect(out.groups[1].superseded).toBe(true);
+  });
+
+  it("joins characteristics from /subSets onto the group's own subsets", () => {
+    const out = summarizeSubsetGroups(ROWS, [LIVE, DEAD]);
+    const live = out.groups.find((g) => g.id === 49734)!;
+    expect(live.subsets).toHaveLength(2);
+    expect(live.groundedCount).toBe(2);
+    expect(live.factorNames).toEqual(["cell type"]);
+
+    const dead = out.groups.find((g) => g.id === 49732)!;
+    expect(dead.groundedCount).toBe(0);
+    expect(dead.factorNames).toEqual([]);
+    // The raw author string is the thing a curator is looking for here.
+    expect(dead.subsets.flatMap((s) => s.characteristics.map((c) => c.value)))
+      .toContain("opc");
+  });
+
+  it("does not guess when two groups both claim a preferred type", () => {
+    // eid 65454 and 51179, 2 of 92 datasets measured.
+    const both = { ...DEAD, quantitation_types: [{ is_preferred: true }] };
+    const out = summarizeSubsetGroups(ROWS, [LIVE, both]);
+    expect(out.liveAmbiguous).toBe(true);
+    expect(out.groups.every((g) => !g.superseded)).toBe(true);
+  });
+
+  it("does not guess when no group claims a preferred type", () => {
+    const neither = { ...LIVE, quantitation_types: [{ is_preferred: false }] };
+    const out = summarizeSubsetGroups(ROWS, [neither, DEAD]);
+    expect(out.liveAmbiguous).toBe(true);
+    expect(out.groups.every((g) => !g.superseded)).toBe(true);
+  });
+
+  it("does not rely on 'has a factor' — it fails on 10 of 92 datasets", () => {
+    // eid 75811 / 75052 / 67057 / 67053: both groups carry a factor and
+    // only the quantitation type separates them.
+    const deadWithFactor: SubsetGroup = {
+      ...DEAD,
+      factors: [{ id: 999, name: "cell type" }],
+    };
+    const out = summarizeSubsetGroups(ROWS, [LIVE, deadWithFactor]);
+    expect(out.liveAmbiguous).toBe(false);
+    expect(out.groups.find((g) => g.id === 49732)!.superseded).toBe(true);
+  });
+
+  it("surfaces subsets belonging to no group rather than dropping them", () => {
+    const orphan: DatasetSubset = {
+      id: 1,
+      name: "loose",
+      characteristics: [],
+      sub_set_group_ids: [],
+    };
+    const out = summarizeSubsetGroups([...ROWS, orphan], [LIVE, DEAD]);
+    expect(out.ungrouped.map((s) => s.name)).toEqual(["loose"]);
+  });
+
+  it("counts rows and names separately inside one group", () => {
+    const dupe = sub(79077, "P - astrocyte", 49734, "astrocyte", `${CL}0000127`);
+    const out = summarizeSubsetGroups([...ROWS, dupe], [LIVE, DEAD]);
+    const live = out.groups.find((g) => g.id === 49734)!;
+    expect(live.rowCount).toBe(3);
+    expect(live.subsets).toHaveLength(2);
+    expect(live.subsets.find((s) => s.name === "P - astrocyte")!.rows).toBe(2);
+  });
+
+  it("returns nothing to render when Gemma has no groups", () => {
+    const out = summarizeSubsetGroups([], []);
+    expect(out.groups).toEqual([]);
+    expect(out.ungrouped).toEqual([]);
   });
 });

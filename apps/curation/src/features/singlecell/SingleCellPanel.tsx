@@ -2,7 +2,12 @@ import { useMemo } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { Term } from "@/components/ui/Term";
 import type { Tag } from "@/features/experiment/types";
-import { useDatasetSubsets, type DistinctSubset } from "@/api/subsets";
+import {
+  useDatasetSubsetGroups,
+  type DistinctSubset,
+  type SubsetGroupsSummary,
+  type SubsetGroupView,
+} from "@/api/subsets";
 import {
   assignmentOrigin,
   groundedCount,
@@ -98,12 +103,25 @@ export function SingleCellPanel() {
       (t) => (t.category?.label || "").trim().toLowerCase() === "cell type",
     );
   }, [draft?.tags]);
-  const subsets = useDatasetSubsets(draft?.experiment_id);
+  const subsets = useDatasetSubsetGroups(draft?.experiment_id);
   const assignment = useCellTypeAssignment(draft?.experiment_id);
 
+  // 🛑 **Count the LIVE cut only.** A dataset commonly carries a
+  // superseded subset group holding the author's raw strings for the
+  // same cell types (eid 79038: `opc` beside `oligodendrocyte precursor
+  // cell`), so unioning every group reports 20 cell types where there
+  // are 10. When the live cut cannot be picked, fall back to every
+  // group rather than silently showing one — an over-count a curator
+  // can see beats a half-list they cannot.
+  const countedSubsets = useMemo(() => {
+    const groups = subsets.data?.groups ?? [];
+    const live = groups.filter((g) => !g.superseded);
+    return (live.length > 0 ? live : groups).flatMap((g) => g.subsets);
+  }, [subsets.data]);
+
   const cellTypes = useMemo(
-    () => distinctCellTypes(tagCellTypes, subsets.data?.subsets ?? []),
-    [tagCellTypes, subsets.data],
+    () => distinctCellTypes(tagCellTypes, countedSubsets),
+    [tagCellTypes, countedSubsets],
   );
 
   // Never claim "none" while a fetch that could produce some is still
@@ -148,7 +166,9 @@ export function SingleCellPanel() {
           More single-cell-specific surfaces are planned for this tab
           — cell-bucket sub-BMs, cells per cell type, per-cell-type
           DEA pointers, and a free-text-vs-ontology-resolved
-          breakdown of the cell-type characteristics.
+          breakdown of the cell-type characteristics. Cells per
+          LIBRARY needs no wire work: <code>numberOfCells</code> is
+          already on each row of <code>/datasets/{"{id}"}/samples</code>.
         </p>
       </article>
 
@@ -157,7 +177,23 @@ export function SingleCellPanel() {
   );
 }
 
-/** The subsets Gemma has already cut, and the annotations they carry.
+/** The subsets Gemma has already cut, **one block per subset group**.
+ *
+ *  🛑 **A flat list of subsets is a lie on 62% of single-cell
+ *  datasets.** They carry more than one subset GROUP and all but one is
+ *  a superseded cut — on eid 79038 the same ten cell types appear
+ *  twice, once grounded to CL and once as the author's raw strings
+ *  (`opc`, `t_cell`, `endothelia`). Merging them produced the
+ *  interleaved list that made a curator ask which was which. The dead
+ *  cut is routinely LARGER than the live one (eid 77392: live 8, dead
+ *  36; eid 76967 has 31 dead groups), so it dominates any list that
+ *  does not separate them.
+ *
+ *  Every group is shown — none is hidden — but the live one is open and
+ *  the superseded ones start collapsed behind their own summary line.
+ *  See `api/subsets.ts::summarizeSubsetGroups` for how live is decided
+ *  and why it is the preferred quantitation type rather than "has a
+ *  factor".
  *
  *  Renders nothing when there are none — most bulk experiments — so the
  *  card's presence is itself the signal that this experiment has
@@ -166,7 +202,7 @@ function SubsetsCard({
   summary,
   loading,
 }: {
-  summary?: { subsets: DistinctSubset[]; rowCount: number; commonPrefix: string };
+  summary?: SubsetGroupsSummary;
   loading: boolean;
 }) {
   if (loading) {
@@ -178,10 +214,13 @@ function SubsetsCard({
       </article>
     );
   }
-  if (!summary || summary.subsets.length === 0) return null;
+  if (!summary) return null;
 
-  const { subsets, rowCount, commonPrefix } = summary;
-  const duplicated = rowCount > subsets.length;
+  const { groups, ungrouped, liveAmbiguous } = summary;
+  const total = groups.reduce((n, g) => n + g.subsets.length, 0) + ungrouped.length;
+  if (total === 0) return null;
+
+  const supersededCount = groups.filter((g) => g.superseded).length;
 
   return (
     <article className="card p-4 space-y-3">
@@ -190,7 +229,8 @@ function SubsetsCard({
           Subsets in Gemma
         </h2>
         <span className="text-[11px] uppercase tracking-wide text-violet-700 dark:text-violet-300 font-semibold px-2 py-0.5 rounded border border-violet-200 bg-violet-50 dark:border-violet-700 dark:bg-violet-900/30">
-          {subsets.length} subset{subsets.length === 1 ? "" : "s"}
+          {groups.length} group{groups.length === 1 ? "" : "s"} · {total}{" "}
+          subset{total === 1 ? "" : "s"}
         </span>
       </header>
 
@@ -201,6 +241,84 @@ function SubsetsCard({
         and appears on no other tab.
       </p>
 
+      {supersededCount > 0 ? (
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          {supersededCount} of these {groups.length} group
+          {groups.length === 1 ? "" : "s"}{" "}
+          {supersededCount === 1 ? "is a" : "are"} superseded cut
+          {supersededCount === 1 ? "" : "s"} — Gemma keeps them, but the
+          analyses run on the live one. They are collapsed below, not
+          hidden.
+        </p>
+      ) : null}
+
+      {liveAmbiguous && groups.length > 1 ? (
+        <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
+          Which cut is live could not be determined — no single group
+          claims the preferred quantitation type. Nothing is marked
+          superseded here; every group is shown open.
+        </p>
+      ) : null}
+
+      <div className="space-y-3">
+        {groups.map((g) => (
+          <SubsetGroupBlock key={g.id} group={g} />
+        ))}
+      </div>
+
+      {ungrouped.length > 0 ? (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+            {ungrouped.length} subset{ungrouped.length === 1 ? "" : "s"} in
+            no group
+          </p>
+          <SubsetList subsets={ungrouped} commonPrefix="" />
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+/** One subset group. Live groups render open; superseded ones collapse
+ *  behind a summary line that still says how big they are and what they
+ *  hold, so a curator can decide whether to look without opening. */
+function SubsetGroupBlock({ group }: { group: SubsetGroupView }) {
+  const { subsets, rowCount, commonPrefix, superseded, groundedCount } = group;
+  const duplicated = rowCount > subsets.length;
+  const allGrounded = groundedCount === subsets.length && subsets.length > 0;
+  const noneGrounded = groundedCount === 0;
+
+  const summaryLine = (
+    <span className="flex flex-wrap items-baseline gap-2">
+      <span
+        className={
+          superseded
+            ? "text-[11px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 dark:border-slate-600 dark:text-slate-400"
+            : "text-[11px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"
+        }
+      >
+        {superseded ? "superseded" : "live"}
+      </span>
+      <span className="text-sm text-slate-800 dark:text-slate-200">
+        {subsets.length} subset{subsets.length === 1 ? "" : "s"}
+      </span>
+      <span className="text-[11px] text-slate-500 dark:text-slate-400">
+        {allGrounded
+          ? "all grounded"
+          : noneGrounded
+            ? "none grounded"
+            : `${groundedCount} of ${subsets.length} grounded`}
+        {group.factorNames.length > 0
+          ? ` · cut on ${group.factorNames.join(", ")}`
+          : " · no factor"}
+        {" · group "}
+        {group.id}
+      </span>
+    </span>
+  );
+
+  const body = (
+    <>
       {commonPrefix ? (
         <p className="text-[11px] text-slate-500 dark:text-slate-400">
           Names share the prefix{" "}
@@ -208,47 +326,71 @@ function SubsetsCard({
           below.
         </p>
       ) : null}
-
-      <ul className="space-y-1.5">
-        {subsets.map((s) => {
-          const label = commonPrefix
-            ? s.name.slice(commonPrefix.length) || s.name
-            : s.name;
-          return (
-            <li key={s.id} className="flex flex-wrap items-baseline gap-2">
-              <span className="text-sm text-slate-800 dark:text-slate-200">
-                {label}
-              </span>
-              {s.characteristics.map((c, i) => (
-                <Term
-                  key={`${c.id ?? i}`}
-                  uri={c.value_uri ?? null}
-                  asLink={false}
-                  title={c.category ? `${c.category}` : undefined}
-                >
-                  {c.value || "(unlabeled)"}
-                </Term>
-              ))}
-              {s.rows > 1 ? (
-                <span className="text-[11px] text-amber-700 dark:text-amber-300">
-                  ×{s.rows} rows
-                </span>
-              ) : null}
-            </li>
-          );
-        })}
-      </ul>
-
+      <SubsetList subsets={subsets} commonPrefix={commonPrefix} />
       {duplicated ? (
         <p className="text-[11px] text-amber-700 dark:text-amber-300 leading-relaxed">
-          Gemma returned {rowCount} subset rows under {subsets.length}{" "}
-          distinct names. The duplication is real and corpus-wide (2.4×
-          across 47,143 rows, worse on some experiments) and nobody has
-          explained it yet, so both numbers are shown rather than the
-          collapsed list alone.
+          {rowCount} rows under {subsets.length} names inside this one
+          group — the repetition is not the group split.
         </p>
       ) : null}
-    </article>
+    </>
+  );
+
+  if (superseded) {
+    return (
+      <details className="rounded border border-slate-200 dark:border-slate-700 px-2.5 py-2">
+        <summary className="cursor-pointer">{summaryLine}</summary>
+        <div className="mt-2 space-y-1.5 opacity-70">{body}</div>
+      </details>
+    );
+  }
+
+  return (
+    <div className="rounded border border-emerald-200 dark:border-emerald-800 px-2.5 py-2 space-y-1.5">
+      {summaryLine}
+      {body}
+    </div>
+  );
+}
+
+/** The subsets themselves — name, then whatever terms it carries. */
+function SubsetList({
+  subsets,
+  commonPrefix,
+}: {
+  subsets: DistinctSubset[];
+  commonPrefix: string;
+}) {
+  return (
+    <ul className="space-y-1.5">
+      {subsets.map((s) => {
+        const label = commonPrefix
+          ? s.name.slice(commonPrefix.length) || s.name
+          : s.name;
+        return (
+          <li key={s.id} className="flex flex-wrap items-baseline gap-2">
+            <span className="text-sm text-slate-800 dark:text-slate-200">
+              {label}
+            </span>
+            {s.characteristics.map((c, i) => (
+              <Term
+                key={`${c.id ?? i}`}
+                uri={c.value_uri ?? null}
+                asLink={false}
+                title={c.category ? `${c.category}` : undefined}
+              >
+                {c.value || "(unlabeled)"}
+              </Term>
+            ))}
+            {s.rows > 1 ? (
+              <span className="text-[11px] text-amber-700 dark:text-amber-300">
+                ×{s.rows} rows
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
