@@ -72,6 +72,22 @@ describe("scratchpadOwner", () => {
     ).toEqual({ kind: "mine" });
   });
 
+  // 🛑 The name colliding with the reader's own. Synthetic ids and a
+  // synthetic name on purpose: no such collision exists on prod (gembro
+  // checked on 2026-09-02 — no account's contact name equals another
+  // account's username), and a fixture built from real ids would read
+  // as a record that one did.
+  //
+  // It is guarded anyway. One scratchpad per curator is a unique index
+  // (TICKET_ONE_SCRATCHPAD_PER_CURATOR, V40), so a different id is
+  // proof on its own and the name gets no vote once the id is known.
+  it("is not mine on a different id, even carrying the session's own name", () => {
+    const t = ticket(902, "SCRATCHPAD", { id: 9002, name: "same-name" });
+    expect(
+      scratchpadOwner(t, { myScratchpadId: 901, myUsername: "same-name" }),
+    ).toEqual({ kind: "named", name: "same-name" });
+  });
+
   it("is mine on a name matching the session when the route gave no id", () => {
     const t = ticket(7, "SCRATCHPAD", { id: 1, name: "Admin" });
     expect(scratchpadOwner(t, { myUsername: "admin" })).toEqual({

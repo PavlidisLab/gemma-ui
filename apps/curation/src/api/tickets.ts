@@ -1013,17 +1013,39 @@ export function scratchpadOwner(
 ): ScratchpadOwner | null {
   if (ticket.type !== "SCRATCHPAD") return null;
   const name = ticket.reporter_name?.trim() || "";
-  if (typeof ctx.myScratchpadId === "number" && ticket.id === ctx.myScratchpadId) {
+  const notMine = (): ScratchpadOwner =>
+    name
+      ? { kind: "named", name }
+      : { kind: "other", reporterId: ticket.reporter_id };
+
+  // 🛑 A KNOWN id settles it BOTH ways, and the name gets no vote after
+  // it. One scratchpad per curator is enforced in the database
+  // (`TICKET_ONE_SCRATCHPAD_PER_CURATOR`, V40 — unique on the owner),
+  // so a scratchpad with a different id cannot also be ours whatever
+  // name it carries.
+  //
+  // A guard, not a repair: gembro checked prod on 2026-09-02 and no
+  // account's contact name equals another account's username, so the
+  // name match has nothing to collide with there today. It is ranked
+  // below the id because the only thing standing between it and a
+  // false "yours" on someone else's pile is that measurement, and a
+  // measurement of an account table is not an invariant.
+  if (typeof ctx.myScratchpadId === "number") {
+    return ticket.id === ctx.myScratchpadId ? { kind: "mine" } : notMine();
+  }
+
+  // No id in hand — the route is in flight, or the host never grew it.
+  // A name matching the session is the only claim left, and a weak one:
+  // on gemma2 `/users/me` answers "administrator" for the account whose
+  // contact name is "admin", so it misses as often as it hits. It can
+  // only ADD a "yours", never take one away.
+  const me = ctx.myUsername?.trim() || "";
+  if (name && me && name.toLowerCase() === me.toLowerCase()) {
     return { kind: "mine" };
   }
-  const me = ctx.myUsername?.trim() || "";
-  if (name && me && name.toLowerCase() === me.toLowerCase()) return { kind: "mine" };
   if (name) return { kind: "named", name };
-  // Unnamed: only assert it is somebody ELSE'S once we know which one
-  // is ours. Without that, "another curator's" is a guess.
-  if (typeof ctx.myScratchpadId === "number") {
-    return { kind: "other", reporterId: ticket.reporter_id };
-  }
+  // Unnamed, with nothing establishing whose it is. "Another curator's"
+  // would be a guess.
   return null;
 }
 
