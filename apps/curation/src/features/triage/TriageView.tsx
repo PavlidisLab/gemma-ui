@@ -761,7 +761,14 @@ function TriageRow({
   const { data: preboarded } = useQuery({
     queryKey: ["preboarded-fallback", target.target_id],
     queryFn: () =>
-      api.get<{ accession?: string; identifyingMetadata?: string | null }>(
+      // 🛑 api.get runs every response through snakeify() (client.ts) —
+      // Gemma's wire field `identifyingMetadata` arrives here as
+      // `identifying_metadata`, same as everything else this app reads.
+      // Confirmed live 2026-09-03: this call worked all along (verified
+      // by curl against the same proxy path); the bug was reading the
+      // un-normalized camelCase key name on the result, which is always
+      // undefined and fails silently — no error, just blank columns.
+      api.get<{ accession?: string; identifying_metadata?: string | null }>(
         `/rest/v2/preboarded/${target.target_id}`,
       ),
     enabled: needsPreboardedFallback,
@@ -772,9 +779,9 @@ function TriageRow({
     staleTime: Infinity,
   });
   const fallbackIdent = useMemo(() => {
-    if (!preboarded?.identifyingMetadata) return null;
+    if (!preboarded?.identifying_metadata) return null;
     try {
-      return JSON.parse(preboarded.identifyingMetadata) as Record<
+      return JSON.parse(preboarded.identifying_metadata) as Record<
         string,
         unknown
       >;

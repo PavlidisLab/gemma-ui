@@ -68,9 +68,16 @@ describe("a real Gemma ticket falls back to /preboarded for candidate metadata",
       typeof useGemmaMode
     >);
     getMock.mockReset();
+    // api.get runs every response through client.ts's snakeify() before a
+    // real caller ever sees it (confirmed 2026-09-03 — this is what the
+    // bug actually was: the mock here originally returned the RAW
+    // camelCase wire shape, which bypassed snakeify entirely and let the
+    // test pass while the real code silently read the wrong key name).
+    // Mock what api.get actually hands back, not what Gemma sends over
+    // the wire.
     getMock.mockResolvedValue({
       accession: "GSE344586",
-      identifyingMetadata: JSON.stringify({
+      identifying_metadata: JSON.stringify({
         title: "Metabolic and transcriptomic profiles of glioblastoma invasion",
         organisms: ["Mus musculus", "Homo sapiens"],
         numSamples: 39,
