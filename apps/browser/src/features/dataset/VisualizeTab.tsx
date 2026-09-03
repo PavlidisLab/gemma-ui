@@ -1132,7 +1132,7 @@ function toCell(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function adaptHeatmapWire(
+export function adaptHeatmapWire(
   wire: HeatmapWireResponse,
   origins: Record<number, GeneOrigin> = {},
   queried: Set<number> = new Set(),

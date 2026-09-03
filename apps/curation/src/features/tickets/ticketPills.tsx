@@ -1,4 +1,10 @@
-import type { TicketPriority, TicketState } from "@/api/tickets";
+import {
+  scratchpadOwnerLabel,
+  scratchpadOwnerTitle,
+  type ScratchpadOwner,
+  type TicketPriority,
+  type TicketState,
+} from "@/api/tickets";
 import { cn } from "@/lib/cn";
 
 /**
@@ -59,6 +65,38 @@ export function StatePill({ state }: { state: TicketState }) {
   );
 }
 
+
+/** Whose scratchpad this is, beside the SCRATCHPAD type chip.
+ *
+ *  A sibling of the pair above rather than a fourth near-duplicate of
+ *  the chip idea: same geometry, same module, so the ticket chips can
+ *  only drift together.
+ *
+ *  Own vs. someone else's is the distinction the pill exists to draw,
+ *  so ``mine`` is the only one that takes a colour — a queue of slate
+ *  chips with one sky chip in it answers "which is mine" without
+ *  reading a word. Renders nothing when ownership could not be
+ *  established; see ``scratchpadOwner``. */
+export function ScratchpadOwnerPill({
+  owner,
+}: {
+  owner: ScratchpadOwner | null;
+}) {
+  if (!owner) return null;
+  return (
+    <span
+      className={cn(
+        "inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide border",
+        owner.kind === "mine"
+          ? "bg-sky-100 text-sky-900 border-sky-400 dark:bg-sky-900/50 dark:text-sky-100 dark:border-sky-500"
+          : "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600",
+      )}
+      title={scratchpadOwnerTitle(owner)}
+    >
+      {scratchpadOwnerLabel(owner)}
+    </span>
+  );
+}
 
 
 /** Ticket dates as a curator reads them. Lives beside the pills for the

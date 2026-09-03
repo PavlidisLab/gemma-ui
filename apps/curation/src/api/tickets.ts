@@ -217,6 +217,7 @@ export function reasonToSend(
 }
 
 import { api, ApiError } from "@/api/client";
+import { useMe } from "@/api/session";
 
 export type TicketType =
   | "BATCH_INFO_NEEDED"
@@ -966,6 +967,142 @@ export function useMyScratchpad() {
     staleTime: 5 * 60_000,
     retry: false,
   });
+}
+
+/** Whose scratchpad this is, as far as the wire can establish it.
+ *
+ *  A curator sees other curators' scratchpads in the queue — Paul,
+ *  2026-09-02: *"I can see another curators' scratchpad, which is fine,
+ *  but let's make it clear whose it is"*. Two of them side by side read
+ *  "Scratchpad: admin" and plain "Scratchpad", and nothing on either
+ *  card said which one was the reader's own.
+ *
+ *  🛑 **A scratchpad's owner is its REPORTER, never its assignee.**
+ *  `getOrCreateScratchpad` files it for the curator and leaves
+ *  `assignee` null, so every scratchpad renders "unassigned" and the
+ *  ownership is entirely in `reporter_*`.
+ *
+ *  🛑 **`reporter_name` is `Contact.getName()`, which is NOT the
+ *  username.** `TicketValueObject.from` reads `t.getReporter().getName()`,
+ *  and a Gemma `User` carries `userName` separately from the `Contact`
+ *  name it inherits. A curator whose contact name was never filled in
+ *  serializes `reporterName: null` beside a real `reporterId` — ticket
+ *  13 on gemma2 is exactly that (`reporterId: 52731`). The same call
+ *  builds the title, so that ticket is also titled bare "Scratchpad"
+ *  while ticket 7's says "Scratchpad: admin": ONE null, two symptoms,
+ *  and the title is not a fallback for the name. `other` is what an
+ *  unnamed one honestly reads as; naming them is gembro's to fix.
+ *
+ *  Ownership is claimed only when it can be established — `mine`
+ *  needs the id from `GET /tickets/scratchpad`, or a `reporter_name`
+ *  matching the session. When neither is in hand (the route 404s on a
+ *  host that hasn't deployed it, or is still in flight) the answer is
+ *  `null` and callers render nothing, rather than telling a curator
+ *  their own pile belongs to someone else. */
+export type ScratchpadOwner =
+  | { kind: "mine" }
+  | { kind: "named"; name: string }
+  | { kind: "other"; reporterId: number | null };
+
+/** Exported for test; `useScratchpadOwner` is the hook every render
+ *  site should use. `myScratchpadId` is `undefined` when unestablished
+ *  and a number once the route has answered. */
+export function scratchpadOwner(
+  ticket: Pick<Ticket, "type" | "id" | "reporter_id" | "reporter_name">,
+  ctx: { myScratchpadId?: number | null; myUsername?: string | null } = {},
+): ScratchpadOwner | null {
+  if (ticket.type !== "SCRATCHPAD") return null;
+  const name = ticket.reporter_name?.trim() || "";
+  const notMine = (): ScratchpadOwner =>
+    name
+      ? { kind: "named", name }
+      : { kind: "other", reporterId: ticket.reporter_id };
+
+  // 🛑 A KNOWN id settles it BOTH ways, and the name gets no vote after
+  // it. One scratchpad per curator is enforced in the database
+  // (`TICKET_ONE_SCRATCHPAD_PER_CURATOR`, V40 — unique on the owner),
+  // so a scratchpad with a different id cannot also be ours whatever
+  // name it carries.
+  //
+  // A guard, not a repair: gembro checked prod on 2026-09-02 and no
+  // account's contact name equals another account's username, so the
+  // name match has nothing to collide with there today. It is ranked
+  // below the id because the only thing standing between it and a
+  // false "yours" on someone else's pile is that measurement, and a
+  // measurement of an account table is not an invariant.
+  if (typeof ctx.myScratchpadId === "number") {
+    return ticket.id === ctx.myScratchpadId ? { kind: "mine" } : notMine();
+  }
+
+  // No id in hand — the route is in flight, or the host never grew it.
+  // A name matching the session is the only claim left, and a weak one:
+  // on gemma2 `/users/me` answers "administrator" for the account whose
+  // contact name is "admin", so it misses as often as it hits. It can
+  // only ADD a "yours", never take one away.
+  const me = ctx.myUsername?.trim() || "";
+  if (name && me && name.toLowerCase() === me.toLowerCase()) {
+    return { kind: "mine" };
+  }
+  if (name) return { kind: "named", name };
+  // Unnamed, with nothing establishing whose it is. "Another curator's"
+  // would be a guess.
+  return null;
+}
+
+/** The pill's text — "yours", "admin's", "another curator". */
+export function scratchpadOwnerLabel(owner: ScratchpadOwner): string {
+  switch (owner.kind) {
+    case "mine":
+      return "yours";
+    case "named":
+      return `${owner.name}'s`;
+    case "other":
+      return "another curator";
+  }
+}
+
+/** The pill's tooltip. The unnamed case names the gap rather than
+ *  hiding it: the curator sees that Gemma sent an id and no name. */
+export function scratchpadOwnerTitle(owner: ScratchpadOwner): string {
+  switch (owner.kind) {
+    case "mine":
+      return "Your scratchpad — the datasets you are currently working on.";
+    case "named":
+      return `${owner.name}'s scratchpad, not yours.`;
+    case "other":
+      return (
+        "Another curator's scratchpad, not yours. Gemma sent no name for " +
+        (owner.reporterId === null
+          ? "the curator who owns it."
+          : `contact #${owner.reporterId}, the curator who owns it.`)
+      );
+  }
+}
+
+/** Whose scratchpad a ticket is, for the current session. `null` for
+ *  every non-scratchpad ticket and whenever ownership can't be
+ *  established — both mean "render nothing".
+ *
+ *  Two forms because a list renders rows inside a `map`, where a hook
+ *  per row is not allowed: the resolver is taken ONCE by the component
+ *  and applied per row. Both read the same two shared, long-lived
+ *  query keys, which the dashboard has already fetched by the time a
+ *  card asks — so neither costs a round-trip. */
+export function useScratchpadOwnerResolver(): (
+  ticket: Pick<Ticket, "type" | "id" | "reporter_id" | "reporter_name">,
+) => ScratchpadOwner | null {
+  const mine = useMyScratchpad();
+  const me = useMe();
+  const myScratchpadId = mine.data?.id;
+  const myUsername = me.data?.username;
+  return (ticket) =>
+    scratchpadOwner(ticket, { myScratchpadId, myUsername });
+}
+
+export function useScratchpadOwner(
+  ticket: Pick<Ticket, "type" | "id" | "reporter_id" | "reporter_name">,
+): ScratchpadOwner | null {
+  return useScratchpadOwnerResolver()(ticket);
 }
 
 /** The dashboard order, with the scratchpad hoisted to the front.

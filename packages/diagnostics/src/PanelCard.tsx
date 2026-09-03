@@ -13,9 +13,15 @@
 import type { ReactNode } from "react";
 
 /** Fixed inner-body height (CSS px) shared by every diagnostics tile,
- *  so the four cards stay uniform and compact. Bumped 280 → 308
- *  (+10%) on 2026-07-11. */
-export const DIAGNOSTICS_PANEL_BODY_PX = 308;
+ *  so the four cards stay uniform and compact. 280 → 308 on
+ *  2026-07-11; 308 → 420 on 2026-09-02.
+ *
+ *  🛑 The correlation matrix is SQUARE, so this height is the only
+ *  thing that sets its size — its card is ~600px wide and it can never
+ *  use that. At 308 it drew ~230px in a card with a screenful of empty
+ *  page beneath the whole row. Raising the body is the only way to make
+ *  it bigger, and the other three tiles were cramped at 308 too. */
+export const DIAGNOSTICS_PANEL_BODY_PX = 420;
 
 /** Vertical space (CSS px) consumed above a heatmap's matrix inside the
  *  panel body — the sequential legend strip + its labels + the body's

@@ -536,6 +536,17 @@ export interface Design {
   original_platform_id?: number | null;
   publications?: Publication[];
   loaded_at?: string;
+  /** Siblings of a split experiment — see `DatasetMetaSlim.other_parts`.
+   *  Gemma splits single-cell studies by organism part, and 52 of 100
+   *  sampled single-cell datasets are a "Split part N of: …". Absent in
+   *  local mode; the store serves no such field. */
+  other_parts?: { id?: number | null; short_name?: string | null; name?: string | null }[];
+  /** Gemma's own single-cell flag. Authoritative where present; absent
+   *  in local mode and on a host predating 2026-09-03, where
+   *  `inferModality` falls back to its string heuristics. */
+  is_single_cell?: boolean;
+  /** Total cells. `null`/absent means NOT COUNTED, never zero. */
+  number_of_cells?: number;
   loaded_by?: string;
 }
 

@@ -19,7 +19,18 @@ export interface PcFactorBarRow {
   values: number[];
 }
 
-export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: number }) {
+export function PcFactorBars({
+  rows,
+  nPcs,
+  onBarClick,
+}: {
+  rows: PcFactorBarRow[];
+  nPcs: number;
+  /** Open the underlying data for one (factor, PC). `pc` is 1-based.
+   *  A bar states an association; the plot behind it is how a reader
+   *  checks whether they believe it. */
+  onBarClick?: (rowIndex: number, pc: number) => void;
+}) {
   const { ref, width, height } = useContainerSize<SVGSVGElement>();
   const W = width > 0 ? width : 220;
   const H = height > 0 ? height : 180;
@@ -74,14 +85,34 @@ export function PcFactorBars({ rows, nPcs }: { rows: PcFactorBarRow[]; nPcs: num
               const h = innerH * Math.min(1, Math.max(0, v));
               return (
                 <rect
-                  key={pi}
+                  key={`bar-${pi}`}
                   x={x}
                   y={padT + innerH - h}
                   width={barW}
                   height={h}
                   fill={PC_COLORS[pi]}
+                  pointerEvents="none"
+                />
+              );
+            })}
+            {r.values.map((v, pi) => {
+              const x = gx + pi * (barW + barGap);
+              return (
+                <rect
+                  key={pi}
+                  x={x}
+                  // 🛑 The full-height hit area, not the drawn bar. A
+                  // near-zero association is a 1px target, and those are
+                  // exactly the ones a reader wants to open to find out
+                  // whether "no association" is real or an artefact.
+                  y={padT}
+                  width={barW}
+                  height={innerH}
+                  fill="transparent"
+                  style={onBarClick ? { cursor: "pointer" } : undefined}
+                  onClick={onBarClick ? () => onBarClick(gi, pi + 1) : undefined}
                 >
-                  <title>{`${r.label}: PC${pi + 1} = ${v.toFixed(3)}`}</title>
+                  <title>{`${r.label}: PC${pi + 1} = ${v.toFixed(3)}${onBarClick ? " — click for the data behind it" : ""}`}</title>
                 </rect>
               );
             })}

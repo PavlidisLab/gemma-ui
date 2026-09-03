@@ -118,6 +118,7 @@ function stepTone(status: StepStatus): NextTask["tone"] {
     case "failed":
       return "urgent";
     case "incomplete":
+    case "stale":
       return "attention";
     default:
       return "todo";

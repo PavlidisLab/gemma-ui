@@ -53,6 +53,7 @@ export {
   NONSPECIFIC_MARK,
 } from './payload';
 export { computeColumnOrder, type ColumnOrderResult } from './columnOrder';
+export { continuousFormatterFor } from './payload';
 export { isTechnicalFactor, orderFactorsForDisplay } from './factorOrder';
 export {
   buildHeatmapDataFromPayload,

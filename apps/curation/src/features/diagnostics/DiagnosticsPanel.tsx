@@ -28,6 +28,16 @@ import { PcaScreeCard } from "./PcaScreeCard";
 import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 import { useGemmaMode } from "@/lib/gemmaMode";
+import { usePipelineStatus } from "@/api/workflow";
+import { statusLabel } from "@/features/workflow/PipelinePanel";
+import { useQuantitationTypes } from "@/api/quantitation";
+import { HelpPopup } from "@/components/ui/HelpPopup";
+import {
+  useDatasetMetadataFiles,
+  metadataFilePath,
+  type DatasetMetadataFile,
+} from "@/api/datasetMetadata";
+import { apiBlob } from "@/api/client";
 
 // Temporary opt-in gate (the reviewer, 2026-05-24): the four panels each hit
 // a separate gemma-rest endpoint that can be heavy. While we're doing
@@ -118,27 +128,278 @@ export function DiagnosticsPanel({ experimentId }: { experimentId: number | stri
   );
 }
 
-/** Bottom-of-tab footer — mirrors the legacy Diagnostics tab's
- *  "Preprocessing metadata: Not available for this experiment"
- *  line. When the curation REST exposes a preprocessing-metadata
- *  endpoint (run date, normalization method, filter rules, etc.)
- *  this expands to surface those. For now it just acknowledges the
- *  legacy footer's existence — the four panels above are the
- *  load-bearing content. */
-function PreprocessingMetadataFooter({
-  experimentId: _experimentId,
+/** Bottom-of-tab footer, answering "how old is what I am looking at,
+ *  and what data were these panels computed from".
+ *
+ *  Two of the three fields the legacy footer promised are already on
+ *  the wire and are read here; the third is not, and says so.
+ *
+ *  🛑 **There is no normalization METHOD name in Gemma** — nothing
+ *  stores "quantile" or "RMA", and no field is rendered for one. What
+ *  is recorded is the preferred quantitation type's flag set, and that
+ *  is what this shows. (`ExperimentalDesign.normalizationDescription`
+ *  exists as a free-text column and no loader has ever written to it.)
+ *
+ *  🛑 **Do not warn on a count of `is_preferred`.** Gemma marks one
+ *  preferred QT per vector type, so every dataset has two — 120 of 120
+ *  sampled on 2026-09-02, and 0 of 120 had two within one vector type.
+ *  A bare count reproduces 1.0's `hasMultiplePreferredQuantitationTypes`
+ *  warning as an alarm that fires on everything.
+ *
+ *  Still absent, both from `pipeline-status`: `preprocess.processedVectors`
+ *  (which carries `quantileNormalized`, the one normalization fact
+ *  Gemma does store) and `sampleCorrelation.filterAttrition` (the
+ *  per-stage filter row counts). Both are built and unshipped — gembro,
+ *  2026-09-02 — so the filtering row states its absence rather than
+ *  rendering a 0, which would read as "every row was filtered out".
+ */
+export function PreprocessingMetadataFooter({
+  experimentId,
 }: {
   experimentId: number | string;
 }) {
+  const { data: pipeline } = usePipelineStatus(experimentId);
+  const { data: qts } = useQuantitationTypes(experimentId);
+  const { data: reports } = useDatasetMetadataFiles(experimentId);
+
+  const preprocess = pipeline?.analysis?.preprocessing;
+
+  // The QT the four panels above were computed from. `is_masked_preferred`
+  // is Gemma's mark for the processed (missing-value-masked) vectors, and
+  // there is exactly one per dataset — unlike `is_preferred`, which also
+  // marks the raw QT the run started from.
+  const processed =
+    qts?.find((q) => q.is_masked_preferred) ??
+    qts?.find(
+      (q) => q.is_preferred && q.vector_type?.endsWith("ProcessedExpressionDataVector"),
+    );
+
   return (
-    <div className="card px-3 py-2 text-xs text-slate-500 dark:text-slate-400 flex items-center gap-3">
-      <span className="font-semibold text-slate-700 dark:text-slate-300">
-        Preprocessing metadata
-      </span>
-      <span className="italic">
-        endpoint not yet wired — the agents side to expose run date, normalization
-        method, and filter rules.
-      </span>
+    <div className="card px-3 py-2.5 text-xs">
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="section-h">Preprocessing metadata</span>
+        <HelpPopup title="Preprocessing metadata" size="md">
+          <div className="space-y-1.5 leading-snug">
+            <p>What the four panels above were computed from, and when.</p>
+            <ul className="space-y-1.5">
+              <li>
+                <span className="font-semibold">Preprocessed</span> — when
+                Gemma last computed the processed expression data.{" "}
+                <span className="font-semibold text-amber-700 dark:text-amber-300">
+                  Stale
+                </span>{" "}
+                means that run succeeded and its input changed afterwards
+                — the design was edited, or a sample was flagged as an
+                outlier. Neither reprocesses anything, so the panels above
+                may not reflect the design you are looking at.
+              </li>
+              <li>
+                <span className="font-semibold">Data</span> — the
+                quantitation type the panels were computed from, then its
+                scale, type and storage. Gemma records no normalization
+                <em> method</em>, so there is no field for one.
+              </li>
+              <li>
+                The five terms are flags on that quantitation type.{" "}
+                <span className="line-through">Struck</span> means false —
+                recorded and not set, as opposed to not recorded.{" "}
+                <span className="font-semibold">Recomputed from raw</span>{" "}
+                means Gemma reprocessed the submitter&rsquo;s raw files
+                instead of using the values they supplied.
+              </li>
+              <li>
+                <span className="font-semibold">Filtering</span> — which
+                probes were dropped before the correlation matrix. Gemma
+                does not record this yet, for any dataset.
+              </li>
+            </ul>
+          </div>
+        </HelpPopup>
+      </div>
+      <dl className="grid grid-cols-[7.5rem_1fr] gap-x-3 gap-y-1.5 items-baseline">
+        <FooterTerm>Preprocessed</FooterTerm>
+        <dd className="flex items-center gap-2 flex-wrap">
+          {preprocess ? (
+            <>
+              <span
+                className="text-slate-700 dark:text-slate-200"
+                title={preprocess.last_run ?? undefined}
+              >
+                {formatRunDate(preprocess.last_run)}
+              </span>
+              {statusLabel(preprocess.status)}
+            </>
+          ) : (
+            <Absent>not reported</Absent>
+          )}
+        </dd>
+
+        <FooterTerm>Data</FooterTerm>
+        <dd>
+          {processed ? (
+            <>
+              <div className="text-slate-700 dark:text-slate-200">
+                {processed.name?.trim() || "(unnamed quantitation type)"}
+                <span className="ml-2 text-slate-400 dark:text-slate-500">
+                  {[processed.scale, processed.type, processed.representation]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </span>
+              </div>
+              {/* Every flag every time, true or false. Dropping the false
+                  ones would make "not batch-corrected" and "not recorded"
+                  look the same. */}
+              <div className="mt-1 flex flex-wrap gap-x-2.5 gap-y-1">
+                <QtFlag on={processed.is_normalized}>normalized</QtFlag>
+                <QtFlag on={processed.is_background_subtracted}>background-subtracted</QtFlag>
+                <QtFlag on={processed.is_batch_corrected}>batch-corrected</QtFlag>
+                <QtFlag on={processed.is_recomputed_from_raw_data}>recomputed from raw</QtFlag>
+                <QtFlag on={processed.is_ratio}>ratio</QtFlag>
+              </div>
+            </>
+          ) : (
+            <Absent>no preferred quantitation type reported</Absent>
+          )}
+        </dd>
+
+        <FooterTerm>Filtering</FooterTerm>
+        <dd>
+          <Absent>not recorded for this dataset</Absent>
+        </dd>
+
+        <FooterTerm>Reports</FooterTerm>
+        <dd className="flex items-center gap-3 flex-wrap">
+          {reports && reports.length > 0 ? (
+            reports
+              .filter((f) => !f.directory)
+              .map((f) => <MetadataFileLink key={f.type} experimentId={experimentId} file={f} />)
+          ) : (
+            // 🛑 Not a fault. Only RNA-seq datasets have a pipeline
+            // report; a microarray one never will, so an empty listing
+            // is the normal answer for most of the corpus.
+            <Absent>none — RNA-seq datasets carry a pipeline report</Absent>
+          )}
+        </dd>
+      </dl>
     </div>
+  );
+}
+
+function FooterTerm({ children }: { children: React.ReactNode }) {
+  return (
+    <dt className="text-slate-400 dark:text-slate-500 uppercase tracking-wide text-[10px] font-semibold">
+      {children}
+    </dt>
+  );
+}
+
+/** Nothing to show, and saying so is the content. Never a spinner and
+ *  never a zero — see the block comment above. */
+function Absent({ children }: { children: React.ReactNode }) {
+  return <span className="italic text-slate-400 dark:text-slate-500">{children}</span>;
+}
+
+/** A recorded boolean, shown whether it holds or not: dark when true,
+ *  dim when false. Mirrors the yes/no reading of the Quantitation types
+ *  tab, which lists the same flags for every QT. */
+function QtFlag({ on, children }: { on: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      title={`${String(children)}: ${on ? "yes" : "no"}`}
+      className={
+        on
+          ? "text-slate-700 dark:text-slate-200"
+          : "text-slate-300 dark:text-slate-600 line-through decoration-1"
+      }
+    >
+      {children}
+    </span>
+  );
+}
+
+/** `null` is "never run", which is not the same as a date we failed to
+ *  parse — an unparseable string is shown verbatim rather than as an
+ *  em dash. */
+function formatRunDate(iso: string | null): string {
+  if (!iso) return "never run";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/**
+ * Opens one pipeline-output file.
+ *
+ * 🛑 Fetched and handed over as a blob rather than linked. A plain
+ * `<a href>` carries the session cookie but NOT the `Authorization`
+ * header, so it authenticates in one of the app's two modes and 401s in
+ * the other — and the failure would land in a blank tab where nothing
+ * can report it.
+ *
+ * The tab is opened SYNCHRONOUSLY on the click and its location set
+ * when the blob arrives; opening it after the await is what a popup
+ * blocker stops. A 5.6 MB MultiQC report is self-contained HTML, so a
+ * blob URL renders it whole.
+ */
+function MetadataFileLink({
+  experimentId,
+  file,
+}: {
+  experimentId: number | string;
+  file: DatasetMetadataFile;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const label = file.display_name || file.download_name || file.type;
+  const readable = (file.content_type ?? "").startsWith("text/html");
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setFailed(null);
+          setBusy(true);
+          const tab = readable ? window.open("", "_blank") : null;
+          try {
+            const blob = await apiBlob(metadataFilePath(experimentId, file.type));
+            const url = URL.createObjectURL(blob);
+            if (tab) {
+              tab.location.href = url;
+            } else {
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = file.download_name || file.type;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            }
+            // Same delay the heatmap download uses — revoking
+            // synchronously can beat the browser to the file on Safari.
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          } catch (e) {
+            tab?.close();
+            setFailed((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className="text-blue-700 dark:text-blue-300 hover:underline disabled:opacity-50"
+        title={
+          readable
+            ? `Open ${file.download_name ?? label} in a new tab`
+            : `Download ${file.download_name ?? label}`
+        }
+      >
+        {busy ? "opening…" : label} {readable ? "↗" : "↓"}
+      </button>
+      {failed ? (
+        <span className="text-rose-700 dark:text-rose-300">({failed})</span>
+      ) : null}
+    </span>
   );
 }

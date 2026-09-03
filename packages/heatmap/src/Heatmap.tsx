@@ -6,7 +6,7 @@ import type {
   StripHit,
 } from './types';
 import { computeLayout, resolveConfig } from './layout';
-import { renderMatrix } from './render';
+import { renderMatrix, markGutterFor } from './render';
 
 export interface HeatmapProps {
   data: HeatmapData;
@@ -59,6 +59,12 @@ export interface HeatmapProps {
    *  cursor is inside either the label or the popover (so links
    *  rendered inside it remain clickable). */
   rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
+  /** Click on a row's label gutter. Mirrors `onStripGutterClick` for
+   *  the other axis. Unlike a cell click this names ONE sample rather
+   *  than a pair, which is what a per-sample action needs. */
+  onRowLabelClick?: (rowIndex: number) => void;
+  /** Overrides the row label's hover text. */
+  rowLabelTitle?: (rowIndex: number) => string | undefined;
   /** Width (in CSS px) reserved for the row-label gutter on the
    *  right. Defaults to 100, which fits a single ~14ch column. Pass
    *  a larger value when using ``data.rowLabelColumns`` for
@@ -97,6 +103,8 @@ export function Heatmap({
   selectedStripIndex,
   className,
   rowLabelTooltip,
+  onRowLabelClick,
+  rowLabelTitle,
   rowLabelGutterWidth,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -187,6 +195,16 @@ export function Heatmap({
   );
   const colLabelsTextVisible =
     colLabelsRequested && initialLayout.cellW >= COL_LABEL_MIN_CELL_W;
+  // The same gate for ROWS, which never had one. Row-label font size is
+  // `max(7, cellH - 1)` — it floors at 7px because below that the text is
+  // unreadable — while `cell.minHeight` is 2. So a 224-row matrix paints
+  // 7px of text into 6px rows, 224 times, and the gutter fills with
+  // vertical smear that is not a label and is not a picture. Below the
+  // threshold the rows stay (hover still names the sample, via `title`
+  // or `rowLabelTooltip`) and nothing is painted.
+  const ROW_LABEL_MIN_CELL_H = 8;
+  const rowLabelsTextVisible =
+    wantsRowLabels && initialLayout.cellH >= ROW_LABEL_MIN_CELL_H;
   // Adaptive gutter: size to the longest label's rendered length instead
   // of always reserving `maxColLabelPx`. With short labels (e.g. `gene_007`)
   // the old fixed gutter left a huge empty band above the labels (they
@@ -228,7 +246,10 @@ export function Heatmap({
     }
     return acc;
   }, [layout.columns, data.colGapsBefore]);
-  const matrixRenderW = layout.matrixW + totalColGap;
+  // + the marker gutter, or the canvas overflows this grid column and
+  // shoves the row labels across the plot.
+  const markGut = markGutterFor(data);
+  const matrixRenderW = layout.matrixW + totalColGap + markGut;
 
   const renderResultRef = useRef<ReturnType<typeof renderMatrix> | null>(null);
 
@@ -308,7 +329,12 @@ export function Heatmap({
           // whole container.
           gridTemplateColumns: `${matrixRenderW}px ${rowLabelGutter}px`,
           width: 'fit-content',
-          gridTemplateRows: `${colLabelGutter}px ${stripsH + gapAfterStrips}px auto`,
+          // 🛑 `markGut` on the strips row. The canvas reserves that
+          // margin INSIDE itself and translates its whole plot into it,
+          // so the strips start that much lower than the grid cell that
+          // names them — the labels sat one strip high until this row
+          // grew to match.
+          gridTemplateRows: `${colLabelGutter}px ${markGut + stripsH + gapAfterStrips}px auto`,
           fontFamily: resolved.fontFamily,
         }}
       >
@@ -320,6 +346,9 @@ export function Heatmap({
             alignItems: 'end',
             overflow: 'hidden',
             height: colLabelGutter,
+            // The canvas's left margin, so a column label stays over its
+            // column rather than 11px to the left of it.
+            paddingLeft: markGut,
           }}
         >
           {colLabelGutter > 0 &&
@@ -404,6 +433,7 @@ export function Heatmap({
             flexDirection: 'column',
             justifyContent: 'flex-start',
             paddingLeft: 10,
+            paddingTop: markGut,
             fontSize: 12,
             color: 'currentColor',
           }}
@@ -496,7 +526,51 @@ export function Heatmap({
             also opens for the strip names, and keying the row labels off
             its width alone stacked 60 sample names into it as vertical
             smear on a tile that had asked for no row labels at all. */}
-        {wantsRowLabels &&
+        {wantsRowLabels && !rowLabelsTextVisible ? (
+          // Rows too short to letter. Kept as hoverable strips of the
+          // right height so the tooltip still answers "which sample is
+          // this", and so the gutter's own contents (the strip names)
+          // keep their vertical origin.
+          <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 6 }}>
+            {Array.from({ length: layout.numRows }, (_, i) => {
+              const hasTip = !!rowLabelTooltip;
+              const fallback =
+                data.rowLabels?.[i] ?? data.rowLabelColumns?.[i]?.join(' · ');
+              return (
+                <div
+                  key={i}
+                  title={rowLabelTitle?.(i) ?? (hasTip ? undefined : fallback)}
+                  onMouseEnter={
+                    hasTip
+                      ? (e) => {
+                          cancelHide();
+                          const rect = (
+                            e.currentTarget as HTMLDivElement
+                          ).getBoundingClientRect();
+                          setLabelHover({
+                            row: i,
+                            top: rect.top,
+                            left: rect.right + 6,
+                          });
+                        }
+                      : undefined
+                  }
+                  onMouseLeave={hasTip ? scheduleHide : undefined}
+                  onClick={onRowLabelClick ? () => onRowLabelClick(i) : undefined}
+                  style={{
+                    height: layout.cellH,
+                    cursor: onRowLabelClick
+                      ? 'pointer'
+                      : hasTip || fallback
+                        ? 'help'
+                        : 'default',
+                  }}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+        {rowLabelsTextVisible &&
           (data.rowLabelColumns && data.rowLabelColumns.length > 0 ? (
           <div
             style={{
@@ -620,7 +694,7 @@ export function Heatmap({
               return (
                 <div
                   key={i}
-                  title={hasTip ? undefined : lbl}
+                  title={rowLabelTitle?.(i) ?? (hasTip ? undefined : lbl)}
                   onMouseEnter={
                     hasTip
                       ? (e) => {
@@ -637,6 +711,7 @@ export function Heatmap({
                       : undefined
                   }
                   onMouseLeave={hasTip ? scheduleHide : undefined}
+                  onClick={onRowLabelClick ? () => onRowLabelClick(i) : undefined}
                   style={{
                     height: layout.cellH,
                     lineHeight: `${layout.cellH}px`,
@@ -645,7 +720,7 @@ export function Heatmap({
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
-                    cursor: hasTip ? 'help' : 'default',
+                    cursor: onRowLabelClick ? 'pointer' : hasTip ? 'help' : 'default',
                   }}
                 >
                   {lbl}

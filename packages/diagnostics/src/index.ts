@@ -63,3 +63,17 @@ export {
   truncate,
 } from "./math";
 export { useContainerSize } from "./useContainerSize";
+
+export {
+  rankTransform,
+  spearmanRankCorrelation,
+  spearmanPvalue,
+  correlationForPvalue,
+  chiSquareComplemented,
+  normalInverse,
+  normalUpperTail,
+  kruskalWallisTest,
+  pcFactorAssociation,
+} from "./gemmaStats";
+
+export { PcValuePlot, type PcValuePoint } from "./PcValuePlot";

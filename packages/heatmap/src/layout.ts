@@ -29,6 +29,10 @@ export function resolveConfig(data: HeatmapData, config: HeatmapConfig | undefin
     clip: c.clip ?? 3,
     domain,
     nanColor: c.nanColor ?? '#9ca3af',
+    dimColor: c.dimColor ?? 'rgba(100, 116, 139, 0.62)',
+    markColor: c.markColor ?? 'rgba(245, 158, 11, 0.22)',
+    markGlyphColor: c.markGlyphColor ?? '#f59e0b',
+    dimGlyphColor: c.dimGlyphColor ?? '#cbd5e1',
     showRowLabels: c.showRowLabels ?? 'auto',
     showColLabels: c.showColLabels ?? 'auto',
     cell,
@@ -77,6 +81,29 @@ export interface Layout {
  * @param availableH Available CSS pixels for the matrix's vertical axis, or
  *                   `null` to let height equal `numRows * cell.maxHeight`.
  */
+/**
+ * A cell height that keeps `numRows` of them inside `availableH`.
+ *
+ * 🛑 `cell.minHeight` is a PREFERENCE, not a licence to overflow. It
+ * used to be applied after the box clamp — `max(minHeight, min(side,
+ * fitsH))` — so once a matrix had more rows than the box had
+ * `minHeight`-sized slots, the floor won and the canvas grew past its
+ * container. A 224-row correlation matrix in a 344px box wants 1.5px
+ * rows; the floor of 2 made it 448px tall and 104px of it was simply
+ * not on screen. Nothing downstream could prevent that: the caller had
+ * already passed the height.
+ *
+ * Sub-pixel rows are the honest answer here — the width axis has always
+ * been fractional in `fit` mode — and the absolute floor is one device
+ * pixel's worth so a row can never round away to nothing.
+ */
+function clampToBox(preferred: number, availableH: number, numRows: number): number {
+  if (numRows <= 0) return preferred;
+  const fits = availableH / numRows;
+  if (fits >= preferred) return preferred;
+  return Math.max(0.25, fits);
+}
+
 export function computeLayout(
   data: HeatmapData,
   config: ResolvedConfig,
@@ -91,8 +118,11 @@ export function computeLayout(
   if (availableH == null) {
     cellH = config.cell.maxHeight;
   } else {
-    const fit = Math.floor(availableH / Math.max(1, numRows));
-    cellH = Math.min(config.cell.maxHeight, Math.max(config.cell.minHeight, fit));
+    cellH = clampToBox(
+      Math.min(config.cell.maxHeight, Math.max(config.cell.minHeight, Math.floor(availableH / Math.max(1, numRows)))),
+      availableH,
+      numRows,
+    );
   }
 
   // --- Horizontal sizing + column merging ---
@@ -144,11 +174,7 @@ export function computeLayout(
       Math.max(config.cell.minHeight, Math.round(cellW)),
     );
     if (availableH != null && numRows > 0) {
-      const fitsH = Math.floor(availableH / numRows);
-      squareSide = Math.max(
-        config.cell.minHeight,
-        Math.min(squareSide, fitsH),
-      );
+      squareSide = clampToBox(squareSide, availableH, numRows);
     }
     cellH = squareSide;
     cellW = squareSide;

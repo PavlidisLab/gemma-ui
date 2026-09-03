@@ -28,7 +28,6 @@ import type {
   GroupMembersAdd,
   GroupPatch,
   GroupType,
-  OutlierPatch,
   QuantitationTypePatch,
   WorkflowDatasetListResponse,
 } from "./workflowTypes";
@@ -142,6 +141,7 @@ function mapGemmaStatus(s: unknown): import("./workflowTypes").StepStatus {
     case "incomplete":
     case "needsAttention":
     case "needs_attention": return "incomplete";
+    case "stale": return "stale";
     case "notApplicable":
     case "not_applicable": return "na";
     case "notRun":
@@ -150,7 +150,10 @@ function mapGemmaStatus(s: unknown): import("./workflowTypes").StepStatus {
   }
 }
 
-function adaptPipelineStatus(raw: unknown, id: number | string): ExperimentPipelineStatus {
+/** @internal Exported so a test can drive the whole wire→UI boundary.
+ *  `mapGemmaStatus` stays private; the way its cases go missing is
+ *  visible from out here, in the adapted step. */
+export function adaptPipelineStatus(raw: unknown, id: number | string): ExperimentPipelineStatus {
   if (!raw || typeof raw !== "object") {
     return blankPipelineStatus(id);
   }
@@ -215,8 +218,11 @@ function adaptPipelineStatus(raw: unknown, id: number | string): ExperimentPipel
 }
 
 function combineSteps(steps: import("./workflowTypes").PipelineStep[]): import("./workflowTypes").PipelineStep {
+  // `stale` outranks `not_run`: a result that has drifted from its input
+  // is work someone owes, where a step that never ran is the resting
+  // state of most datasets.
   const rank: Record<import("./workflowTypes").StepStatus, number> = {
-    failed: 5, incomplete: 4, not_run: 2, na: 1, ok: 0,
+    failed: 5, incomplete: 4, stale: 3, not_run: 2, na: 1, ok: 0,
   };
   let worst = steps[0] ?? { ...EMPTY_STEP };
   for (const s of steps) if (rank[s.status] > rank[worst.status]) worst = s;
@@ -598,16 +604,49 @@ export function useTask(taskId: string | null | undefined) {
 // Outlier + QT write surfaces
 // ---------------------------------------------------------------------------
 
-export function useSetOutlier(experimentId: number | string) {
+/**
+ * Mark and unmark sample outliers in one request.
+ *
+ * 🛑 **This is not a label change.** `OutlierFlaggingService.markAsMissing`
+ * writes NaN into the assay's PROCESSED vectors as the request is served,
+ * and unmarking reverts it. Nothing is recomputed, so every derived
+ * analysis — PCA, sample correlation, mean-variance, DEA, GEEQ — keeps
+ * numbers computed against data that no longer exists. That is exactly
+ * what `stale` on `pipeline-status` reports, which is why the pipeline
+ * query is invalidated here and why the caller is expected to say which
+ * steps it just invalidated.
+ *
+ * Deltas, not a declarative set. Gemma's own note on the endpoint: a
+ * filtered view must not be able to unflag samples the curator could not
+ * see. This panel has two such filters (masked / unmasked, regressed /
+ * unregressed), so sending "here is the whole outlier set" would be a
+ * live hazard rather than a theoretical one.
+ *
+ * 🛑 An id in BOTH lists is a 400 and nothing mutates. Callers stage
+ * mark and unmark as disjoint sets.
+ *
+ * Replaces a single-assay `PUT .../samples/{id}/outlier` wrapper that
+ * never had a caller. One assay at a time would mask the data, and
+ * invalidate every downstream analysis, once per click.
+ *
+ * `GROUP_ADMIN` only.
+ */
+export function useBatchOutliers(experimentId: number | string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ sampleId, outlier }: { sampleId: string; outlier: boolean }) =>
-      api.put<void>(
-        `/rest/v2/datasets/${experimentId}/samples/${sampleId}/outlier`,
-        { outlier } satisfies OutlierPatch,
+    mutationFn: ({ mark, unmark }: { mark: number[]; unmark: number[] }) =>
+      api.post<{ outlier_bio_assay_ids?: number[] }>(
+        `/rest/v2/datasets/${experimentId}/samples/outliers`,
+        // 🛑 REQUEST bodies are NOT case-normalized — `client.ts`
+        // snakeifies the RESPONSE only. `mark` / `unmark` are already
+        // single words, so there is nothing to get wrong here; the note
+        // is for whoever adds a second field.
+        { mark, unmark },
       ),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: KEY.pipelineStatus(experimentId) });
+      qc.invalidateQueries({ queryKey: ["diagnostics", "sample-correlation", experimentId] });
+      qc.invalidateQueries({ queryKey: ["diagnostics", "svd", experimentId] });
     },
   });
 }

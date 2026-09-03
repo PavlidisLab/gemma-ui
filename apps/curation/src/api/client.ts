@@ -293,6 +293,31 @@ function unwrapGemmaEnvelope(json: unknown): unknown {
   return json;
 }
 
+/**
+ * Fetch a non-JSON response as a Blob, with the same auth as `api`.
+ *
+ * 🛑 A plain `<a href>` would not do. It carries the JSESSIONID cookie
+ * but NOT the `Authorization` header, so it authenticates in one of the
+ * two modes and silently 401s in the other. Everything that has to open
+ * in a tab goes through here and then through a blob URL.
+ */
+export async function apiBlob(path: string): Promise<Blob> {
+  const token = bearerToken();
+  const r = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: "include",
+  });
+  if (!r.ok) {
+    throw new ApiError(
+      `${r.status} ${r.statusText}`,
+      r.status,
+      r.statusText,
+      "",
+    );
+  }
+  return r.blob();
+}
+
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body: unknown) => request<T>("POST", path, body),

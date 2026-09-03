@@ -515,3 +515,122 @@ describe("composeCurationDesign — values grounded by characteristic", () => {
     expect(fv.statements).toEqual([]);
   });
 });
+
+/**
+ * A statement with TWO objects arrives as TWO entries in `statements[]`
+ * sharing ONE id — deliberate on Gemma's side (issue #814,
+ * `dff752727c`), and the reason `StatementValueObject`'s `second*`
+ * fields are withheld from the API. **9,031 statements on prod carry a
+ * second object**, so this is not an edge case.
+ *
+ * It broke Gemma's own write path until 2026-09-03: both entries claimed
+ * the same row, `applyStatementFields` ran twice, and an unedited
+ * round-trip DELETED the first clause (gembro, `d946bf7a10`). The read
+ * side here has to keep both clauses and keep them joined, or the UI
+ * shows one of a curator's two clauses and a save drops the other.
+ *
+ * Verbatim from `GET /rest/v2/datasets/9283/design`, captured
+ * 2026-09-03 — GSE48104, factor `genotype_2`, the one value that
+ * carries it.
+ */
+const GEMMA_COMPOUND_STATEMENT_WIRE = {
+  id: 1929,
+  name: "",
+  description: "",
+  experimentalFactors: [
+    {
+      id: 20186,
+      name: "genotype_2",
+      description: "wt/HTT",
+      type: "categorical",
+      category: {
+        id: 14375566,
+        category: "genotype",
+        categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000513",
+        value: "genotype",
+        valueUri: "http://www.ebi.ac.uk/efo/EFO_0000513",
+      },
+      values: [
+        {
+          id: 119104,
+          ontologyId: "http://gemma.msl.ubc.ca/ont/TGFVO/119104",
+          value: null,
+          summary:
+            "Overexpression of  (CAG)115-(CAG)150  HTT [human] huntingtin",
+          isMeasurement: false,
+          characteristics: [],
+          statements: [
+            {
+              id: 30171354,
+              category: "genotype",
+              categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000513",
+              subjectId: "http://gemma.msl.ubc.ca/ont/TGFVO/119104/1",
+              subject: "HTT [human] huntingtin",
+              subjectUri: "http://purl.org/commons/record/ncbi_gene/3064",
+              predicate: "has_genotype",
+              predicateUri: "http://purl.obolibrary.org/obo/GENO_0000222",
+              objectId: "http://gemma.msl.ubc.ca/ont/TGFVO/119104/2",
+              object: "Overexpression",
+              objectUri: "http://gemma.msl.ubc.ca/ont/TGEMO_00004",
+            },
+            {
+              id: 30171354,
+              category: "genotype",
+              categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000513",
+              subjectId: "http://gemma.msl.ubc.ca/ont/TGFVO/119104/1",
+              subject: "HTT [human] huntingtin",
+              subjectUri: "http://purl.org/commons/record/ncbi_gene/3064",
+              predicate: "has_genotype",
+              predicateUri: "http://purl.obolibrary.org/obo/GENO_0000222",
+              objectId: "http://gemma.msl.ubc.ca/ont/TGFVO/119104/3",
+              object: "(CAG)115-(CAG)150",
+              objectUri: null,
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  bioMaterialAssignments: [],
+};
+
+describe("a statement with two objects — two wire entries, one id", () => {
+  function composeCompound() {
+    return composeCurationDesign(
+      snakeify(GEMMA_COMPOUND_STATEMENT_WIRE) as G2Design,
+      9283,
+      "GSE48104",
+      null,
+      null,
+      snakeify(
+        GEMMA_DATASET_WIRE,
+      ) as Parameters<typeof composeCurationDesign>[5],
+    );
+  }
+
+  it("keeps BOTH clauses — losing one is the prod write bug, mirrored", () => {
+    const [f] = composeCompound().factors;
+    expect(f.factor_values[0].statements.map((s) => s.object?.label)).toEqual([
+      "Overexpression",
+      "(CAG)115-(CAG)150",
+    ]);
+  });
+
+  it("carries the shared id on both, which is what marks them one statement", () => {
+    const [f] = composeCompound().factors;
+    const statements = f.factor_values[0].statements;
+    // Two pairs of ONE statement, not two statements on one subject.
+    // Only the former is against Gemma's two-pair ceiling, so the
+    // distinction has to survive the read.
+    expect(statements.map((s) => s.gemma_id)).toEqual([30171354, 30171354]);
+    expect(new Set(statements.map((s) => s.subject?.label)).size).toBe(1);
+  });
+
+  it("keeps the second clause's ungrounded object ungrounded", () => {
+    const [f] = composeCompound().factors;
+    const [first, second] = f.factor_values[0].statements;
+    expect(first.object?.uri).toBe("http://gemma.msl.ubc.ca/ont/TGEMO_00004");
+    // A repeat length is not an ontology term and must not acquire one.
+    expect(second.object?.uri).toBeNull();
+  });
+});

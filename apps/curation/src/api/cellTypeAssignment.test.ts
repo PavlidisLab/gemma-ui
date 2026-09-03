@@ -15,7 +15,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { assignmentOrigin, groundedCount } from "./cellTypeAssignment";
+import {
+  assignmentOrigin,
+  cellTypeCounts,
+  groundedCount,
+  type CellTypeAssignment,
+} from "./cellTypeAssignment";
 
 describe("assignmentOrigin", () => {
   it("names ours from the pipeline family", () => {
@@ -77,5 +82,107 @@ describe("groundedCount", () => {
 
   it("an assignment with no cell types is zero, not a crash", () => {
     expect(groundedCount({})).toBe(0);
+  });
+});
+
+/**
+ * Verbatim from `GET /rest/v2/datasets/79038/cellTypeAssignment`
+ * (Rexach-2024.3), post-`snakeify`, captured 2026-09-03. The tally is
+ * keyed by the cell type's CHARACTERISTIC id, and the ten numbers match
+ * what Gemma 1.0 prints beside each DEA subset.
+ */
+const REXACH: CellTypeAssignment = {
+  id: 416382,
+  name: "author-submitted",
+  number_of_assigned_cells: 89700,
+  preferred: true,
+  cell_types: [
+    { id: 54991254, value: "endothelial cell", value_uri: "CL_0000115" },
+    { id: 54991247, value: "astrocyte", value_uri: "CL_0000127" },
+    { id: 54991250, value: "oligodendrocyte", value_uri: "CL_0000128" },
+    { id: 54991252, value: "oligodendrocyte precursor cell", value_uri: "CL_0002453" },
+    { id: 54991253, value: "inhibitory neuron", value_uri: "CL_0000498" },
+    { id: 54991251, value: "T cell", value_uri: "CL_0000084" },
+    { id: 54991256, value: "ependymal cell", value_uri: "CL_0000065" },
+    { id: 54991249, value: "excitatory neuron", value_uri: "CL_0000679" },
+    { id: 54991255, value: "microglial cell", value_uri: "CL_0000129" },
+    { id: 54991248, value: "pericyte", value_uri: "CL_0000669" },
+  ],
+  number_of_assigned_cells_by_cell_type: {
+    "54991247": 14113,
+    "54991248": 1873,
+    "54991249": 34610,
+    "54991250": 15462,
+    "54991251": 2907,
+    "54991252": 5184,
+    "54991253": 6578,
+    "54991254": 3322,
+    "54991255": 3543,
+    "54991256": 2108,
+  },
+};
+
+describe("cellTypeCounts", () => {
+  it("joins the tally onto the cell types by id and sorts largest first", () => {
+    expect(
+      cellTypeCounts(REXACH).map((c) => [c.label, c.cells]),
+    ).toEqual([
+      ["excitatory neuron", 34610],
+      ["oligodendrocyte", 15462],
+      ["astrocyte", 14113],
+      ["inhibitory neuron", 6578],
+      ["oligodendrocyte precursor cell", 5184],
+      ["microglial cell", 3543],
+      ["endothelial cell", 3322],
+      ["T cell", 2907],
+      ["ependymal cell", 2108],
+      ["pericyte", 1873],
+    ]);
+  });
+
+  it("sums to the assignment's own total — the join is not dropping a type", () => {
+    const sum = cellTypeCounts(REXACH).reduce((n, c) => n + (c.cells ?? 0), 0);
+    expect(sum).toBe(REXACH.number_of_assigned_cells);
+    expect(sum).toBe(89700);
+  });
+
+  it("keeps the ontology URI so the caller can still render a Term", () => {
+    const top = cellTypeCounts(REXACH)[0];
+    expect(top.uri).toBe("CL_0000679");
+  });
+
+  it("🛑 reports an absent tally as null, NEVER as 0", () => {
+    // A host predating 2026-09-03 sends no tally. Rendering "0 cells"
+    // for a dataset whose cells were never counted is a false claim
+    // about the data, not a cosmetic default.
+    const old = { ...REXACH, number_of_assigned_cells_by_cell_type: null };
+    const out = cellTypeCounts(old);
+    expect(out).toHaveLength(10);
+    expect(out.every((c) => c.cells === null)).toBe(true);
+  });
+
+  it("reports a type the tally omits as null, and sorts it last", () => {
+    const partial: CellTypeAssignment = {
+      ...REXACH,
+      number_of_assigned_cells_by_cell_type: { "54991249": 34610 },
+    };
+    const out = cellTypeCounts(partial);
+    expect(out[0]).toMatchObject({ label: "excitatory neuron", cells: 34610 });
+    expect(out.slice(1).every((c) => c.cells === null)).toBe(true);
+  });
+
+  it("survives an assignment with no cell types at all", () => {
+    expect(cellTypeCounts({ cell_types: null })).toEqual([]);
+  });
+
+  it("labels an unlabelled cell type rather than rendering an empty row", () => {
+    const blank: CellTypeAssignment = {
+      cell_types: [{ id: 1, value: "  ", value_uri: null }],
+      number_of_assigned_cells_by_cell_type: { "1": 5 },
+    };
+    expect(cellTypeCounts(blank)[0]).toMatchObject({
+      label: "(unlabelled)",
+      cells: 5,
+    });
   });
 });

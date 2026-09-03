@@ -11,7 +11,11 @@
  * the parent's `null` state, no internal lifecycle.
  */
 import type { CSSProperties } from 'react';
-import { continuousValueOf, parseFactorUnit } from './payload';
+import {
+  continuousFormatterFor,
+  continuousValueOf,
+  parseFactorUnit,
+} from './payload';
 import type { Factor, HeatmapPayload } from './payload';
 
 const MONO = '"SFMono-Regular", "Menlo", "Consolas", monospace';
@@ -60,8 +64,16 @@ export function HeatmapTooltip({
   const left =
     typeof window !== 'undefined' && clientX + 4 + W > window.innerWidth
       ? clientX - 4 - W
-      : clientX + 4;
-  const top = clientY + 4;
+      : clientX + 12;
+  // 🛑 Clear of the pointer, not 4px under it. The first line IS the
+  // value, and a hand cursor is about 18px tall — it covered the number
+  // the tooltip exists to show (Paul, 2026-09-02: *"the 'hand' cursor
+  // blocks the number"*). Flips above when there is no room below.
+  const CURSOR_CLEARANCE = 22;
+  const top =
+    typeof window !== 'undefined' && clientY + CURSOR_CLEARANCE + 90 > window.innerHeight
+      ? clientY - CURSOR_CLEARANCE - 60
+      : clientY + CURSOR_CLEARANCE;
   const pos: CSSProperties = { top, left };
 
   if (state.kind === 'cell') {
@@ -156,7 +168,7 @@ function StripRows({
             <em style={{ opacity: 0.6, fontFamily: 'inherit' }}>—</em>
           ) : (
             <>
-              {value}
+              {continuousFormatterFor(factor, payload.columns)(value)}
               {unit ? ` ${unit}` : ''}
             </>
           )}

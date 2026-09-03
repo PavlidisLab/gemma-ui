@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { ExperimentSetChips } from "./banner/ExperimentSetChips";
 import { ExperimentGroupChips } from "./banner/ExperimentGroupChips";
+import { SplitPartChips } from "./banner/SplitPartChips";
 import { BannerStatusChips, NotesButton } from "./banner/BannerStatusChips";
 import { ModalityIndicator, PlatformLine } from "./banner/PlatformLine";
 import { PublishButton } from "./banner/PublishButton";
@@ -130,6 +131,7 @@ export function ExperimentBanner({
             <ModalityIndicator />
             <TitleEditor title={title} />
             <ExperimentSetChips experimentId={experimentId} />
+            <SplitPartChips />
           </div>
           {/* ``items-center`` matters here now that the row mixes plain
               text with bordered chips. Flex defaults to `stretch`, so

@@ -34,6 +34,19 @@ export interface HeatmapWidgetProps {
   caption?: string;
   /** Initial palette. Default `'ambsky'`. */
   defaultPalette?: WidgetPalette;
+  /**
+   * The palette is a property of THIS heatmap, not a user preference.
+   *
+   * 🛑 The stored preference is one global key shared by every heatmap
+   * in the app, so switching palette anywhere switches it everywhere.
+   * That is right for heatmaps of the same kind and wrong across kinds:
+   * a correlation matrix holds |r| in [0.9, 1] with no meaningful zero,
+   * and a diverging ramp splits it at an arbitrary midpoint into two
+   * colours that mean "above" and "below" nothing. Set this and
+   * `defaultPalette` is the palette, full stop — nothing is read from
+   * or written to storage, and the picker greys out saying why.
+   */
+  paletteLocked?: boolean;
   /** Initial clip value. Default `2` — diverging palette saturates at
    *  ±2 z-score by default, which makes typical row-scaled expression
    *  heatmaps read at the right contrast for our DE pop-out. */
@@ -107,6 +120,16 @@ export interface HeatmapWidgetProps {
    *  cursor is inside either the label or the popover (so links
    *  rendered inside it remain clickable). */
   rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
+  /** Click on a row's label. Passed straight through to `Heatmap`. */
+  onRowLabelClick?: (rowIndex: number) => void;
+  /** Per-row hover text for the label gutter — say what a click will
+   *  DO, since a clickable row that only names itself gives the curator
+   *  no way to find out. */
+  rowLabelTitle?: (rowIndex: number) => string | undefined;
+  /** Rows to veil as a proposed change; see `HeatmapData.dimRows`. */
+  dimRows?: boolean[];
+  /** Rows to tint as flagged; see `HeatmapData.markRows`. */
+  markRows?: boolean[];
   /** Width (in CSS px) reserved for the row-label gutter. Defaults
    *  to 100 — fits a single ~14ch column. Pass a larger value (e.g.
    *  220) when ``data.rowLabelColumns`` is used so the auto-sized
@@ -238,6 +261,7 @@ export function HeatmapWidget({
   title,
   caption,
   defaultPalette = 'blackbody',
+  paletteLocked = false,
   defaultClip = 2,
   defaultDomain,
   defaultRowScale = true,
@@ -259,6 +283,10 @@ export function HeatmapWidget({
   downloadFilenameStem = 'heatmap',
   showDownload = true,
   rowLabelTooltip,
+  onRowLabelClick,
+  rowLabelTitle,
+  dimRows,
+  markRows,
   rowLabelGutterWidth,
   defaultMainGroupingFactorId,
   showGroupGaps = true,
@@ -277,10 +305,12 @@ export function HeatmapWidget({
   // ``handleSetPaletteKey`` — initial mount is NOT persisted so a
   // caller-supplied default doesn't silently become the user's
   // global preference.
-  const [paletteKey, setPaletteKeyRaw] = useState<WidgetPalette>(() =>
-    readStoredPalette() ?? defaultPalette,
+  const [storedPaletteKey, setPaletteKeyRaw] = useState<WidgetPalette>(() =>
+    paletteLocked ? defaultPalette : readStoredPalette() ?? defaultPalette,
   );
+  const paletteKey = paletteLocked ? defaultPalette : storedPaletteKey;
   const setPaletteKey = (next: WidgetPalette) => {
+    if (paletteLocked) return;
     setPaletteKeyRaw(next);
     writeStoredPalette(next);
   };
@@ -412,13 +442,17 @@ export function HeatmapWidget({
     [payload, orderedFactors],
   );
 
-  const scaledData = useMemo<HeatmapData>(
-    () =>
-      rowScale
-        ? { ...rawData, values: rowStandardize(rawData.values) }
-        : rawData,
-    [rawData, rowScale],
-  );
+  const scaledData = useMemo<HeatmapData>(() => {
+    const base = rowScale
+      ? { ...rawData, values: rowStandardize(rawData.values) }
+      : rawData;
+    // Merged here rather than in the payload builder: which rows are
+    // PROPOSED for a change is caller state that changes on every
+    // click, and it has no business round-tripping through the wire
+    // shape the payload path describes.
+    if (!dimRows && !markRows) return base;
+    return { ...base, dimRows, markRows };
+  }, [rawData, rowScale, dimRows, markRows]);
 
   // Pinned-strip index is derived from the main-grouping factor id;
   // factors render one strip each in `orderedFactors` (display) order,
@@ -483,6 +517,20 @@ export function HeatmapWidget({
     palette.kind === 'sequential'
       ? defaultDomain ?? naturalDomain ?? [-clip, clip]
       : naturalDomain; // diverging palette still honours the natural domain when row-scale is off
+
+  /**
+   * Whether the Clip slider reaches the colour scale at all.
+   *
+   * `sequentialScale` bins across the DOMAIN and never reads `clip`;
+   * only `divergingScale` maps `[-clip, +clip]` onto the ramp. So on a
+   * sequential palette the slider moves and nothing happens — unless
+   * there is no domain to fall back on, in which case `[-clip, clip]`
+   * IS the domain (that is the row-scaled case with no caller-supplied
+   * domain, e.g. the PC-loadings popup).
+   */
+  const clipDrivesScale =
+    palette.kind === 'diverging' ||
+    (palette.kind === 'sequential' && !defaultDomain && !naturalDomain);
 
   const config = useMemo<HeatmapConfig>(
     () => ({
@@ -710,8 +758,10 @@ export function HeatmapWidget({
                   <ControlsPopover
                     paletteKey={paletteKey}
                     setPaletteKey={setPaletteKey}
+                    paletteLocked={paletteLocked}
                     clip={clip}
                     setClip={setClip}
+                    clipDrivesScale={clipDrivesScale}
                     rowScale={rowScale}
                     setRowScale={setRowScale}
                     fitMode={fitMode}
@@ -720,6 +770,7 @@ export function HeatmapWidget({
                     setMaxH={setMaxH}
                     maxW={maxW}
                     setMaxW={setMaxW}
+                    squareCells={defaultSquareCells}
                     fmt={fmt}
                     onClose={() => setControlsOpen(false)}
                   />
@@ -775,15 +826,26 @@ export function HeatmapWidget({
               but the wrapper still caps the width sensibly. */}
           <div
             style={{
-              // 🛑 Do not GROW when the legend is a side rail. The rail
-              // is the next flex child, so a growing matrix column
-              // pushes it out to the far edge of the panel where it
-              // reads as unrelated furniture rather than as this
-              // matrix's scale.
-              flex: legendPlacement === 'side' ? '0 1 auto' : '1 1 auto',
+              // 🛑 Always GROW. This was `0 1 auto` when the legend is a
+              // side rail, to keep the rail snug against the matrix
+              // instead of drifting to the panel edge — and it collapsed
+              // the matrix. `0 1 auto` sizes this column to its CONTENT,
+              // the canvas measures that container to pick a cell size,
+              // and with square cells the collapsed width caps the
+              // height too: a 60x60 matrix rendered 140px wide in a
+              // 608px card, with the rest of the card empty. A legend
+              // that sits further right is the smaller problem.
+              flex: '1 1 auto',
               minWidth: 0,
+              // 🛑 Reserve the side rail's width. The rail is the next
+              // flex child, but the canvas picks its size from THIS
+              // column's measured width — which, before the rail has
+              // been laid out, is the whole row. A square matrix then
+              // grows into the rail and the scale's numbers sit on top
+              // of the cells. 52px is the bar plus its two labels.
+              maxWidth:
+                legendPlacement === 'side' ? 'calc(100% - 52px)' : '100%',
               overflow: fitMode === 'expand' ? 'auto' : 'visible',
-              maxWidth: '100%',
               // A faint inner border in Expand mode hints at the scroll region.
               border:
                 fitMode === 'expand' ? `1px solid ${BORDER}` : '1px solid transparent',
@@ -797,6 +859,8 @@ export function HeatmapWidget({
               height={matrixMaxHeight}
               selectedStripIndex={selectedStripIndex}
               rowLabelTooltip={rowLabelTooltip}
+              onRowLabelClick={onRowLabelClick}
+              rowLabelTitle={rowLabelTitle}
               rowLabelGutterWidth={rowLabelGutterWidth}
               onStripGutterClick={
                 payload
@@ -1004,8 +1068,10 @@ function stripeFor(palette: Palette): string {
 function ControlsPopover({
   paletteKey,
   setPaletteKey,
+  paletteLocked,
   clip,
   setClip,
+  clipDrivesScale,
   rowScale,
   setRowScale,
   fitMode,
@@ -1014,13 +1080,19 @@ function ControlsPopover({
   setMaxH,
   maxW,
   setMaxW,
+  squareCells,
   fmt,
   onClose,
 }: {
   paletteKey: WidgetPalette;
   setPaletteKey: (v: WidgetPalette) => void;
+  /** True when the caller fixed the palette; the picker greys out. */
+  paletteLocked: boolean;
   clip: number;
   setClip: (v: number) => void;
+  /** False when the current palette ignores `clip` — the row greys out
+   *  rather than moving a slider that changes nothing. */
+  clipDrivesScale: boolean;
   rowScale: boolean;
   setRowScale: (v: boolean) => void;
   fitMode: FitMode;
@@ -1029,6 +1101,8 @@ function ControlsPopover({
   setMaxH: (v: number) => void;
   maxW: number;
   setMaxW: (v: number) => void;
+  /** Cells are square, so height and width are one number. */
+  squareCells: boolean;
   fmt: (v: number) => string;
   onClose: () => void;
 }) {
@@ -1070,11 +1144,16 @@ function ControlsPopover({
         color: TEXT,
       }}
     >
-      <ControlRow label="Palette">
+      <ControlRow
+        label="Palette"
+        disabled={paletteLocked}
+        disabledHint="This heatmap's palette is fixed — a correlation matrix has no meaningful midpoint for a diverging ramp to split on."
+      >
         <SegmentedControl
           options={PALETTE_OPTIONS}
           value={paletteKey}
           onChange={setPaletteKey}
+          disabled={paletteLocked}
         />
       </ControlRow>
       <ControlRow label="Row-scale">
@@ -1085,7 +1164,11 @@ function ControlsPopover({
           hint="z-score each row"
         />
       </ControlRow>
-      <ControlRow label="Clip">
+      <ControlRow
+        label="Clip"
+        disabled={!clipDrivesScale}
+        disabledHint="Clip saturates a diverging ramp at ±n. This palette is sequential and takes its ends from the data range instead."
+      >
         <CompactSlider
           label=""
           value={clip}
@@ -1095,6 +1178,7 @@ function ControlsPopover({
           onChange={setClip}
           display={`±${fmt(clip)}`}
           width={112}
+          disabled={!clipDrivesScale}
         />
       </ControlRow>
       <div style={{ height: 1, background: BORDER, margin: '2px 0' }} />
@@ -1105,30 +1189,55 @@ function ControlsPopover({
           onChange={setFitMode}
         />
       </ControlRow>
-      <ControlRow label="Cell H">
-        <CompactSlider
-          label=""
-          value={maxH}
-          min={2}
-          max={36}
-          step={1}
-          onChange={setMaxH}
-          display={`${maxH}px`}
-          width={112}
-        />
-      </ControlRow>
-      <ControlRow label="Cell W">
-        <CompactSlider
-          label=""
-          value={maxW}
-          min={2}
-          max={48}
-          step={1}
-          onChange={setMaxW}
-          display={`${maxW}px`}
-          width={112}
-        />
-      </ControlRow>
+      {/* 🛑 One slider when the cells are square. Two independent ones
+          offered a height and a width that the layout then discarded —
+          a square cell takes ONE size — so dragging Cell W moved a
+          control whose number the picture did not obey, and the two
+          readouts disagreed with each other on screen. */}
+      {squareCells ? (
+        <ControlRow label="Cell size">
+          <CompactSlider
+            label=""
+            value={Math.min(maxH, maxW)}
+            min={2}
+            max={36}
+            step={1}
+            onChange={(v) => {
+              setMaxH(v);
+              setMaxW(v);
+            }}
+            display={`${Math.min(maxH, maxW)}px`}
+            width={112}
+          />
+        </ControlRow>
+      ) : (
+        <>
+          <ControlRow label="Cell H">
+            <CompactSlider
+              label=""
+              value={maxH}
+              min={2}
+              max={36}
+              step={1}
+              onChange={setMaxH}
+              display={`${maxH}px`}
+              width={112}
+            />
+          </ControlRow>
+          <ControlRow label="Cell W">
+            <CompactSlider
+              label=""
+              value={maxW}
+              min={2}
+              max={48}
+              step={1}
+              onChange={setMaxW}
+              display={`${maxW}px`}
+              width={112}
+            />
+          </ControlRow>
+        </>
+      )}
     </div>
   );
 }
@@ -1138,17 +1247,27 @@ function ControlsPopover({
 function ControlRow({
   label,
   children,
+  disabled = false,
+  disabledHint,
 }: {
   label: string;
   children: React.ReactNode;
+  /** Greys the row when the control cannot affect anything. */
+  disabled?: boolean;
+  /** Why it is greyed — a control that dims without saying why reads as
+   *  broken. Surfaced as the row's `title`. */
+  disabledHint?: string;
 }) {
   return (
     <div
+      title={disabled ? disabledHint : undefined}
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: 10,
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? 'not-allowed' : undefined,
       }}
     >
       <span style={{ color: SUBTLE, fontSize: 10.5, whiteSpace: 'nowrap' }}>
@@ -1165,10 +1284,12 @@ function SegmentedControl<T extends string>({
   options,
   value,
   onChange,
+  disabled = false,
 }: {
   options: Array<{ key: T; label: string; hint?: string }>;
   value: T;
   onChange: (v: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <div
@@ -1187,6 +1308,7 @@ function SegmentedControl<T extends string>({
           <button
             key={opt.key}
             type="button"
+            disabled={disabled}
             onClick={() => onChange(opt.key)}
             title={opt.hint}
             style={{
@@ -1195,7 +1317,7 @@ function SegmentedControl<T extends string>({
               padding: '6px 14px',
               fontSize: 12,
               lineHeight: 1,
-              cursor: 'pointer',
+              cursor: disabled ? 'not-allowed' : 'pointer',
               background: selected ? ACCENT : 'transparent',
               color: selected ? '#fff' : TEXT,
               fontWeight: selected ? 600 : 400,
@@ -1220,6 +1342,7 @@ function CompactSlider({
   onChange,
   display,
   width,
+  disabled = false,
 }: {
   label: string;
   value: number;
@@ -1229,6 +1352,7 @@ function CompactSlider({
   onChange: (v: number) => void;
   display: string;
   width: number;
+  disabled?: boolean;
 }) {
   return (
     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
@@ -1249,8 +1373,13 @@ function CompactSlider({
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
         onChange={(e) => onChange(+e.target.value)}
-        style={{ width, accentColor: ACCENT, cursor: 'pointer' }}
+        style={{
+          width,
+          accentColor: ACCENT,
+          cursor: disabled ? 'not-allowed' : 'pointer',
+        }}
       />
       <span
         style={{

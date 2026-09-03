@@ -38,6 +38,15 @@ The Vite dev server proxies `/rest/*`, `/propose/*`, `/audit/*`,
 session bearer token issued by `useLogin` (dev token
 `dev-token-123` against the local server).
 
+🛑 **Whatever Gemma you point at, give the agent an account on it.**
+Draft saves and curation locks go through the agent, which authenticates
+to Gemma with `GEMMA_USERNAME` / `GEMMA_PASSWORD`. Those default to
+`groupadmin`, which exists only in the local-mode Gemma. Aim at a real
+Gemma without changing them and every draft save comes back
+`save failed: 401` — which reads like your own session expiring, but
+is the agent's credentials, not yours. Setup and the keychain entries:
+[`docker/local-mode/README.md`](../../docker/local-mode/README.md).
+
 ## Landing dashboard
 
 The landing page (`#/`) is the curator's experiments list, surfaced

@@ -9,6 +9,11 @@ import type { Design } from "./types";
  *
  * Detection precedence:
  *
+ * 0. ``Design.is_single_cell`` — Gemma's OWN flag, live 2026-09-03.
+ *    Authoritative when present and checked before everything else;
+ *    steps 1-3 are the fallback for local mode and for hosts predating
+ *    it. See ``inferModality``.
+ *
  * 1. ``Design.technology_type`` — Gemma's own classifier
  *    (``ONECOLOR`` / ``TWOCOLOR`` → microarray, ``SEQUENCING``
  *    → some flavour of RNA-seq). This is authoritative for
@@ -43,6 +48,27 @@ const MICROARRAY_RX =
 
 export function inferModality(design: Design | null | undefined): Modality {
   if (!design) return "unknown";
+
+  // 0. 🛑 **Gemma's own flag, and it outranks every heuristic below.**
+  //
+  // Everything from step 1 down is a guess we made because Gemma had no
+  // field to ask. It does now. Measured over 100 single-cell datasets
+  // (2026-09-03): `technology_type` is **GENELIST on all 100**, so
+  // step 1 can never separate them and the whole load falls on a regex
+  // over assay and platform strings — which fires on any study whose
+  // platform name happens to say "10x" and misses any that does not.
+  //
+  // `is_single_cell` was true on 92 of the 100 and false on 8, and the
+  // 8 false are EXACTLY the 8 with no subset groups — set-identical,
+  // no crossover. It tracks whether single-cell data is actually
+  // loaded, not how the study is annotated, which is the question the
+  // Single-cell tab is gated on. The regex called all 100 single-cell
+  // and would open an empty tab on 8 of them.
+  //
+  // Only `true` short-circuits. A `false` still falls through, because
+  // the remaining question — microarray or bulk RNA-seq — is one this
+  // flag does not answer.
+  if (design.is_single_cell === true) return "single-cell";
 
   // 1. Authoritative classifier from Gemma itself.
   const tt = (design.technology_type || "").trim().toUpperCase();

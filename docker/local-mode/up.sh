@@ -58,6 +58,34 @@ if [ -z "${GEMMA_BASE_URL:-}" ]; then
     keychain_export GEMMA_BASE_URL "GEMMA_BASE_URL" "gemma-base-url" || true
 fi
 
+# Gemma account the proposer + local-api authenticate WITH. Resolved
+# the same way as the host above, and for the same reason: the compose
+# default is `groupadmin`, the account seeded into local-mode's own
+# gemma-rest by `groupadmin-seed.sql`. It does not exist anywhere else.
+#
+# 🛑 The host flipped and the credentials did not. `GEMMA_BASE_URL`
+# came from the keychain while these two kept the sandbox default, so
+# the agent pointed at gemma2 holding an account gemma2 has never heard
+# of, and every upstream call answered 401 "Provided authentication
+# credentials are invalid." Nothing said so: the UI reported "save
+# failed: 401" on the draft, which reads as the curator's own session
+# expiring. Measured 2026-09-03 — the agent container had served 10,927
+# of them and not one successful draft or lock since it started.
+#
+# Resolve both together or neither: a username that authenticates
+# against one Gemma and a host that is a different Gemma is the shape
+# of the bug.
+if [ -z "${GEMMA_USERNAME:-}" ] && [ -z "${GEMMA_PASSWORD:-}" ]; then
+    if keychain_export GEMMA_USERNAME "GEMMA_USERNAME" "gemma-username"; then
+        keychain_export GEMMA_PASSWORD "GEMMA_PASSWORD" "gemma-password" \
+            || { echo "ERROR: keychain has GEMMA_USERNAME but no GEMMA_PASSWORD — the pair must resolve together, or the agent authenticates as nobody against ${GEMMA_BASE_URL:-the compose default}" >&2; exit 1; }
+    fi
+fi
+
+# Say which Gemma is about to be reached and as whom, since the pairing
+# is what goes wrong and neither half is visible from the UI.
+echo "[up] gemma: ${GEMMA_BASE_URL:-<compose default>} as ${GEMMA_USERNAME:-groupadmin (local-mode seed)}" >&2
+
 # Browser UI (apps/browser) proxies /rest to its own backend var.
 # Default it to whatever GEMMA_BASE_URL resolved to so the browser
 # follows the same Gemma as the rest of the stack; the compose
@@ -66,6 +94,60 @@ fi
 if [ -z "${GEMMA_BROWSER_BACKEND:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
     export GEMMA_BROWSER_BACKEND="$GEMMA_BASE_URL"
     echo "[up] GEMMA_BROWSER_BACKEND ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+
+# Where the curation UI's vite proxy actually SENDS /rest, and where it
+# sends ontology lookups. Both keep compose defaults that predate the
+# keychain host — `GEMMA_REST_URL` defaults to a Gemma on the host at
+# :8080, and `GEMMA_ONTOLOGY_URL` to nothing at all.
+#
+# 🛑 The SPA naming a host does not route anything to it.
+# `VITE_GEMMA_BASE_URL` is what the mode chip and the login page SAY;
+# `GEMMA_REST_URL` is where the bytes go. With the first on the
+# keychain Gemma and the second on its default, remote mode posted
+# every login to a :8080 that nothing was listening on, and vite
+# answered 500 — a login page naming gemma2 and failing against a host
+# it never mentioned (caught 2026-09-03).
+if [ -z "${GEMMA_REST_URL:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export GEMMA_REST_URL="$GEMMA_BASE_URL"
+    echo "[up] GEMMA_REST_URL ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+if [ -z "${GEMMA_ONTOLOGY_URL:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export GEMMA_ONTOLOGY_URL="$GEMMA_BASE_URL"
+    echo "[up] GEMMA_ONTOLOGY_URL ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+
+# What the curation UI itself is built against. `VITE_GEMMA_MODE` and
+# `VITE_GEMMA_BASE_URL` are inlined into the SPA bundle at container
+# start, so they are settable only here — and they came from the
+# invoking shell with no default at all.
+#
+# 🛑 A bare `./up.sh` therefore RECREATED THE UI IN LOCAL MODE while
+# every service around it kept talking to the keychain's Gemma (caught
+# 2026-09-03). Local mode serves a synthetic curator from `useMe()`, so
+# the header read "Local Curator", the login form was gone, and
+# clicking sign-out did nothing — there was nothing to sign out of.
+# Nothing named the flip.
+#
+# The base follows GEMMA_BASE_URL the way GEMMA_BROWSER_BACKEND does,
+# so the UI cannot end up pointed somewhere the rest of the stack is
+# not. The MODE is deliberately NOT inferred from it — remote hides the
+# store-backed surfaces and local hides the Gemma-only ones, and which
+# one an operator wants is not derivable from a hostname. It is printed
+# instead, and a local-mode UI in front of a keychain Gemma says so.
+if [ -z "${VITE_GEMMA_BASE_URL:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export VITE_GEMMA_BASE_URL="$GEMMA_BASE_URL"
+    echo "[up] VITE_GEMMA_BASE_URL ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+
+if [ "${VITE_GEMMA_MODE:-}" = "remote" ]; then
+    echo "[up] curation-ui: remote → ${VITE_GEMMA_BASE_URL:-<unset>} (real login)" >&2
+else
+    echo "[up] curation-ui: local — synthetic 'Local Curator', no login" >&2
+    if [ -n "${GEMMA_BASE_URL:-}" ]; then
+        echo "[up]   ⚠ the rest of the stack is on $GEMMA_BASE_URL. Want the" >&2
+        echo "[up]     login page and the real curator? VITE_GEMMA_MODE=remote ./up.sh" >&2
+    fi
 fi
 
 # Optional Zotero (biolit fetcher).

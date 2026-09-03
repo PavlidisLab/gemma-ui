@@ -297,3 +297,60 @@ export function parseFactorUnit(name: string): string | null {
   const m = name.match(/\(([^)]+)\)\s*$/);
   return m ? m[1].trim() : null;
 }
+
+
+/** Superscript digits, so an exponent reads as one. */
+const SUP: Record<string, string> = {
+  '0': '\u2070', '1': '\u00b9', '2': '\u00b2', '3': '\u00b3', '4': '\u2074',
+  '5': '\u2075', '6': '\u2076', '7': '\u2077', '8': '\u2078', '9': '\u2079',
+  '-': '\u207b',
+};
+const superscript = (n: number) =>
+  String(n).split('').map((c) => SUP[c] ?? c).join('');
+
+/**
+ * A formatter for ONE continuous factor's values, sharing a single
+ * exponent across all of them.
+ *
+ * 🛑 The shared exponent is the point. Paul, 2026-09-02: *"it's hard to
+ * track the values — use sci notation with a consistent exponent, so it
+ * is more obviously going up/down. I can't read 7-8-digit numbers that
+ * easily."* Read depth runs to eight digits, and `6934029` against
+ * `10248117` is a comparison of digit COUNTS before it is a comparison
+ * of quantities. Per-value `toExponential` does not fix it either —
+ * `6.93e6` beside `1.02e7` moves the exponent too, so the mantissas
+ * cannot be compared at a glance.
+ *
+ * Pinning the exponent to the factor's own maximum makes the mantissa
+ * carry the whole signal: `6.93` then `10.25`, both `\u00d7 10\u2076`.
+ *
+ * Left alone in the range a person reads directly — a percentage, an
+ * age, a timepoint. Only 10\u2074 and above, or 10\u207b\u00b3 and below, get the
+ * exponent.
+ */
+export function continuousFormatterFor(
+  factor: Factor,
+  columns: HeatmapPayloadColumn[],
+): (v: number) => string {
+  let maxAbs = 0;
+  for (const c of columns) {
+    const v = continuousValueOf(factor, c);
+    if (v != null && Number.isFinite(v)) maxAbs = Math.max(maxAbs, Math.abs(v));
+  }
+  if (!(maxAbs > 0)) return (v) => String(v);
+  if (maxAbs >= 1e4 || maxAbs < 1e-3) {
+    // ENGINEERING notation — the exponent is a multiple of three, so
+    // the largest value lands in [1, 1000) rather than always in
+    // [1, 10). Pinning it to the plain `floor(log10(max))` spends the
+    // mantissa's first digit on a leading zero the moment the range
+    // straddles a power of ten: 6934029 and 10248117 come out `0.69`
+    // and `1.02` instead of `6.93` and `10.25`, which is the
+    // legibility this exists for.
+    const e = 3 * Math.floor(Math.log10(maxAbs) / 3);
+    const div = Math.pow(10, e);
+    const tail = ` \u00d7 10${superscript(e)}`;
+    return (v) => `${(v / div).toFixed(2)}${tail}`;
+  }
+  // Plain, but not more precision than the spread justifies.
+  return (v) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
+}

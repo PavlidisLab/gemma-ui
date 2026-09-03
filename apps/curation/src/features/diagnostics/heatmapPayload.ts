@@ -20,6 +20,7 @@
 
 import type { HeatmapPayload } from "@gemma/heatmap";
 import type { Design } from "@/features/experiment/types";
+import { qcFactorId, qcStripMetrics, type QcMetrics } from "@/api/qcMetrics";
 
 /** A row is a probe only if the caller gave it a design-element id.
  *  Rows that are samples (the correlation matrix) carry a label and no
@@ -160,6 +161,121 @@ export function buildDesignHeatmapPayload(args: {
     // `free_text_label`, `is_baseline`), deliberately, so no adapter
     // sits between the editor's truth and what the strips draw. A
     // remapping here would be a second place for the two to drift.
-    factors: design.factors,
+    //
+    // 🛑 One exception, and it is narrow. The widget reads
+    // `numeric_value`, which `composeDesign` already fills from Gemma's
+    // measurement — so this is a BACKSTOP, not a replacement: it fills
+    // the field only where a continuous value arrived without one, from
+    // the same shared reader `PcFactorCard` uses. A value that has a
+    // measurement keeps it untouched.
+    factors: design.factors.map((f) =>
+      f.type === "continuous"
+        ? {
+            ...f,
+            factor_values: (f.factor_values ?? []).map((fv) => ({
+              ...fv,
+              numeric_value: continuousFvValue(fv),
+            })),
+          }
+        : f,
+    ),
   };
+}
+
+
+/**
+ * The number behind a continuous factor value.
+ *
+ * 🛑 `numeric_value` FIRST. It is the canonical scalar — `composeDesign`
+ * fills it from Gemma's `FactorValue.measurement.value` for any value
+ * flagged `is_measurement` — and `free_text_label` is the HUMAN
+ * rendering of the same thing: "86 years", not "86". `Number("86
+ * years")` is NaN, so a parser that reaches for the label first turns a
+ * perfectly good measurement into a missing one, which is what
+ * `PcFactorCard` was doing: every continuous factor contributed NaN to
+ * its PC association and scored zero.
+ *
+ * The free-text parse stays as a fallback for a value a curator typed
+ * that never went through a measurement, and the statement subject
+ * behind that.
+ *
+ * Shared on purpose: the heatmap orders columns by these and the PC
+ * card correlates them against the components. Two readings would be
+ * two answers to "what is this sample's age".
+ *
+ * Null for anything unparseable — the honest answer for a continuous
+ * factor whose values were never filled in. The strip then reads as
+ * unassigned rather than as zero.
+ */
+export function continuousFvValue(fv: {
+  numeric_value?: number | null;
+  free_text_label?: string | null;
+  statements?: Array<{ subject?: { label?: string | null } | null }> | null;
+}): number | null {
+  if (typeof fv.numeric_value === "number" && Number.isFinite(fv.numeric_value)) {
+    return fv.numeric_value;
+  }
+  const raw = String(
+    fv.free_text_label || fv.statements?.[0]?.subject?.label || "",
+  ).trim();
+  if (raw === "") return null;
+  // Leading number, so "86 years" still reads as 86 when nothing set
+  // the measurement.
+  const m = raw.match(/^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
+  const n = m ? Number(m[0]) : Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+
+/**
+ * Attach per-sample sequencing QC as continuous strips.
+ *
+ * The correlation matrix answers "which samples resemble each other";
+ * these answer "and how well did each one sequence", against the same
+ * columns in the same order. Mapping rate and duplication owe nothing
+ * to expression similarity, so a sample that is both poorly correlated
+ * AND poorly mapped is a different call from one that is merely
+ * poorly correlated — which was previously unanswerable from this panel
+ * (Paul's idea; gembro's `/qc-metrics`, 2026-09-02).
+ *
+ * Returns the payload untouched when there is nothing to draw, so a
+ * microarray dataset — which never has a MultiQC report — looks exactly
+ * as it did.
+ */
+export function withQcMetricStrips(
+  payload: ReturnType<typeof buildDesignHeatmapPayload>,
+  qc: QcMetrics | null | undefined,
+): ReturnType<typeof buildDesignHeatmapPayload> {
+  if (!payload || !qc || !qc.report_present) return payload;
+  const strips = qcStripMetrics(qc);
+  if (strips.length === 0) return payload;
+
+  const byAssay = new Map(qc.samples.map((s) => [s.bio_assay_id, s]));
+  const added = strips.flatMap((strip, i) => {
+    const measurements: Record<number, number> = {};
+    for (const c of payload.columns) {
+      const v = byAssay.get(Number(c.bioAssayId))?.values?.[strip.name];
+      if (typeof v === "number" && Number.isFinite(v)) {
+        measurements[Number(c.bioAssayId)] = v;
+      }
+    }
+    // Every column or none: a gradient with holes in it cannot be read,
+    // because a missing measurement and a low one look the same.
+    if (Object.keys(measurements).length !== payload.columns.length) return [];
+    return [
+      {
+        id: qcFactorId(i),
+        name: strip.label,
+        description:
+          strip.meta?.description ||
+          `sequencing QC: ${strip.name}${strip.meta?.namespace ? ` (${strip.meta.namespace})` : ""}`,
+        type: "continuous" as const,
+        category: { label: strip.label, uri: null },
+        factor_values: [],
+        continuousMeasurements: measurements,
+      },
+    ];
+  });
+  if (added.length === 0) return payload;
+  return { ...payload, factors: [...payload.factors, ...added] };
 }

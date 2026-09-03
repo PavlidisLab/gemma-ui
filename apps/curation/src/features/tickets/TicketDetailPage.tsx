@@ -20,6 +20,7 @@ import {
   useCreateTicket,
   usePatchTicket,
   useRunTicketAction,
+  useScratchpadOwner,
   useTicket,
 } from "@/api/tickets";
 import type { Ticket, TicketMode } from "@/api/tickets";
@@ -38,6 +39,7 @@ import {
   type DirtyTargetReport,
 } from "./exportTicket";
 import { followUpTicketBody, nextStageFor, type NextStage } from "./nextStage";
+import { ScratchpadOwnerPill } from "./ticketPills";
 
 export function TicketDetailPage({
   ticketId,
@@ -119,6 +121,7 @@ function TicketDetailBody({
     .filter((t) => t.target_type === "EXPRESSION_EXPERIMENT")
     .map((t) => t.target_id);
   const taskBadge = TASK_BADGE[ticket.type] ?? { label: "Task", tone: "neutral" };
+  const scratchpadOwner = useScratchpadOwner(ticket);
   // SCREENING tickets are GEO-accession triage — different body
   // surface (TriageView), no NextActionBar (triage's own Finalize
   // button drives the next stage via run_triage_followup.py).
@@ -133,6 +136,10 @@ function TicketDetailBody({
           <span className="uppercase tracking-wide font-semibold">
             {ticket.type}
           </span>
+          {/* A scratchpad's title says whose only when that curator's
+              contact carries a name, so the page can open on a bare
+              "Scratchpad" that is somebody else's. */}
+          <ScratchpadOwnerPill owner={scratchpadOwner} />
           <span>·</span>
           <span className="uppercase tracking-wide font-semibold">
             {ticket.state}

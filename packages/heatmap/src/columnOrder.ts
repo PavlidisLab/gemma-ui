@@ -58,14 +58,24 @@ export function computeColumnOrder(
   const noGaps = new Array<number>(n).fill(0);
   if (n === 0) return { columnOrder: identity, gaps: noGaps };
 
+  // 🛑 A CONTINUOUS grouping factor sorts by its value, and that check
+  // comes FIRST.
+  //
+  // It used to sit inside `chain.length === 0`, and `buildFactorChain`
+  // keeps only categorical factors — so the continuous path was reached
+  // only on a dataset that had no usable categorical factor at all.
+  // Everywhere else, picking "PC1 score" or `age` as the grouping put
+  // the columns in categorical order and silently ignored the factor
+  // that had just been chosen. Paul, 2026-09-02: *"sorting by pc score
+  // should do what we expect"* and *"make sure continuous values are
+  // handled right — we have factors like age."*
+  if (mainGroupingFactorId != null) {
+    const f = payload.factors.find((x) => x.id === mainGroupingFactorId);
+    if (f && f.type === 'continuous') return continuousOrder(f, payload);
+  }
+
   const chain = buildFactorChain(payload, mainGroupingFactorId);
   if (chain.length === 0) {
-    // No categorical factors in scope — fall back to the continuous
-    // single-factor path if main-grouping points at one, else identity.
-    if (mainGroupingFactorId != null) {
-      const f = payload.factors.find((x) => x.id === mainGroupingFactorId);
-      if (f && f.type === 'continuous') return continuousOrder(f, payload);
-    }
     return { columnOrder: identity, gaps: noGaps };
   }
 

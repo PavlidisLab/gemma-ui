@@ -66,6 +66,14 @@ export interface HeatmapData {
   /** Row-major value matrix. `values[row][col]`. All rows must be the same length. */
   values: CellValue[][];
   rowLabels?: string[];
+  /** Rows (and, since a symmetric matrix shares them, the matching
+   *  columns) to veil — a PROPOSED change, still showing its data.
+   *  Parallel to `values`. */
+  dimRows?: boolean[];
+  /** Rows (and matching columns) that are FLAGGED — an established
+   *  fact, tinted rather than veiled so the values stay readable when
+   *  they are unmasked. Parallel to `values`. */
+  markRows?: boolean[];
   /** Optional structured row labels — when present, each row's label
    *  is an array of column strings rendered in aligned columns
    *  (CSS grid). ``rowLabels`` still feeds the TSV download / tooltip
@@ -125,6 +133,16 @@ export interface HeatmapConfig {
   domain?: [number, number];
   /** Color for null / NaN cells. Default '#9ca3af' (gray-400). */
   nanColor?: string;
+  /** Veil colour for `HeatmapData.dimRows` — a translucent wash, so the
+   *  underlying value stays legible. Default a 62%-opaque slate. */
+  dimColor?: string;
+  /** Tint for `HeatmapData.markRows`. Default a light amber. */
+  markColor?: string;
+  /** Outline colour for the `dimRows` glyph. Default a light slate. */
+  dimGlyphColor?: string;
+  /** Arrowhead colour for `HeatmapData.markRows` — opaque, so the mark
+   *  reads as a symbol rather than as another shade. Default amber. */
+  markGlyphColor?: string;
   /** Show row labels (HTML, to keep them copyable). Default 'auto'. */
   showRowLabels?: boolean | 'auto';
   /** Show column labels (rotated -90° on canvas). Default 'auto'. */
@@ -169,6 +187,10 @@ export interface ResolvedConfig {
   clip: number;
   domain: [number, number] | null;
   nanColor: string;
+  dimColor: string;
+  markColor: string;
+  markGlyphColor: string;
+  dimGlyphColor: string;
   showRowLabels: boolean | 'auto';
   showColLabels: boolean | 'auto';
   cell: Required<NonNullable<HeatmapConfig['cell']>>;

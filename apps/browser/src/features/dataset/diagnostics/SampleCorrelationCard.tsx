@@ -16,13 +16,17 @@ import {
   buildSampleCorrelationHeatmapData,
   computeSampleCorrelationDomain,
   summariseOutliers,
-  sampleCorrelationCellPx,
-  sampleCorrelationMatrixPx,
+  useContainerSize,
 } from "@gemma/diagnostics";
 import { getDatasetSampleCorrelation } from "@/api/endpoints";
 import { restUrl } from "@/api/base";
 
 export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
+  // 🛑 Measure the box rather than deriving it from the shared panel
+  // constant. This app lays its diagnostics row out differently, so the
+  // constant is not what this card actually gets — trusting it sized
+  // the matrix past the card and ran it under the legend rail.
+  const { ref: boxRef, height: boxH } = useContainerSize<HTMLDivElement>();
   const { data, isLoading, error } = useQuery({
     queryKey: ["sample-correlation", datasetId],
     queryFn: ({ signal }) => getDatasetSampleCorrelation(datasetId, signal),
@@ -42,7 +46,10 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
   // 🛑 No annotation strips on this wrapper — the public browse page
   // has no design draft to build a payload from — so the strip
   // allowance is zero here, unlike curation's.
-  const cellPx = sampleCorrelationCellPx(data?.bioAssayIds.length, 0);
+  const cellPx = Math.max(
+    2,
+    (boxH > 0 ? boxH : 300) / (data?.bioAssayIds.length || 1),
+  );
 
   let body;
   if (isLoading) {
@@ -55,15 +62,18 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
     );
   } else {
     body = (
-      <HeatmapWidget
+      <div ref={boxRef} className="w-full h-full min-h-0">
+        <HeatmapWidget
         data={built}
         chrome={false}
         showControls={false}
         showLegend={true}
-        // Side rail, matching curation's: a horizontal bar plus its
-        // caption costs ~50px of height on a short tile, and height is
-        // the axis a square matrix is starved of.
-        legendPlacement="side"
+        // 🛑 Legend on TOP here, unlike curation's side rail. This
+        // card is ~275px wide — a rail needs ~52px of that, and a
+        // square matrix sized to the remainder still overran it and put
+        // the scale's numbers on top of the cells. Curation's card is
+        // ~600px, where the rail fits and buys height that a square
+        // matrix can actually use.
         showTooltip={true}
         showDownload={false}
         defaultPalette="blackbody"
@@ -78,9 +88,10 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
         // The real constraint: how tall the matrix may be. A cell cap
         // cannot say this, because a square matrix takes its size from
         // the width and grows past the box.
-        matrixMaxHeight={sampleCorrelationMatrixPx(0)}
-        defaultFitMode="squeeze"
-      />
+          matrixMaxHeight={boxH > 0 ? boxH : undefined}
+          defaultFitMode="squeeze"
+        />
+      </div>
     );
   }
 

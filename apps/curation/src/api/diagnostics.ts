@@ -118,6 +118,37 @@ export function useDatasetSvd(experimentId: number | string) {
   });
 }
 
+/**
+ * bioAssay id → scan date, for the PC × "Date run" association.
+ *
+ * `/samples` carries `processingDate` per assay — the scan date Gemma
+ * derives batch information from. It is the covariate Gemma 1.0's QC
+ * panel correlated against the components, and it is served today, so
+ * nothing new is needed on the Gemma side.
+ *
+ * Tolerates absence: a backend that does not report the field yields an
+ * empty map and the caller simply omits the row.
+ */
+export function useScanDates(experimentId: number | string) {
+  return useQuery({
+    queryKey: ["diagnostics", "scan-dates", experimentId],
+    queryFn: async () => {
+      const rows = await getOrNull<
+        { id?: number; processing_date?: string | null }[]
+      >(`/rest/v2/datasets/${experimentId}/samples`);
+      const out = new Map<number, number>();
+      for (const r of rows ?? []) {
+        if (r.id == null || !r.processing_date) continue;
+        const t = Date.parse(r.processing_date);
+        if (Number.isFinite(t)) out.set(r.id, t);
+      }
+      return out;
+    },
+    enabled: Boolean(experimentId),
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
 // ─── /sample-correlation ───────────────────────────────────────────
 
 export interface SampleCorrelationMatrix {
@@ -138,7 +169,29 @@ export interface SampleCorrelationMatrix {
   filter_description?: string | null;
   /** Currently always "pearson" — Gemma's only supported method. */
   method?: string | null;
+  /** Which variant the server actually built. Echoed back, so a caller
+   *  can print what it GOT rather than what it asked for — `best`
+   *  resolves to `regressed`, and asking is not the same as receiving. */
+  matrix?: SampleCorrelationVariant | null;
 }
+
+/**
+ * `?matrix=` on `/sample-correlation`.
+ *
+ * - `regressed` — the design's factor effects removed. This is what
+ *   `best` resolves to, what GEEQ scores, and what the outlier detector
+ *   reads, so a call it made is only reproducible against this one.
+ * - `full` — the plain correlation, no regression. Less to explain, and
+ *   the default here for that reason.
+ *
+ * 🛑 These differ on EVERY dataset, not only recomputed ones — measured
+ * 2026-09-02 across eids 50 / 1 / 1658 / 16, up to 0.055 apart on the
+ * unflagged pairs (0.284 on eid 16, which has a live outlier in it).
+ * What the recompute gates is only whether a FLAGGED assay's row is
+ * NaN; that masking is identical in both variants until a dataset is
+ * recomputed, and GSE2868 is the only one so far.
+ */
+export type SampleCorrelationVariant = "best" | "regressed" | "full";
 
 /** The matrix, or the server's own reason for there not being one.
  *
@@ -163,20 +216,27 @@ export interface SampleCorrelationResult {
   reason: string;
 }
 
-export function useSampleCorrelation(experimentId: number | string) {
+export function useSampleCorrelation(
+  experimentId: number | string,
+  variant: SampleCorrelationVariant = "full",
+) {
+  // Cached per variant. `readDiagnosticsCache` already keys on one, and
+  // keying on the experiment alone would have let a toggled-to-regressed
+  // matrix come back as the default on the next visit.
   const seed = useCacheSeed<SampleCorrelationResult>(
     "sample-correlation",
     experimentId,
+    variant,
   );
   return useQuery<SampleCorrelationResult>({
-    queryKey: ["diagnostics", "sample-correlation", experimentId],
+    queryKey: ["diagnostics", "sample-correlation", experimentId, variant],
     queryFn: async () => {
       try {
         const matrix = await api.get<SampleCorrelationMatrix>(
-          `/rest/v2/datasets/${experimentId}/sample-correlation`,
+          `/rest/v2/datasets/${experimentId}/sample-correlation?matrix=${variant}`,
         );
         const r = { matrix, reason: "" };
-        writeDiagnosticsCache("sample-correlation", experimentId, r);
+        writeDiagnosticsCache("sample-correlation", experimentId, r, variant);
         return r;
       } catch (e) {
         if (e instanceof ApiError && (e.status === 404 || e.status === 204)) {
@@ -185,7 +245,7 @@ export function useSampleCorrelation(experimentId: number | string) {
           // carries the server's own sentence. Re-asking every reload
           // just to be told the same thing helps nobody.
           const r = { matrix: null, reason: e.detail || "" };
-          writeDiagnosticsCache("sample-correlation", experimentId, r);
+          writeDiagnosticsCache("sample-correlation", experimentId, r, variant);
           return r;
         }
         throw e;

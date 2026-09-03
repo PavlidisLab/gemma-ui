@@ -14,15 +14,18 @@
  * Named from what SETS it, not from what the word suggests: a design
  * row with no factors, tags with none set, an audit nobody has triaged.
  * A curator owes it something. It says nothing about a derived analysis
- * having gone stale relative to its input — that state does not exist
- * yet, and would be `stale` when it does.
+ * having gone stale relative to its input — that state is `stale`, and
+ * it arrived on 2026-09-02.
  */
 import { describe, expect, it } from "vitest";
 import type { StepStatus } from "./workflowTypes";
 
-/** Mirrors `mapGemmaStatus`, which is module-private. Kept in step by
- *  the round-trip assertions below rather than by hope. */
-const VOCABULARY: StepStatus[] = ["not_run", "ok", "failed", "incomplete", "na"];
+/** A hand-written mirror of `mapGemmaStatus`, and it can only assert
+ *  what someone remembered to add — which is how `stale` reached the
+ *  wire while the test below swore the state did not exist. The join to
+ *  the real adapter is `pipelineStatusAdapter.test.ts`; this file is
+ *  about the WORDS and what they must not become. */
+const VOCABULARY: StepStatus[] = ["not_run", "ok", "failed", "incomplete", "stale", "na"];
 
 describe("StepStatus vocabulary", () => {
   it("has no member named for the curator-set flag", () => {
@@ -37,11 +40,18 @@ describe("StepStatus vocabulary", () => {
     expect(VOCABULARY).toContain("not_run");
   });
 
-  it("carries no `stale`, because that state does not exist yet", () => {
-    // "the DEA no longer reflects the design" is a real and wanted
-    // state, and a DIFFERENT one. When it lands it is an addition, not
-    // a rename of `incomplete`.
-    expect(VOCABULARY).not.toContain("stale" as StepStatus);
+  it("carries `stale`, and it is neither `incomplete` nor `not_run`", () => {
+    // "the DEA no longer reflects the design" is a real state and a
+    // DIFFERENT one, so it landed as an addition, not as a rename of
+    // `incomplete`.
+    //
+    // 🛑 It was on the wire before it was in this list, and the gap was
+    // silent: `mapGemmaStatus` fell through to `not_run`, so a step with
+    // a real `lastRun` rendered "not run". gemma2 on 2026-09-02 answered
+    // `stale` for preprocess, pca and dea on eid 1658.
+    expect(VOCABULARY).toContain("stale");
+    expect(VOCABULARY).toContain("incomplete");
+    expect(VOCABULARY).toContain("not_run");
   });
 
   it("still has no `in_progress` — nothing has ever emitted one", () => {

@@ -21,6 +21,7 @@ import {
   canCloseTicket,
   closeBlockedReason,
   useMyScratchpad,
+  useScratchpadOwner,
   useMyTickets,
   pinScratchpadFirst,
   usePatchTicket,
@@ -41,7 +42,11 @@ import { useGemmaMode } from "@/lib/gemmaMode";
 import { OntologyLookup } from "./OntologyLookup";
 import { formatFiledDate } from "@/features/tickets/ticketPills";
 import { ExperimentQuickSearch } from "./ExperimentQuickSearch";
-import { PriorityPill, StatePill } from "@/features/tickets/ticketPills";
+import {
+  PriorityPill,
+  ScratchpadOwnerPill,
+  StatePill,
+} from "@/features/tickets/ticketPills";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
@@ -714,6 +719,7 @@ function TicketCard({
   // light list mode it isn't, so fall back to the server-backfilled
   // ``investigation_id`` for a single-target dataset ticket.
   const rollup = ticketRollup(ticket);
+  const scratchpadOwner = useScratchpadOwner(ticket);
   const expTargets = (ticket.targets ?? []).filter(
     (t) => t.target_type === "EXPRESSION_EXPERIMENT",
   );
@@ -780,8 +786,16 @@ function TicketCard({
           ) : null}
         </div>
       </div>
-      <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
-        {ticket.title}
+      {/* Other curators' scratchpads show up in this queue, and the
+          server title says whose only when their contact carries a name
+          — two of them read "Scratchpad: admin" and plain "Scratchpad"
+          side by side. The owner rides on the TITLE line rather than
+          the chip row above: "another curator" is long enough to wrap
+          that row onto a second line, and the title is where a reader
+          looks for whose thing this is anyway. */}
+      <div className="flex items-baseline gap-1.5 flex-wrap text-sm font-medium text-slate-800 dark:text-slate-100">
+        <span>{ticket.title}</span>
+        <ScratchpadOwnerPill owner={scratchpadOwner} />
       </div>
       {ticket.body ? (
         // Markers STRIPPED here rather than rendered, unlike the detail
