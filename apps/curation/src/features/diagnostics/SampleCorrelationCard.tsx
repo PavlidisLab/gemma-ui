@@ -344,6 +344,24 @@ export function SampleCorrelationCard({
     [rowAssayIds, outlierIds, pendingUnmark],
   );
 
+  /**
+   * Wide enough for the longest strip name, instead of a fixed 104px
+   * that cut "organism part" to "organism…".
+   *
+   * The gutter is nearly free on this panel: the matrix is square and
+   * bounded by the panel's HEIGHT, so widening the label column does
+   * not shrink it — it only eats whitespace the matrix could not have
+   * used. Capped anyway, because a factor can be named anything.
+   *
+   * ~6.4px per character at 12px Helvetica, plus room for the grouping
+   * marker and the left padding.
+   */
+  const labelGutterPx = useMemo(() => {
+    const names = (payload?.factors ?? []).map((f) => f.name ?? "");
+    const longest = names.reduce((m, n) => Math.max(m, n.length), 0);
+    return Math.round(Math.min(180, Math.max(104, longest * 6.4 + 28)));
+  }, [payload]);
+
   const dimRowFlags = useMemo(
     () =>
       rowAssayIds.map(
@@ -443,7 +461,7 @@ export function SampleCorrelationCard({
         // Just wide enough for a factor name. Row labels stay off, so
         // this holds only the strip names — which are what you click to
         // change the ordering.
-        rowLabelGutterWidth={104}
+        rowLabelGutterWidth={labelGutterPx}
         // The hover tooltip says everything the pinned panels would,
         // and the panels were swallowing the click that switches the
         // grouping.
@@ -712,6 +730,9 @@ export function SampleCorrelationCard({
                 // names is not readable, so a click would be a guess.
                 dimRows={dimRowFlags}
                 markRows={markRowFlags}
+                // Room for the SAMPLE names here, not just the factor
+                // names — the big view shows both in the same gutter.
+                rowLabelGutterWidth={Math.max(labelGutterPx, 190)}
                 onRowLabelClick={(i) => {
                   const id = rowAssayIds[i];
                   if (id != null) stageAssay(id);

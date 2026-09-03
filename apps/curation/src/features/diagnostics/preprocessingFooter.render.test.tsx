@@ -15,9 +15,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 vi.mock("@/api/workflow", () => ({ usePipelineStatus: vi.fn() }));
 vi.mock("@/api/quantitation", () => ({ useQuantitationTypes: vi.fn() }));
+vi.mock("@/api/datasetMetadata", () => ({
+  useDatasetMetadataFiles: vi.fn(),
+  metadataFilePath: (id: number | string, t: string) =>
+    `/rest/v2/datasets/${id}/metadata/${t}`,
+}));
 
 import { usePipelineStatus } from "@/api/workflow";
 import { useQuantitationTypes } from "@/api/quantitation";
+import { useDatasetMetadataFiles } from "@/api/datasetMetadata";
 import { PreprocessingMetadataFooter } from "./DiagnosticsPanel";
 
 const qt = (over: Record<string, unknown>) => ({
@@ -63,6 +69,7 @@ const PROCESSED_PREF = qt({
 function setup(opts: {
   preprocess?: { status: string; last_run: string | null } | null;
   qts?: unknown[] | undefined;
+  reports?: unknown[] | undefined;
 }) {
   vi.mocked(usePipelineStatus).mockReturnValue({
     data: opts.preprocess === null
@@ -70,6 +77,7 @@ function setup(opts: {
       : { analysis: { preprocessing: opts.preprocess ?? { status: "ok", last_run: null, details: null } } },
   } as never);
   vi.mocked(useQuantitationTypes).mockReturnValue({ data: opts.qts } as never);
+  vi.mocked(useDatasetMetadataFiles).mockReturnValue({ data: opts.reports } as never);
   return renderToStaticMarkup(<PreprocessingMetadataFooter experimentId={1658} />);
 }
 
@@ -118,7 +126,7 @@ describe("PreprocessingMetadataFooter", () => {
     const terms = [...setup({ qts: [PROCESSED_PREF] }).matchAll(/<dt[^>]*>(.*?)<\/dt>/g)].map(
       (m) => m[1].toLowerCase(),
     );
-    expect(terms).toEqual(["preprocessed", "data", "filtering"]);
+    expect(terms).toEqual(["preprocessed", "data", "filtering", "reports"]);
   });
 
   it("says a step never ran rather than showing an empty date", () => {
@@ -141,6 +149,41 @@ describe("PreprocessingMetadataFooter", () => {
     const html = setup({ qts: [PROCESSED_PREF] });
     expect(html).toContain("not recorded for this dataset");
     expect(html).not.toMatch(/>0</);
+  });
+
+  it("lists a pipeline report when the dataset has one", () => {
+    // Shape from gemma2's own answer for eid 40086.
+    const html = setup({
+      qts: [PROCESSED_PREF],
+      reports: [
+        {
+          type: "RNASEQ_PIPELINE_REPORT",
+          display_name: "RNA-Seq Pipeline Report",
+          download_name: "GSE165287.multiqc.report.html",
+          content_type: "text/html",
+          directory: false,
+        },
+      ],
+    });
+    expect(html).toContain("RNA-Seq Pipeline Report");
+  });
+
+  it("calls an empty listing normal, not missing", () => {
+    // 🛑 Microarray datasets never have one. Saying "not recorded"
+    // here would report most of the corpus as defective.
+    const html = setup({ qts: [PROCESSED_PREF], reports: [] });
+    expect(html).toContain("RNA-seq datasets carry a pipeline report");
+    expect(html).not.toContain("not recorded for this dataset\u003c/span\u003e\u003c/dd\u003e\u003c/dl\u003e");
+  });
+
+  it("does not render a directory entry as a file to open", () => {
+    const html = setup({
+      qts: [PROCESSED_PREF],
+      reports: [
+        { type: "SOME_DIR", display_name: "A folder", directory: true },
+      ],
+    });
+    expect(html).not.toContain("A folder");
   });
 
   it("survives both endpoints answering nothing", () => {

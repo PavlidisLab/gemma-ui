@@ -32,6 +32,12 @@ import { usePipelineStatus } from "@/api/workflow";
 import { statusLabel } from "@/features/workflow/PipelinePanel";
 import { useQuantitationTypes } from "@/api/quantitation";
 import { HelpPopup } from "@/components/ui/HelpPopup";
+import {
+  useDatasetMetadataFiles,
+  metadataFilePath,
+  type DatasetMetadataFile,
+} from "@/api/datasetMetadata";
+import { apiBlob } from "@/api/client";
 
 // Temporary opt-in gate (the reviewer, 2026-05-24): the four panels each hit
 // a separate gemma-rest endpoint that can be heavy. While we're doing
@@ -154,6 +160,7 @@ export function PreprocessingMetadataFooter({
 }) {
   const { data: pipeline } = usePipelineStatus(experimentId);
   const { data: qts } = useQuantitationTypes(experimentId);
+  const { data: reports } = useDatasetMetadataFiles(experimentId);
 
   const preprocess = pipeline?.analysis?.preprocessing;
 
@@ -259,6 +266,20 @@ export function PreprocessingMetadataFooter({
         <dd>
           <Absent>not recorded for this dataset</Absent>
         </dd>
+
+        <FooterTerm>Reports</FooterTerm>
+        <dd className="flex items-center gap-3 flex-wrap">
+          {reports && reports.length > 0 ? (
+            reports
+              .filter((f) => !f.directory)
+              .map((f) => <MetadataFileLink key={f.type} experimentId={experimentId} file={f} />)
+          ) : (
+            // 🛑 Not a fault. Only RNA-seq datasets have a pipeline
+            // report; a microarray one never will, so an empty listing
+            // is the normal answer for most of the corpus.
+            <Absent>none — RNA-seq datasets carry a pipeline report</Absent>
+          )}
+        </dd>
       </dl>
     </div>
   );
@@ -308,4 +329,77 @@ function formatRunDate(iso: string | null): string {
     month: "short",
     day: "numeric",
   });
+}
+
+/**
+ * Opens one pipeline-output file.
+ *
+ * 🛑 Fetched and handed over as a blob rather than linked. A plain
+ * `<a href>` carries the session cookie but NOT the `Authorization`
+ * header, so it authenticates in one of the app's two modes and 401s in
+ * the other — and the failure would land in a blank tab where nothing
+ * can report it.
+ *
+ * The tab is opened SYNCHRONOUSLY on the click and its location set
+ * when the blob arrives; opening it after the await is what a popup
+ * blocker stops. A 5.6 MB MultiQC report is self-contained HTML, so a
+ * blob URL renders it whole.
+ */
+function MetadataFileLink({
+  experimentId,
+  file,
+}: {
+  experimentId: number | string;
+  file: DatasetMetadataFile;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+  const label = file.display_name || file.download_name || file.type;
+  const readable = (file.content_type ?? "").startsWith("text/html");
+  return (
+    <span className="inline-flex items-center gap-1">
+      <button
+        type="button"
+        disabled={busy}
+        onClick={async () => {
+          setFailed(null);
+          setBusy(true);
+          const tab = readable ? window.open("", "_blank") : null;
+          try {
+            const blob = await apiBlob(metadataFilePath(experimentId, file.type));
+            const url = URL.createObjectURL(blob);
+            if (tab) {
+              tab.location.href = url;
+            } else {
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = file.download_name || file.type;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+            }
+            // Same delay the heatmap download uses — revoking
+            // synchronously can beat the browser to the file on Safari.
+            setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          } catch (e) {
+            tab?.close();
+            setFailed((e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        }}
+        className="text-blue-700 dark:text-blue-300 hover:underline disabled:opacity-50"
+        title={
+          readable
+            ? `Open ${file.download_name ?? label} in a new tab`
+            : `Download ${file.download_name ?? label}`
+        }
+      >
+        {busy ? "opening…" : label} {readable ? "↗" : "↓"}
+      </button>
+      {failed ? (
+        <span className="text-rose-700 dark:text-rose-300">({failed})</span>
+      ) : null}
+    </span>
+  );
 }
