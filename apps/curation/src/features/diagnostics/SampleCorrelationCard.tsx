@@ -10,7 +10,7 @@
  * forced to pull in mutating UI.
  */
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   HeatmapWidget,
   computeColumnOrder,
@@ -114,6 +114,26 @@ export function SampleCorrelationCard({
     variant,
   );
   const data = result?.matrix ?? null;
+  /**
+   * Gemma's sentence for why this dataset has no regressed matrix, once
+   * it has said so. It only computes one when the design has factors
+   * above the SVD importance threshold, so `?matrix=regressed` 404s on
+   * datasets like GSE19853.
+   *
+   * 🛑 Discovered by asking — there is no field that says in advance.
+   * So the first click is the discovery, and it must not cost the
+   * curator the panel: the variant snaps back to `full` and the control
+   * greys with the reason on it, rather than leaving an empty card and
+   * no way out of the mode that emptied it.
+   */
+  const [noRegressed, setNoRegressed] = useState<string | null>(null);
+  useEffect(() => {
+    if (variant !== "regressed") return;
+    if (result && result.matrix === null) {
+      setNoRegressed(result.reason || "This dataset has no regressed matrix.");
+      setVariant("full");
+    }
+  }, [variant, result]);
   // Design-data panels read the DRAFT, not the saved server design —
   // the strips must show what the curator is looking at, including
   // uncommitted edits (feedback_design_panels_must_read_draft).
@@ -497,6 +517,45 @@ export function SampleCorrelationCard({
    * tile-only, so the surface a curator actually works in was the one
    * that could not change what it was showing.
    */
+  /**
+   * 🛑 Rendered whether or not a matrix came back.
+   *
+   * `?matrix=regressed` 404s on a dataset that has none — Gemma only
+   * computes one when the design has factors above the SVD importance
+   * threshold, and GSE19853 is such a dataset. The toggle used to live
+   * inside a `data ? …` branch, so switching to regressed there emptied
+   * the panel AND took away the control that switches back: the curator
+   * was stuck in a mode with no exit but a reload.
+   */
+  const variantToggle = (
+    // 🛑 The title lives on the WRAPPER. Chrome fires no hover events on
+    // a disabled element, so a disabled button's own `title` never
+    // appears — the control would grey out and refuse to say why, which
+    // is the failure greying it was meant to avoid.
+    <span title={noRegressed ?? undefined}>
+    <button
+      type="button"
+      disabled={noRegressed != null}
+      onClick={() => setVariant((v) => (v === "full" ? "regressed" : "full"))}
+      className={
+        "underline decoration-dotted underline-offset-2 " +
+        (noRegressed != null
+          ? "text-slate-400 dark:text-slate-500 cursor-not-allowed"
+          : "text-blue-700 dark:text-blue-300 hover:no-underline")
+      }
+      title={
+        noRegressed != null
+          ? noRegressed
+          : variant === "full"
+            ? "Take the design's factor effects out, so structure that is just the experiment stops dominating and an odd sample stands out. This is also the matrix the outlier detector reads."
+            : "Back to the plain correlation, with no model subtracted."
+      }
+    >
+      {variant === "full" ? "regress out design" : "show unregressed"}
+    </button>
+    </span>
+  );
+
   const matrixControls = data ? (
     <>
             <span>
@@ -526,7 +585,21 @@ export function SampleCorrelationCard({
                 {outliers.text}
               </span>
             ) : null}
-            {maskable > 0 ? (
+            {/* 🛑 Greyed, not absent. Paul, 2026-09-02: *"if hide/show
+                outliers isn't actually available for a data set, grey it
+                out."* A control that disappears leaves the curator
+                wondering whether the panel is broken or the dataset is
+                different; one that greys says which. */}
+            {true ? (
+              <span
+                title={
+                  canMask
+                    ? undefined
+                    : maskable === 0
+                      ? "No sample on this dataset is flagged or predicted as an outlier, so there is nothing to hide."
+                      : `Masking ${maskable} of ${data.bio_assay_ids.length} samples would leave fewer than ${MIN_UNMASKED_SAMPLES}`
+                }
+              >
               <button
                 type="button"
                 onClick={() => setUnmasked((u) => !u)}
@@ -538,32 +611,24 @@ export function SampleCorrelationCard({
                     : "text-slate-400 dark:text-slate-500 cursor-not-allowed")
                 }
                 title={
-                  canMask
-                    ? masking
-                      ? `Draw the ${maskable} outlier(s)' real correlations and open the colour range to fit them`
-                      : "Blank the outliers again and rescale to the remaining samples"
-                    : `Masking ${maskable} of ${data.bio_assay_ids.length} samples would leave fewer than ${MIN_UNMASKED_SAMPLES}`
+                  maskable === 0
+                    ? "No sample on this dataset is flagged or predicted as an outlier, so there is nothing to hide."
+                    : canMask
+                      ? masking
+                        ? `Draw the ${maskable} outlier(s)' real correlations and open the colour range to fit them`
+                        : "Blank the outliers again and rescale to the remaining samples"
+                      : `Masking ${maskable} of ${data.bio_assay_ids.length} samples would leave fewer than ${MIN_UNMASKED_SAMPLES}`
                 }
               >
-                {masking
-                  ? `show ${maskable} outlier(s)`
-                  : `mask ${maskable} outlier(s)`}
+                {maskable === 0
+                  ? "no outliers to hide"
+                  : masking
+                    ? `show ${maskable} outlier(s)`
+                    : `mask ${maskable} outlier(s)`}
               </button>
+              </span>
             ) : null}
-            <button
-              type="button"
-              onClick={() =>
-                setVariant((v) => (v === "full" ? "regressed" : "full"))
-              }
-              className="underline decoration-dotted underline-offset-2 text-blue-700 dark:text-blue-300 hover:no-underline"
-              title={
-                variant === "full"
-                  ? "Take the design's factor effects out, so structure that is just the experiment stops dominating and an odd sample stands out. This is also the matrix the outlier detector reads."
-                  : "Back to the plain correlation, with no model subtracted."
-              }
-            >
-              {variant === "full" ? "regress out design" : "show unregressed"}
-            </button>
+            {variantToggle}
             {/* Curator-only affordance — wire a "Mark / Unmark
                 outlier" button cluster here. Gemma serves
                 POST /datasets/{id}/samples/outliers (batch mark /
@@ -579,26 +644,36 @@ export function SampleCorrelationCard({
     <PanelCard
       title="Sample correlation"
       footer={
-        data ? (
+        // 🛑 Not gated on `data`. A regressed matrix that does not exist
+        // 404s, and the toggle that gets back out of that state cannot
+        // live inside the branch that the 404 removes.
+        result ? (
           <>
             {matrixControls}
+            {data ? null : (
+              <span className="flex items-center gap-3">{variantToggle}</span>
+            )}
             <span className="ml-auto flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setZoomed(true)}
-                className="text-blue-700 dark:text-blue-300 hover:underline"
-                title="Open the big view, where samples can be flagged and unflagged as outliers"
-              >
-                curate outliers ⤢
-              </button>
-              <button
-                type="button"
-                onClick={() => downloadMatrixTsv(experimentId, data)}
-                className="text-blue-700 dark:text-blue-300 hover:underline"
-                title="The full matrix as TSV — every sample, masked or not, and the diagonal included"
-              >
-                download matrix ↓
-              </button>
+              {data ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setZoomed(true)}
+                    className="text-blue-700 dark:text-blue-300 hover:underline"
+                    title="Open the big view, where samples can be flagged and unflagged as outliers"
+                  >
+                    curate outliers ⤢
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => downloadMatrixTsv(experimentId, data)}
+                    className="text-blue-700 dark:text-blue-300 hover:underline"
+                    title="The full matrix as TSV — every sample, masked or not, and the diagonal included"
+                  >
+                    download matrix ↓
+                  </button>
+                </>
+              ) : null}
             </span>
           </>
         ) : null
