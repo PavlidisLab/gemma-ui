@@ -28,12 +28,15 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 
+import { api } from "@/api/client";
 import {
   useCreateTicket,
   useFinalizeTriage,
   usePatchTicketTarget,
 } from "@/api/tickets";
+import { useGemmaMode } from "@/lib/gemmaMode";
 import type {
   Ticket,
   TicketTarget,
@@ -741,7 +744,46 @@ function TriageRow({
   onToggleSelect: () => void;
 }) {
   const patch = usePatchTicketTarget(ticketId);
-  const ident = (meta?.identifying_metadata ?? null) as
+
+  // Real Gemma tickets carry no local `payload_json` at all (no such
+  // field exists there — confirmed 2026-09-02), so `meta` is always
+  // undefined for them; every column below would otherwise render
+  // blank. The descriptive metadata instead lives on the
+  // PreboardedExperiment itself, at the SAME id the target already
+  // carries as `target_id` (`targetType: EXPRESSION_EXPERIMENT` is used
+  // loosely — Gemma resolves it against whichever table actually holds
+  // it, confirmed live against ticket #15). Fetched only in remote mode
+  // and only as a fallback when there's no local payload data —
+  // local_api has no `/preboarded` endpoint at all, so attempting this
+  // in local mode would just 404 for nothing.
+  const { mode } = useGemmaMode();
+  const needsPreboardedFallback = !meta && mode === "remote";
+  const { data: preboarded } = useQuery({
+    queryKey: ["preboarded-fallback", target.target_id],
+    queryFn: () =>
+      api.get<{ accession?: string; identifyingMetadata?: string | null }>(
+        `/rest/v2/preboarded/${target.target_id}`,
+      ),
+    enabled: needsPreboardedFallback,
+    // A 404 means this target is a real, already-loaded EE rather than
+    // a preboarded row — not a transient failure worth retrying, just
+    // "no fallback data available for this row".
+    retry: false,
+    staleTime: Infinity,
+  });
+  const fallbackIdent = useMemo(() => {
+    if (!preboarded?.identifyingMetadata) return null;
+    try {
+      return JSON.parse(preboarded.identifyingMetadata) as Record<
+        string,
+        unknown
+      >;
+    } catch {
+      return null;
+    }
+  }, [preboarded]);
+
+  const ident = (meta?.identifying_metadata ?? fallbackIdent ?? null) as
     | (Record<string, unknown> & {
         title?: string;
         summary?: string;
@@ -759,9 +801,15 @@ function TriageRow({
         library_source?: string;
         releaseDate?: string;
         release_date?: string;
+        // Not part of Gemma's PreboardedResponse schema — persisted here
+        // by our own scrape script instead (scripts/scrape_geo_and_open_
+        // triage.py), specifically so it survives the round trip through
+        // POST /preboarded and is still readable here as a fallback.
+        matched_criteria?: string[];
       })
     | null;
-  const accession = meta?.accession ?? `target ${target.target_id}`;
+  const accession =
+    meta?.accession ?? preboarded?.accession ?? `target ${target.target_id}`;
   const title = ident?.title ?? "";
   const summary = ident?.summary ?? "";
   const numSamples = ident?.numSamples ?? ident?.num_samples;
@@ -776,7 +824,7 @@ function TriageRow({
       ? organisms[0]
       : `${organisms[0]} +${organisms.length - 1}`;
   const typeLabel = ident ? deriveTypeLabel(ident) : "—";
-  const matched = meta?.matched_criteria ?? [];
+  const matched = meta?.matched_criteria ?? ident?.matched_criteria ?? [];
   const disposition = target.triage_disposition ?? null;
 
   const apply = (
