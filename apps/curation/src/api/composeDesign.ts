@@ -318,6 +318,18 @@ export interface DatasetMetaSlim
    *  Empty array on an unsplit dataset, never null, so no presence
    *  check is needed. */
   other_parts?: OtherPart[] | null;
+  /** Gemma's own answer to "is this single-cell", live 2026-09-03.
+   *
+   *  🛑 **Not derivable from `technology_type`, and not derivable from
+   *  the cell count either.** All 100 sampled single-cell datasets
+   *  report `technology_type: GENELIST`, the generic-platform
+   *  placeholder — the field carries no signal. And gembro
+   *  deliberately does NOT derive the flag from `number_of_cells`,
+   *  because 63 of prod's 546 single-cell datasets have no count and
+   *  deriving it would call all 63 bulk. */
+  is_single_cell?: boolean | null;
+  /** Total cells, `null` when not counted — see `is_single_cell`. */
+  number_of_cells?: number | null;
 }
 
 /** One sibling of a split experiment. */
@@ -583,6 +595,8 @@ export function composeCurationDesign(
     ...platformFields(meta),
     loaded_at: meta?.date_created ?? undefined,
     other_parts: meta?.other_parts ?? undefined,
+    is_single_cell: meta?.is_single_cell ?? undefined,
+    number_of_cells: meta?.number_of_cells ?? undefined,
     // `gold_data_version` / `annotation_version` / `baseline` used to be
     // copied through by hand here. They ride in `...carried` now, along
     // with everything else — which is the whole point of the change.

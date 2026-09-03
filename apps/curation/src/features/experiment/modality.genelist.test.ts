@@ -74,3 +74,63 @@ describe("inferModality — GENELIST", () => {
     expect(inferModality(design({ technology_type: "" }))).toBe("unknown");
   });
 });
+
+/**
+ * 🛑 Gemma's own `isSingleCell` outranks every heuristic in this module.
+ *
+ * The tests above exist because `technology_type` could not separate
+ * single-cell from bulk — and measured over 100 single-cell datasets on
+ * 2026-09-03, it is **GENELIST on all 100**. So the regex was carrying
+ * the whole load: it fired on any study whose platform string mentioned
+ * 10x and missed any that did not.
+ *
+ * `is_single_cell` was true on 92 of those 100 and false on 8, and the 8
+ * false are exactly the 8 with no subset groups — it tracks whether
+ * single-cell data is LOADED, which is what the tab is gated on.
+ */
+describe("inferModality — Gemma's own is_single_cell", () => {
+  it("wins over a GENELIST technology type with nothing else to go on", () => {
+    // The shape of all 100: GENELIST, no assay tag naming 10x. Without
+    // the flag this is "bulk-rnaseq".
+    const d = design({ technology_type: "GENELIST" });
+    expect(inferModality(d)).toBe("bulk-rnaseq");
+    expect(inferModality({ ...d, is_single_cell: true })).toBe("single-cell");
+  });
+
+  it("wins over a platform string that says microarray", () => {
+    // A single-cell study whose stand-in platform name mentions an array
+    // must not be classified off the string when Gemma has answered.
+    const d = design({
+      technology_type: "",
+      platform: "Affymetrix Human Genome U133 Plus 2.0",
+    });
+    expect(inferModality(d)).toBe("microarray");
+    expect(inferModality({ ...d, is_single_cell: true })).toBe("single-cell");
+  });
+
+  it("🛑 a FALSE flag does not short-circuit — it is not a modality answer", () => {
+    // `is_single_cell: false` says "not single-cell"; it does not say
+    // whether the study is microarray or bulk, so the heuristics still
+    // have to run.
+    const d = design({ technology_type: "ONECOLOR", is_single_cell: false });
+    expect(inferModality(d)).toBe("microarray");
+    const seq = design({ technology_type: "SEQUENCING", is_single_cell: false });
+    expect(inferModality(seq)).toBe("bulk-rnaseq");
+  });
+
+  it("falls back to the heuristics when the flag is absent", () => {
+    // Local mode, and any host predating 2026-09-03. The 10x string is
+    // all there is, and it still works.
+    const d = design({
+      technology_type: "GENELIST",
+      platform: "10x Genomics Chromium",
+    });
+    expect(d.is_single_cell).toBeUndefined();
+    expect(inferModality(d)).toBe("single-cell");
+  });
+
+  it("does not treat the flag as present when it is explicitly null", () => {
+    const d = { ...design({ technology_type: "ONECOLOR" }), is_single_cell: undefined };
+    expect(inferModality(d)).toBe("microarray");
+  });
+});
