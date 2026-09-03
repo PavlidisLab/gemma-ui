@@ -31,6 +31,10 @@ export interface CategoricalLevel {
   /** Sample keys (anything stringy — bioMaterial id, short_name, etc.)
    *  carrying this level. */
   sampleKeys: string[];
+  /** Human name for the level. Nothing in the association MATH reads
+   *  it — it is here so a caller plotting the samples behind a bar can
+   *  name the columns something better than "level 1". */
+  label?: string;
   /** Numeric code for the level. Gemma uses the factor-value id; the
    *  level's position in the factor is the caller's fallback when no id
    *  is available. Only the Spearman branch reads it, and the

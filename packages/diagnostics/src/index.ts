@@ -75,3 +75,5 @@ export {
   kruskalWallisTest,
   pcFactorAssociation,
 } from "./gemmaStats";
+
+export { PcValuePlot, type PcValuePoint } from "./PcValuePlot";

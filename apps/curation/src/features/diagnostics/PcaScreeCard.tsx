@@ -18,6 +18,8 @@ import {
 } from "@gemma/diagnostics";
 import { useDatasetSvd } from "@/api/diagnostics";
 import { usePcaHeatmapData, withPcScoreStrip } from "@/api/heatmapData";
+import { useQcMetrics } from "@/api/qcMetrics";
+import { withQcMetricStrips } from "./heatmapPayload";
 import { useEscapeKey } from "@gemma/ui";
 
 export function PcaScreeCard({
@@ -128,9 +130,14 @@ function PcLoadingsPopup({
     }
     return out;
   }, [svd, pc]);
+  // The sequencing QC strips ride here too — Paul, 2026-09-02: *"show
+  // these qc metrics in the pc plot too."* Same columns, same order, so
+  // "what the component saw" can be read against "how well the sample
+  // sequenced" without leaving the popup.
+  const { data: qc } = useQcMetrics(experimentId);
   const payload = useMemo(
-    () => withPcScoreStrip(raw ?? null, pc, scores),
-    [raw, pc, scores],
+    () => withQcMetricStrips(withPcScoreStrip(raw ?? null, pc, scores), qc),
+    [raw, pc, scores, qc],
   );
   const [groupBy, setGroupBy] = useState<number | null>(null);
   useEscapeKey(true, onClose);
