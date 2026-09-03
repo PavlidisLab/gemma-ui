@@ -74,6 +74,14 @@ VITE_GEMMA_MODE=remote ./up.sh     # base follows GEMMA_BASE_URL
 `up.sh` prints which one it built, and warns when a local-mode UI ends
 up in front of a keychain Gemma.
 
+🛑 **Naming a Gemma is not routing to one.** `VITE_GEMMA_BASE_URL` is
+what the mode chip and login page *say*; `GEMMA_REST_URL` is where the
+proxy *sends* `/rest`. Set one and not the other and remote mode posts
+every login to the unset one's default — `host.docker.internal:8080` —
+and vite answers `POST /rest/v2/login failed: 500` from a page naming a
+host it never contacted. `up.sh` now derives both from `GEMMA_BASE_URL`
+and prints each, so one keychain entry configures the whole stack.
+
 ```sh
 ./down.sh            # stop + remove containers
 ./down.sh --volumes  # also nuke ui-node-modules / gemma-db-data
@@ -95,6 +103,8 @@ up in front of a keychain Gemma.
 | `GEMMA_WRITE_TARGET` | unset | must equal the Gemma URL being written to before any mutating call is allowed. Leave unset for read-only work |
 | `VITE_GEMMA_MODE` | unset → `local` | `remote` for the real login + Gemma-only surfaces; `local` serves a synthetic curator and the store-backed surfaces. Shell only — no keychain, no compose default |
 | `VITE_GEMMA_BASE_URL` | `GEMMA_BASE_URL` | Gemma the SPA names in the mode chip and the login page. Required by remote mode, which refuses to default it |
+| `GEMMA_REST_URL` | `GEMMA_BASE_URL` → `http://host.docker.internal:8080` | where the UI's vite proxy actually SENDS `/rest`. Naming a host in `VITE_GEMMA_BASE_URL` routes nothing — this is the one that moves bytes |
+| `GEMMA_ONTOLOGY_URL` | `GEMMA_BASE_URL` | serves `/rest/v2/annotations/*` + `/genes`. Unset disables ontology term search |
 | `GEMMA_BROWSER_BACKEND` | `http://host.docker.internal:8080` | upstream the browser UI proxies `/rest` to. Default reaches local Gemma 2.0 on the host. Flip to `http://gemma-rest:8080` when running `--gemma`, or to staging / prod URLs. |
 | `GEMMA_AGENTS_USE_ZOTERO` | unset | `1` to enable Zotero biolit fetcher |
 

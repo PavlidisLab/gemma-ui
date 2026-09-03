@@ -96,6 +96,27 @@ if [ -z "${GEMMA_BROWSER_BACKEND:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
     echo "[up] GEMMA_BROWSER_BACKEND ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
 fi
 
+# Where the curation UI's vite proxy actually SENDS /rest, and where it
+# sends ontology lookups. Both keep compose defaults that predate the
+# keychain host — `GEMMA_REST_URL` defaults to a Gemma on the host at
+# :8080, and `GEMMA_ONTOLOGY_URL` to nothing at all.
+#
+# 🛑 The SPA naming a host does not route anything to it.
+# `VITE_GEMMA_BASE_URL` is what the mode chip and the login page SAY;
+# `GEMMA_REST_URL` is where the bytes go. With the first on the
+# keychain Gemma and the second on its default, remote mode posted
+# every login to a :8080 that nothing was listening on, and vite
+# answered 500 — a login page naming gemma2 and failing against a host
+# it never mentioned (caught 2026-09-03).
+if [ -z "${GEMMA_REST_URL:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export GEMMA_REST_URL="$GEMMA_BASE_URL"
+    echo "[up] GEMMA_REST_URL ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+if [ -z "${GEMMA_ONTOLOGY_URL:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export GEMMA_ONTOLOGY_URL="$GEMMA_BASE_URL"
+    echo "[up] GEMMA_ONTOLOGY_URL ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+
 # What the curation UI itself is built against. `VITE_GEMMA_MODE` and
 # `VITE_GEMMA_BASE_URL` are inlined into the SPA bundle at container
 # start, so they are settable only here — and they came from the
