@@ -10,6 +10,7 @@ import {
 } from "@/api/subsets";
 import {
   assignmentOrigin,
+  cellTypeCounts,
   groundedCount,
   useCellTypeAssignment,
   type CellTypeAssignmentResult,
@@ -160,6 +161,8 @@ export function SingleCellPanel() {
           </div>
         )}
 
+        <CellsPerType result={assignment.data} loading={assignment.isLoading} />
+
         <AssignedBy result={assignment.data} loading={assignment.isLoading} />
 
         <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -167,8 +170,9 @@ export function SingleCellPanel() {
           — cell-bucket sub-BMs, cells per cell type, per-cell-type
           DEA pointers, and a free-text-vs-ontology-resolved
           breakdown of the cell-type characteristics. Cells per
-          LIBRARY needs no wire work: <code>numberOfCells</code> is
-          already on each row of <code>/datasets/{"{id}"}/samples</code>.
+          LIBRARY needs no wire work either: <code>numberOfCells</code>
+          is already on each row of{" "}
+          <code>/datasets/{"{id}"}/samples</code>.
         </p>
       </article>
 
@@ -394,6 +398,82 @@ function SubsetList({
   );
 }
 
+
+/** Cells per cell type — the line Gemma 1.0 prints beside each subset
+ *  (`[Subset: astrocyte] [Cells: 14,113]`).
+ *
+ *  Sourced from the ASSIGNMENT, not from the subsets, so it covers only
+ *  the cell types the assignment knows. That is deliberate: the count is
+ *  a property of the cell-level assignment and attributing it to a
+ *  subset that merely shares a label would be inventing a join.
+ *
+ *  🛑 **A missing count renders as nothing, never as 0.** The tally is
+ *  absent on a host predating 2026-09-03, and `numberOfCells` is null on
+ *  63 of prod's 546 single-cell datasets — null means "not counted", and
+ *  a dataset whose cells were never counted must not be shown as
+ *  containing none. */
+function CellsPerType({
+  result,
+  loading,
+}: {
+  result?: CellTypeAssignmentResult;
+  loading: boolean;
+}) {
+  if (loading || !result || result.state !== "assignment") return null;
+  const counts = cellTypeCounts(result.assignment);
+  const counted = counts.filter((c) => c.cells != null);
+  if (counted.length === 0) return null;
+
+  const total = counted.reduce((n, c) => n + (c.cells ?? 0), 0);
+  const max = Math.max(...counted.map((c) => c.cells ?? 0));
+
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+        Cells per cell type
+        <span className="font-normal text-slate-500 dark:text-slate-400">
+          {" · "}
+          {total.toLocaleString()} assigned
+          {counted.length < counts.length
+            ? ` · ${counts.length - counted.length} not counted`
+            : ""}
+        </span>
+      </p>
+      <ul className="space-y-0.5">
+        {counts.map((c) => (
+          <li
+            key={c.id ?? c.label}
+            className="flex items-baseline gap-2 text-[11px]"
+          >
+            <span className="w-52 shrink-0 truncate text-slate-700 dark:text-slate-300">
+              {c.label}
+            </span>
+            {c.cells == null ? (
+              <span className="italic text-slate-400 dark:text-slate-500">
+                not counted
+              </span>
+            ) : (
+              <>
+                {/* Proportion bar. Widths are relative to the LARGEST
+                    type, not to the total — on a dataset where one type
+                    is 39% and the rest are single digits, scaling to the
+                    total leaves eight bars indistinguishable from zero. */}
+                <span
+                  aria-hidden
+                  className="h-1.5 rounded-sm bg-violet-300 dark:bg-violet-700"
+                  style={{ width: `${Math.max(2, ((c.cells ?? 0) / max) * 100)}px` }}
+                />
+                <span className="tabular-nums text-slate-600 dark:text-slate-400">
+                  {c.cells.toLocaleString()}
+                </span>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /** Who assigned the cell types.
  *

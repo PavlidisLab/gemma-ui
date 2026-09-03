@@ -44,6 +44,15 @@ import { api, ApiError } from "./client";
  * form (`author-submitted` vs `Author-submitted annotations`), so never
  * match one against the other.
  *
+ * 🛑 **Fetched with `?exclude=cellTypeIds`, and the reason is three
+ * orders of magnitude.** The response carries `cellTypeIds`, one entry
+ * PER CELL — 89,700 of them on eid 79038, an **809 KB** payload for a
+ * panel that wants ten numbers. `exclude` drops it and leaves the
+ * per-cell-type tally intact: the same request is **2 KB** (gembro
+ * added the param 2026-09-03 for exactly this). Never fetch this route
+ * without it unless something genuinely needs per-cell assignment, and
+ * then say so at the call site.
+ *
  * Gemma-only in both modes (the store serves no such route), like
  * `subsets.ts` and `sourceMetadata.ts`.
  */
@@ -66,6 +75,15 @@ export interface CellTypeAssignment {
   protocol?: unknown;
   cell_types?: AssignedCellType[] | null;
   number_of_assigned_cells?: number | null;
+  /** Cells per cell type, keyed by the cell type's characteristic id.
+   *
+   *  🛑 **Keyed by id, not by label** — and `snakeify` leaves the keys
+   *  alone here because they are numeric strings, not field names. Join
+   *  to `cell_types[].id`. Gemma 1.0 prints these beside each subset
+   *  (`[Subset: astrocyte] [Cells: 14,113]`); they were derivable only
+   *  by tallying the 89,700-entry `cellTypeIds` array until gembro
+   *  served the tally directly on 2026-09-03. */
+  number_of_assigned_cells_by_cell_type?: Record<string, number> | null;
   preferred?: boolean | null;
 }
 
@@ -85,8 +103,11 @@ export function useCellTypeAssignment(
     enabled: experimentId != null && experimentId !== "",
     queryFn: async () => {
       try {
+        // `exclude=cellTypeIds` — see the module note. Without it this
+        // is an 809 KB response for ten numbers.
         const a = await api.get<CellTypeAssignment | null>(
-          `/rest/v2/datasets/${experimentId}/cellTypeAssignment`,
+          `/rest/v2/datasets/${experimentId}/cellTypeAssignment` +
+            `?exclude=cellTypeIds`,
         );
         return a
           ? { state: "assignment", assignment: a }
@@ -142,4 +163,42 @@ export function assignmentOrigin(name: string | null | undefined): AssignmentOri
   if (n.includes("author")) return "authors";
   if (n.includes("sc-pipeline") || n.includes("pipeline")) return "pipeline";
   return "unknown";
+}
+
+/** One cell type with its cell count, largest first.
+ *
+ *  🛑 **A missing count is not zero.** `number_of_assigned_cells_by_cell_type`
+ *  is absent on a host predating 2026-09-03 and can omit a type, so the
+ *  count is `null` rather than 0 and the caller renders nothing rather
+ *  than "0 cells" — the same rule as `numberOfCells` being null on 63
+ *  of prod's single-cell datasets, which means "not counted". */
+export interface CellTypeCount {
+  id: number | null;
+  label: string;
+  uri: string | null;
+  cells: number | null;
+}
+
+export function cellTypeCounts(a: CellTypeAssignment): CellTypeCount[] {
+  const tally = a.number_of_assigned_cells_by_cell_type ?? null;
+  const out: CellTypeCount[] = (a.cell_types ?? []).map((c) => {
+    const id = typeof c.id === "number" ? c.id : null;
+    const n = tally && id != null ? tally[String(id)] : undefined;
+    return {
+      id,
+      label: (c.value ?? "").trim() || "(unlabelled)",
+      uri: c.value_uri ?? null,
+      cells: typeof n === "number" ? n : null,
+    };
+  });
+  // Largest first — a curator scanning ten cell types wants the bulk of
+  // the dataset at the top. Counted types sort ahead of uncounted ones;
+  // ties and the uncounted keep Gemma's order rather than being
+  // re-sorted by label, which would imply an authority we do not have.
+  return out.sort((x, y) => {
+    if (x.cells == null && y.cells == null) return 0;
+    if (x.cells == null) return 1;
+    if (y.cells == null) return -1;
+    return y.cells - x.cells;
+  });
 }

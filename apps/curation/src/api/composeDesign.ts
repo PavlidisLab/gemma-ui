@@ -306,6 +306,25 @@ export interface DatasetMetaSlim
    *  abstract only exist here. */
   name?: string | null;
   description?: string | null;
+  /** The sibling experiments Gemma cut this one out of, when it is a
+   *  split part — id, short name and title each, live 2026-09-03
+   *  (gemma2 `86d3e6abc2`).
+   *
+   *  🛑 **The TITLE is the useful field, not the short name.** A split
+   *  part's title is the only place the distinguishing factor value
+   *  appears — `Rexach-2024.1` and `.2` differ solely by
+   *  `[organism part = …]` inside the name.
+   *
+   *  Empty array on an unsplit dataset, never null, so no presence
+   *  check is needed. */
+  other_parts?: OtherPart[] | null;
+}
+
+/** One sibling of a split experiment. */
+export interface OtherPart {
+  id?: number | null;
+  short_name?: string | null;
+  name?: string | null;
 }
 
 export function composeCurationDesign(
@@ -563,6 +582,7 @@ export function composeCurationDesign(
     // 300 of 300 until 2026-08-28.
     ...platformFields(meta),
     loaded_at: meta?.date_created ?? undefined,
+    other_parts: meta?.other_parts ?? undefined,
     // `gold_data_version` / `annotation_version` / `baseline` used to be
     // copied through by hand here. They ride in `...carried` now, along
     // with everything else — which is the whole point of the change.

@@ -536,6 +536,11 @@ export interface Design {
   original_platform_id?: number | null;
   publications?: Publication[];
   loaded_at?: string;
+  /** Siblings of a split experiment — see `DatasetMetaSlim.other_parts`.
+   *  Gemma splits single-cell studies by organism part, and 52 of 100
+   *  sampled single-cell datasets are a "Split part N of: …". Absent in
+   *  local mode; the store serves no such field. */
+  other_parts?: { id?: number | null; short_name?: string | null; name?: string | null }[];
   loaded_by?: string;
 }
 
