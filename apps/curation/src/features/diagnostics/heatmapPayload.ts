@@ -160,6 +160,67 @@ export function buildDesignHeatmapPayload(args: {
     // `free_text_label`, `is_baseline`), deliberately, so no adapter
     // sits between the editor's truth and what the strips draw. A
     // remapping here would be a second place for the two to drift.
-    factors: design.factors,
+    //
+    // 🛑 One exception, and it is narrow. The widget reads
+    // `numeric_value`, which `composeDesign` already fills from Gemma's
+    // measurement — so this is a BACKSTOP, not a replacement: it fills
+    // the field only where a continuous value arrived without one, from
+    // the same shared reader `PcFactorCard` uses. A value that has a
+    // measurement keeps it untouched.
+    factors: design.factors.map((f) =>
+      f.type === "continuous"
+        ? {
+            ...f,
+            factor_values: (f.factor_values ?? []).map((fv) => ({
+              ...fv,
+              numeric_value: continuousFvValue(fv),
+            })),
+          }
+        : f,
+    ),
   };
+}
+
+
+/**
+ * The number behind a continuous factor value.
+ *
+ * 🛑 `numeric_value` FIRST. It is the canonical scalar — `composeDesign`
+ * fills it from Gemma's `FactorValue.measurement.value` for any value
+ * flagged `is_measurement` — and `free_text_label` is the HUMAN
+ * rendering of the same thing: "86 years", not "86". `Number("86
+ * years")` is NaN, so a parser that reaches for the label first turns a
+ * perfectly good measurement into a missing one, which is what
+ * `PcFactorCard` was doing: every continuous factor contributed NaN to
+ * its PC association and scored zero.
+ *
+ * The free-text parse stays as a fallback for a value a curator typed
+ * that never went through a measurement, and the statement subject
+ * behind that.
+ *
+ * Shared on purpose: the heatmap orders columns by these and the PC
+ * card correlates them against the components. Two readings would be
+ * two answers to "what is this sample's age".
+ *
+ * Null for anything unparseable — the honest answer for a continuous
+ * factor whose values were never filled in. The strip then reads as
+ * unassigned rather than as zero.
+ */
+export function continuousFvValue(fv: {
+  numeric_value?: number | null;
+  free_text_label?: string | null;
+  statements?: Array<{ subject?: { label?: string | null } | null }> | null;
+}): number | null {
+  if (typeof fv.numeric_value === "number" && Number.isFinite(fv.numeric_value)) {
+    return fv.numeric_value;
+  }
+  const raw = String(
+    fv.free_text_label || fv.statements?.[0]?.subject?.label || "",
+  ).trim();
+  if (raw === "") return null;
+  // Leading number, so "86 years" still reads as 86 when nothing set
+  // the measurement.
+  const m = raw.match(/^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
+  const n = m ? Number(m[0]) : Number(raw);
+  return Number.isFinite(n) ? n : null;
 }

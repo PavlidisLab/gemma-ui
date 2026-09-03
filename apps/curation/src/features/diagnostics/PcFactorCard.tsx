@@ -24,6 +24,7 @@ import {
 } from "@gemma/diagnostics";
 import { useDatasetSvd, bioAssayScoresFromSvd, useScanDates } from "@/api/diagnostics";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { continuousFvValue } from "./heatmapPayload";
 import type { Design } from "@/features/experiment/types";
 
 const N_PCS = 3;
@@ -113,14 +114,14 @@ function normaliseCurationDraft(
   const factors: AssocFactor[] = design.factors.map((factor) => {
     const label = factor.name || factor.category.label || "(factor)";
     if (factor.type === "continuous") {
-      const levels: ContinuousLevel[] = factor.factor_values.map((fv) => {
-        const raw =
-          fv.free_text_label || fv.statements?.[0]?.subject?.label || "";
-        return {
-          x: Number(raw),
-          sampleKeys: fv.biomaterial_short_names,
-        };
-      });
+      const levels: ContinuousLevel[] = factor.factor_values.map((fv) => ({
+        // Shared with the heatmap's strips — see `continuousFvValue`.
+        // NaN for an unfilled value, which `computePcFactorAssociations`
+        // drops, so an empty continuous factor contributes nothing
+        // rather than a column of zeros.
+        x: continuousFvValue(fv) ?? NaN,
+        sampleKeys: fv.biomaterial_short_names,
+      }));
       return { label, type: "continuous", levels };
     }
     // Gemma codes a level by its factor-value id; a draft value does
