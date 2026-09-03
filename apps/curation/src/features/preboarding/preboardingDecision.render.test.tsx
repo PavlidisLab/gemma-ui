@@ -33,7 +33,11 @@ vi.mock("@/api/tickets", () => ({
   usePatchTicketTarget: () => ({ mutate, isPending: false, error: null }),
 }));
 
-vi.mock("@/api/client", () => ({
+// Mock `api` only — `snakeify` stays real, because `parsePayload`
+// normalizes the ticket payload through it. Stubbing the whole module
+// leaves `snakeify` undefined and every payload reads as empty.
+vi.mock("@/api/client", async (orig) => ({
+  ...(await orig<typeof import("@/api/client")>()),
   api: { get: vi.fn().mockResolvedValue({ short_name: "GSE999", name: "A study" }) },
 }));
 

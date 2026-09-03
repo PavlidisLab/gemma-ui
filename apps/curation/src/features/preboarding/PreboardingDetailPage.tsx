@@ -24,6 +24,7 @@ import {
   parsePayload,
   preboardingRowId,
   preboardingSiblings,
+  ticketPayload,
 } from "@/features/triage/triagePayload";
 import { isEditableTarget } from "@/lib/isEditableTarget";
 
@@ -165,7 +166,7 @@ function usePreboardingDecision(
   const patch = usePatchTicketTarget(ticketId ?? 0);
   const rowId = preboardingRowId(experimentId);
   const target = findTargetForPreboarding(ticket, rowId);
-  const labels = decisionLabels(parsePayload(ticket?.payload_json));
+  const labels = decisionLabels(parsePayload(ticket ? ticketPayload(ticket) : undefined));
   const siblings = preboardingSiblings(ticket, rowId);
   const go = (id: number | null) => {
     if (id == null) return;
@@ -195,7 +196,7 @@ function usePreboardingDecision(
     ...labels,
     siblings,
     go,
-    prompt: parsePayload(ticket?.payload_json).decision?.prompt,
+    prompt: parsePayload(ticket ? ticketPayload(ticket) : undefined).decision?.prompt,
     disposition: target?.triage_disposition ?? null,
     saving: patch.isPending,
     error: patch.error as Error | null,

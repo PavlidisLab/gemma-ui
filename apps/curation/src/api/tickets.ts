@@ -411,6 +411,26 @@ export interface Ticket {
    *  matched_criteria, source}}, scrape_window: {since, until,
    *  criteria}}``. */
   payload_json?: string;
+  /** Gemma's own per-ticket payload — `TicketValueObject.payload`, live
+   *  2026-09-03. Same role as `payload_json` above and the same JSON
+   *  string; the store spells it `payload_json` and Gemma spells it
+   *  `payload`, so `ticketPayload()` reads whichever is present.
+   *
+   *  🛑 **Create-only, deliberately.** `PATCH /tickets/{id}` does not
+   *  accept it: the payload records what question the screen ASKED, so
+   *  rewriting it later rewrites what curators were shown. Correcting a
+   *  screen definition after the fact is a conversation with gembro,
+   *  not a field to set. */
+  payload?: string;
+  /** Which shape `payload` is in. The version is the whole contract —
+   *  Gemma never opens the blob (no parsing, validation, indexing or
+   *  filtering), so nothing but this number distinguishes one era of
+   *  the schema from another.
+   *
+   *  Null on every ticket written before the field existed, and on any
+   *  producer that does not set it. `undefined` from a host predating
+   *  2026-09-03. */
+  payload_schema_version?: number | null;
   targets: TicketTarget[];
   /** Rolled-up target status counts, always populated by the list +
    *  detail serializers. Lets the dashboard render progress without
@@ -460,9 +480,12 @@ export function ticketBaselineSource(
   if (!ticket) return null;
   const top = (ticket.baseline_source || "").trim();
   if (top) return top;
-  if (!ticket.payload_json) return null;
+  // Store spells it `payload_json`, Gemma spells it `payload`. Reading
+  // one only would lose a pinned baseline against the other host.
+  const blob = ticket.payload_json ?? ticket.payload;
+  if (!blob) return null;
   try {
-    const obj: unknown = JSON.parse(ticket.payload_json);
+    const obj: unknown = JSON.parse(blob);
     if (!obj || typeof obj !== "object") return null;
     const raw = (obj as Record<string, unknown>).baseline_source;
     if (typeof raw !== "string") return null;

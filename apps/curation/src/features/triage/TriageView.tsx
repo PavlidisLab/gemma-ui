@@ -51,6 +51,7 @@ import { useEscapeKey } from "@gemma/ui";
 import {
   decisionLabels,
   parsePayload,
+  ticketPayload,
   type CandidateMeta,
   type DisplayField,
 } from "@/features/triage/triagePayload";
@@ -58,8 +59,11 @@ import {
 type Filter = "all" | "undecided" | "include" | "exclude" | "unsure";
 
 export function TriageView({ ticket }: { ticket: Ticket }) {
-  const parsed = useMemo(() => parsePayload(ticket.payload_json), [
+  // `ticketPayload` reads the store's `payload_json` or Gemma's own
+  // `payload` — same JSON, two field names.
+  const parsed = useMemo(() => parsePayload(ticketPayload(ticket)), [
     ticket.payload_json,
+    ticket.payload,
   ]);
   const [filter, setFilter] = useState<Filter>("undecided");
   const [search, setSearch] = useState("");

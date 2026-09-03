@@ -8,6 +8,7 @@
  * the verbs to fall back to "Include / Exclude" when a ticket actually
  * specced something else.
  */
+import { snakeify } from "@/api/client";
 import type { Ticket, TicketTarget } from "@/api/tickets";
 
 /** A self-describing display field the producing agent attaches to a
@@ -70,15 +71,48 @@ export interface ParsedPayload {
   };
 }
 
+/** The ticket's payload string, from whichever side served the ticket.
+ *
+ *  The store spells it `payload_json`; Gemma spells it `payload`
+ *  (`TicketValueObject.payload`, live 2026-09-03). Same JSON, two field
+ *  names, so every reader goes through here rather than picking one and
+ *  going blank against the other host.
+ *
+ *  🛑 The store's field wins when both are present. A ticket carrying
+ *  both is a ticket mid-migration, and the store's copy is the one its
+ *  own targets were keyed against. */
+export function ticketPayload(ticket: {
+  payload_json?: string;
+  payload?: string;
+}): string | undefined {
+  return ticket.payload_json ?? ticket.payload;
+}
+
+/**
+ * Parse a payload string.
+ *
+ * 🛑 **The keys inside are NOT normalized by the client boundary.** The
+ * payload is a JSON string, so `snakeify` renames the field HOLDING it
+ * and stops; `JSON.parse` then returns whatever case the producer
+ * wrote. Same trap as `identifyingMetadata` — see `TriageView`'s
+ * fallback. Normalized here once, so every reader below takes one
+ * spelling.
+ *
+ * `snakeify` is idempotent, so a payload already written in snake_case
+ * (every ticket the scrape script has produced to date) is unchanged.
+ * It also leaves `candidates`' keys alone — they are target ids, and
+ * `snakeify` only rewrites field names, not the numeric-string keys of
+ * a map.
+ */
 export function parsePayload(payload_json: string | undefined): ParsedPayload {
   if (!payload_json) return { candidates: {} };
   try {
-    const obj = JSON.parse(payload_json);
+    const obj = snakeify(JSON.parse(payload_json)) as Record<string, unknown>;
     return {
       candidates: (obj?.candidates as ParsedPayload["candidates"]) ?? {},
-      scrape_window: obj?.scrape_window,
-      screen_summary: obj?.screen_summary,
-      decision: obj?.decision,
+      scrape_window: obj?.scrape_window as ParsedPayload["scrape_window"],
+      screen_summary: obj?.screen_summary as string | undefined,
+      decision: obj?.decision as ParsedPayload["decision"],
     };
   } catch {
     return { candidates: {} };
