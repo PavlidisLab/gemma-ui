@@ -30,7 +30,7 @@ import {
 } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { api } from "@/api/client";
+import { api, snakeify } from "@/api/client";
 import {
   useCreateTicket,
   useFinalizeTriage,
@@ -695,18 +695,16 @@ function CriterionChip({ criterion }: { criterion: string }) {
  *  ``sc`` so single-cell experiments stand out from bulk RNA-seq.
  */
 function deriveTypeLabel(ident: {
-  seriesType?: string;
   series_type?: string;
-  libraryStrategy?: string;
   library_strategy?: string;
-  librarySource?: string;
   library_source?: string;
 }): string {
-  const seriesType = (ident.seriesType ?? ident.series_type ?? "").toString();
-  const libStrategy =
-    (ident.libraryStrategy ?? ident.library_strategy ?? "").toString();
-  const libSource =
-    (ident.librarySource ?? ident.library_source ?? "").toString();
+  // Snake only — the blob is normalized at the fetch boundary, and a
+  // camelCase fallback here would just be a second place for a key to
+  // be forgotten.
+  const seriesType = (ident.series_type ?? "").toString();
+  const libStrategy = (ident.library_strategy ?? "").toString();
+  const libSource = (ident.library_source ?? "").toString();
   const isSingleCell = /single[\s-]?cell/i.test(libSource)
     || /single[\s-]?cell/i.test(seriesType);
   if (libStrategy) {
@@ -778,10 +776,27 @@ function TriageRow({
     retry: false,
     staleTime: Infinity,
   });
+  // 🛑 **`identifyingMetadata` is a JSON STRING, so its keys escape every
+  // normalization boundary.** `api.get` snakeifies the RESPONSE, turning
+  // `identifyingMetadata` into `identifying_metadata` — but the value is
+  // a string, so `JSON.parse` hands back whatever case the writer used,
+  // untouched. Measured on preboarded 93453: `geoAccession`,
+  // `librarySource`, `libraryStrategy`, `numSamples`, `pubMedIds`,
+  // `releaseDate`, `seriesType` — all camelCase.
+  //
+  // Normalizing here once is not a workaround; it is the documented
+  // contract. Gemma's `Investigation.sourceMetadata`: "Opaque to Gemma:
+  // the schema is owned by the agents repo and versioned by
+  // `sourceMetadataSchemaVersion` … **Keys are camelCase, normalized
+  // once at ingestion on the consuming side.**" Nothing server-side ever
+  // parses it (`@Lob`, `LONGTEXT`, stored verbatim).
+  //
+  // `snakeify` is idempotent, so a local payload that is already snake
+  // passes through unchanged and both sources read the same way below.
   const fallbackIdent = useMemo(() => {
     if (!preboarded?.identifying_metadata) return null;
     try {
-      return JSON.parse(preboarded.identifying_metadata) as Record<
+      return snakeify(JSON.parse(preboarded.identifying_metadata)) as Record<
         string,
         unknown
       >;
@@ -790,28 +805,35 @@ function TriageRow({
     }
   }, [preboarded]);
 
+  // 🛑 **ONE spelling each.** This block used to declare both cases of
+  // ten fields and every reader did `ident.numSamples ?? ident.num_samples`
+  // — the per-field fallback pattern that keeps failing when one field is
+  // forgotten. It had already lost one: `matched_criteria` was declared in
+  // a single spelling while everything around it had two, so a
+  // camelCase writer would have silently produced an empty Matched
+  // column. The blob is normalized at the boundary above instead.
   const ident = (meta?.identifying_metadata ?? fallbackIdent ?? null) as
     | (Record<string, unknown> & {
         title?: string;
         summary?: string;
-        numSamples?: number;
         num_samples?: number;
-        pubMedIds?: (string | number)[];
         pub_med_ids?: (string | number)[];
         organisms?: string[];
         platform?: string;
-        seriesType?: string;
         series_type?: string;
-        libraryStrategy?: string;
         library_strategy?: string;
-        librarySource?: string;
         library_source?: string;
-        releaseDate?: string;
         release_date?: string;
-        // Not part of Gemma's PreboardedResponse schema — persisted here
-        // by our own scrape script instead (scripts/scrape_geo_and_open_
-        // triage.py), specifically so it survives the round trip through
-        // POST /preboarded and is still readable here as a fallback.
+        /** Not part of Gemma's `PreboardedResponse` schema — our scrape
+         *  script writes it INSIDE `identifyingMetadata`, which Gemma
+         *  stores verbatim (`@Lob`, no parsing), so a caller-supplied
+         *  key round-trips.
+         *
+         *  🛑 **It does not reach every row.** Sampling preboarded
+         *  93448-93461 on prod: 4 of 10 carry it, 6 do not — the split
+         *  is consecutive, which reads like a mid-batch change in the
+         *  scrape script rather than anything Gemma drops. An empty
+         *  Matched column is that, not a read bug. */
         matched_criteria?: string[];
       })
     | null;
@@ -819,11 +841,8 @@ function TriageRow({
     meta?.accession ?? preboarded?.accession ?? `target ${target.target_id}`;
   const title = ident?.title ?? "";
   const summary = ident?.summary ?? "";
-  const numSamples = ident?.numSamples ?? ident?.num_samples;
-  const pmids = (ident?.pubMedIds ?? ident?.pub_med_ids ?? []) as (
-    | string
-    | number
-  )[];
+  const numSamples = ident?.num_samples;
+  const pmids = (ident?.pub_med_ids ?? []) as (string | number)[];
   const organisms = (ident?.organisms ?? []) as string[];
   const taxonLabel = organisms.length === 0
     ? "—"

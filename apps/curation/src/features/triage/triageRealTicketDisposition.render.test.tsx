@@ -52,7 +52,10 @@ vi.mock("@/lib/gemmaMode", async () => {
 
 const getMock = vi.fn();
 const patchMock = vi.fn();
-vi.mock("@/api/client", () => ({
+// Mock the two verbs only — `snakeify` stays real, since TriageView runs
+// the parsed metadata blob through it.
+vi.mock("@/api/client", async (orig) => ({
+  ...(await orig<typeof import("@/api/client")>()),
   api: {
     get: (...args: unknown[]) => getMock(...args),
     patch: (...args: unknown[]) => patchMock(...args),

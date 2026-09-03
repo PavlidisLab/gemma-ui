@@ -34,7 +34,14 @@ vi.mock("@/lib/gemmaMode", async () => {
 });
 
 const getMock = vi.fn();
-vi.mock("@/api/client", () => ({ api: { get: (...args: unknown[]) => getMock(...args) } }));
+// 🛑 Mock `api.get` ONLY — `snakeify` stays real. TriageView normalizes the
+// parsed `identifyingMetadata` blob through it, so stubbing it out would let
+// the test agree with itself about key casing while the real code read the
+// wrong names. That is the exact failure this file was written to catch.
+vi.mock("@/api/client", async (orig) => ({
+  ...(await orig<typeof import("@/api/client")>()),
+  api: { get: (...args: unknown[]) => getMock(...args) },
+}));
 
 import { useGemmaMode } from "@/lib/gemmaMode";
 import { TriageView } from "./TriageView";
@@ -77,11 +84,19 @@ describe("a real Gemma ticket falls back to /preboarded for candidate metadata",
     // the wire.
     getMock.mockResolvedValue({
       accession: "GSE344586",
+      // `api.get` snakeifies the RESPONSE, so the envelope key arrives
+      // as `identifying_metadata` — but its value is a STRING, so the
+      // keys INSIDE it reach TriageView in whatever case the writer
+      // used. Verbatim from preboarded 93453 on prod (2026-09-03):
+      // camelCase, and `matched_criteria` is NOT among its 16 keys.
+      // Gemma stores the blob `@Lob` and never parses it, so this is
+      // the documented contract, not drift.
       identifying_metadata: JSON.stringify({
         title: "Metabolic and transcriptomic profiles of glioblastoma invasion",
         organisms: ["Mus musculus", "Homo sapiens"],
         numSamples: 39,
-        matched_criteria: ["brain"],
+        seriesType: "Expression profiling by high throughput sequencing",
+        librarySource: "transcriptomic single cell",
       }),
     });
   });
@@ -116,5 +131,38 @@ describe("a real Gemma ticket falls back to /preboarded for candidate metadata",
     >);
     open();
     expect(getMock).not.toHaveBeenCalled();
+  });
+
+  // 🛑 The blob's keys are camelCase and TriageView reads snake — the
+  // join is `snakeify`, run once where the string is parsed. These
+  // assert the normalization happens rather than trusting that it does.
+
+  it("renders a camelCase numSamples through to the samples column", async () => {
+    open();
+    await screen.findByText(
+      "Metabolic and transcriptomic profiles of glioblastoma invasion",
+    );
+    expect(screen.getByText("39")).toBeTruthy();
+  });
+
+  it("derives the type label from camelCase seriesType + librarySource", async () => {
+    open();
+    await screen.findByText(
+      "Metabolic and transcriptomic profiles of glioblastoma invasion",
+    );
+    // `library_source` says single cell, so the Seq label carries the
+    // sc marker — which only happens if BOTH camelCase keys normalized.
+    expect(screen.getByText("Seq · sc")).toBeTruthy();
+  });
+
+  it("🛑 leaves Matched empty when the blob has no matched_criteria", async () => {
+    // Preboarded 93453 genuinely has no such key — 4 of 10 rows sampled
+    // on prod carry it, 6 do not. An empty column is the honest render;
+    // this test exists so nobody "fixes" it by inventing a value.
+    open();
+    await screen.findByText(
+      "Metabolic and transcriptomic profiles of glioblastoma invasion",
+    );
+    expect(screen.queryByText("brain")).toBeNull();
   });
 });
