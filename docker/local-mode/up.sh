@@ -58,6 +58,34 @@ if [ -z "${GEMMA_BASE_URL:-}" ]; then
     keychain_export GEMMA_BASE_URL "GEMMA_BASE_URL" "gemma-base-url" || true
 fi
 
+# Gemma account the proposer + local-api authenticate WITH. Resolved
+# the same way as the host above, and for the same reason: the compose
+# default is `groupadmin`, the account seeded into local-mode's own
+# gemma-rest by `groupadmin-seed.sql`. It does not exist anywhere else.
+#
+# 🛑 The host flipped and the credentials did not. `GEMMA_BASE_URL`
+# came from the keychain while these two kept the sandbox default, so
+# the agent pointed at gemma2 holding an account gemma2 has never heard
+# of, and every upstream call answered 401 "Provided authentication
+# credentials are invalid." Nothing said so: the UI reported "save
+# failed: 401" on the draft, which reads as the curator's own session
+# expiring. Measured 2026-09-03 — the agent container had served 10,927
+# of them and not one successful draft or lock since it started.
+#
+# Resolve both together or neither: a username that authenticates
+# against one Gemma and a host that is a different Gemma is the shape
+# of the bug.
+if [ -z "${GEMMA_USERNAME:-}" ] && [ -z "${GEMMA_PASSWORD:-}" ]; then
+    if keychain_export GEMMA_USERNAME "GEMMA_USERNAME" "gemma-username"; then
+        keychain_export GEMMA_PASSWORD "GEMMA_PASSWORD" "gemma-password" \
+            || { echo "ERROR: keychain has GEMMA_USERNAME but no GEMMA_PASSWORD — the pair must resolve together, or the agent authenticates as nobody against ${GEMMA_BASE_URL:-the compose default}" >&2; exit 1; }
+    fi
+fi
+
+# Say which Gemma is about to be reached and as whom, since the pairing
+# is what goes wrong and neither half is visible from the UI.
+echo "[up] gemma: ${GEMMA_BASE_URL:-<compose default>} as ${GEMMA_USERNAME:-groupadmin (local-mode seed)}" >&2
+
 # Browser UI (apps/browser) proxies /rest to its own backend var.
 # Default it to whatever GEMMA_BASE_URL resolved to so the browser
 # follows the same Gemma as the rest of the stack; the compose
