@@ -96,6 +96,39 @@ if [ -z "${GEMMA_BROWSER_BACKEND:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
     echo "[up] GEMMA_BROWSER_BACKEND ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
 fi
 
+# What the curation UI itself is built against. `VITE_GEMMA_MODE` and
+# `VITE_GEMMA_BASE_URL` are inlined into the SPA bundle at container
+# start, so they are settable only here — and they came from the
+# invoking shell with no default at all.
+#
+# 🛑 A bare `./up.sh` therefore RECREATED THE UI IN LOCAL MODE while
+# every service around it kept talking to the keychain's Gemma (caught
+# 2026-09-03). Local mode serves a synthetic curator from `useMe()`, so
+# the header read "Local Curator", the login form was gone, and
+# clicking sign-out did nothing — there was nothing to sign out of.
+# Nothing named the flip.
+#
+# The base follows GEMMA_BASE_URL the way GEMMA_BROWSER_BACKEND does,
+# so the UI cannot end up pointed somewhere the rest of the stack is
+# not. The MODE is deliberately NOT inferred from it — remote hides the
+# store-backed surfaces and local hides the Gemma-only ones, and which
+# one an operator wants is not derivable from a hostname. It is printed
+# instead, and a local-mode UI in front of a keychain Gemma says so.
+if [ -z "${VITE_GEMMA_BASE_URL:-}" ] && [ -n "${GEMMA_BASE_URL:-}" ]; then
+    export VITE_GEMMA_BASE_URL="$GEMMA_BASE_URL"
+    echo "[up] VITE_GEMMA_BASE_URL ← GEMMA_BASE_URL ($GEMMA_BASE_URL)" >&2
+fi
+
+if [ "${VITE_GEMMA_MODE:-}" = "remote" ]; then
+    echo "[up] curation-ui: remote → ${VITE_GEMMA_BASE_URL:-<unset>} (real login)" >&2
+else
+    echo "[up] curation-ui: local — synthetic 'Local Curator', no login" >&2
+    if [ -n "${GEMMA_BASE_URL:-}" ]; then
+        echo "[up]   ⚠ the rest of the stack is on $GEMMA_BASE_URL. Want the" >&2
+        echo "[up]     login page and the real curator? VITE_GEMMA_MODE=remote ./up.sh" >&2
+    fi
+fi
+
 # Optional Zotero (biolit fetcher).
 if [ "${GEMMA_AGENTS_USE_ZOTERO:-}" = "1" ] \
    || [ "${GEMMA_AGENTS_USE_ZOTERO:-}" = "true" ] \

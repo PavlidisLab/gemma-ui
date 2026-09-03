@@ -60,6 +60,20 @@ security add-generic-password -s GEMMA_PASSWORD -a "$USER" -w '<password>'
 Writes stay off regardless: mutating Gemma calls also need
 `GEMMA_WRITE_TARGET` set to the URL being written to.
 
+🛑 **`VITE_GEMMA_MODE` is not resolved from anywhere** — it is inlined
+into the SPA at container start and comes only from the invoking shell,
+so a bare `./up.sh` rebuilds the UI in **local** mode no matter what the
+rest of the stack is pointed at. Local mode serves a synthetic curator,
+so the header reads "Local Curator" and there is no login form. For the
+real login against your Gemma:
+
+```sh
+VITE_GEMMA_MODE=remote ./up.sh     # base follows GEMMA_BASE_URL
+```
+
+`up.sh` prints which one it built, and warns when a local-mode UI ends
+up in front of a keychain Gemma.
+
 ```sh
 ./down.sh            # stop + remove containers
 ./down.sh --volumes  # also nuke ui-node-modules / gemma-db-data
@@ -79,6 +93,8 @@ Writes stay off regardless: mutating Gemma calls also need
 | `GEMMA_BASE_URL` | none — **required** | read-side Gemma for the proposer. Set to your own Gemma instance, or `http://gemma-rest:8080` when running `--gemma` |
 | `GEMMA_USERNAME` / `GEMMA_PASSWORD` | keychain → `groupadmin` / `groupadmin` | account the proposer + local-api authenticate to Gemma WITH. The default is the local-mode seed account and works only with `--gemma`; any other `GEMMA_BASE_URL` needs a real account or every upstream call 401s |
 | `GEMMA_WRITE_TARGET` | unset | must equal the Gemma URL being written to before any mutating call is allowed. Leave unset for read-only work |
+| `VITE_GEMMA_MODE` | unset → `local` | `remote` for the real login + Gemma-only surfaces; `local` serves a synthetic curator and the store-backed surfaces. Shell only — no keychain, no compose default |
+| `VITE_GEMMA_BASE_URL` | `GEMMA_BASE_URL` | Gemma the SPA names in the mode chip and the login page. Required by remote mode, which refuses to default it |
 | `GEMMA_BROWSER_BACKEND` | `http://host.docker.internal:8080` | upstream the browser UI proxies `/rest` to. Default reaches local Gemma 2.0 on the host. Flip to `http://gemma-rest:8080` when running `--gemma`, or to staging / prod URLs. |
 | `GEMMA_AGENTS_USE_ZOTERO` | unset | `1` to enable Zotero biolit fetcher |
 
