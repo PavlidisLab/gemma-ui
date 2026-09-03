@@ -189,13 +189,40 @@ export function useDatasetSubsets(
  * Subset GROUPS — which cut is live, and which are superseded.
  * ------------------------------------------------------------------ */
 
-/** One quantitation type on a subset group, post-`snakeify`. Only
- *  `is_preferred` is read: it is what separates the live cut from the
- *  dead ones. */
+/** One quantitation type on a subset group, post-`snakeify`.
+ *
+ *  🛑 **`is_preferred` alone does NOT identify the live cut — it is one
+ *  field conflating three flags.** Gemma's
+ *  `QuantitationTypeValueObject` computes it as
+ *  `isPreferred || isSingleCellPreferred || isMaskedPreferred`, so on a
+ *  single-cell dataset THREE quantitation types answer true: the
+ *  single-cell counts, the aggregate, and the masked aggregate. Reading
+ *  only this field made eids 65454 and 51179 look like they had two
+ *  live cuts. `isSingleCellPreferred` was exposed 2026-09-03
+ *  (`50903ef8e7`) precisely so the three can be told apart — see
+ *  `isProcessedPreferred`. */
 export interface SubsetGroupQuantitationType {
   id?: number | null;
   name?: string | null;
   is_preferred?: boolean | null;
+  is_masked_preferred?: boolean | null;
+  is_single_cell_preferred?: boolean | null;
+}
+
+/** The live cut's quantitation type: preferred in the PROCESSED sense —
+ *  neither the raw single-cell counts nor the masked aggregate.
+ *
+ *  Verified on all 92 single-cell datasets carrying subset groups
+ *  (2026-09-03): this resolves to exactly one group on **92 of 92**,
+ *  where `is_preferred` alone managed 90. */
+export function isProcessedPreferred(
+  q: SubsetGroupQuantitationType,
+): boolean {
+  return (
+    q.is_preferred === true &&
+    q.is_masked_preferred !== true &&
+    q.is_single_cell_preferred !== true
+  );
 }
 
 /** One row of `/datasets/{id}/subSetGroups`, post-`snakeify`.
@@ -223,7 +250,10 @@ export interface SubsetGroupView {
   commonPrefix: string;
   /** Names of the experimental factors this group is cut on. */
   factorNames: string[];
-  /** True when any of the group's quantitation types is preferred. */
+  /** True when any of the group's quantitation types is preferred in
+   *  the processed sense — see `isProcessedPreferred`. A group carries
+   *  every QT reachable through its dimension, so more than one, and
+   *  only some of them preferred, is the normal shape. */
   preferred: boolean;
   /** How many of this group's subsets carry a grounded characteristic. */
   groundedCount: number;
@@ -256,18 +286,22 @@ function isGrounded(s: DistinctSubset): boolean {
 /**
  * Join `/subSets` rows onto `/subSetGroups` and mark the live cut.
  *
- * 🛑 **Liveness is decided by the PREFERRED QUANTITATION TYPE, not by
- * "has a factor".** Measured over 92 single-cell datasets 2026-09-03:
- * exactly-one-group-is-preferred holds on **90**, while
- * exactly-one-group-has-a-factor fails on **10** (75811, 75052, 67057,
- * 67053 each have two groups that both carry a factor). When the
- * preferred test does not resolve to exactly one group — 65454 and
- * 51179 — nothing is marked superseded and `liveAmbiguous` is set, so
- * the curator sees every group rather than a coin-flip.
+ * 🛑 **Liveness is decided by the quantitation type, not by "has a
+ * factor".** Measured over the 92 single-cell datasets that carry
+ * subset groups, 2026-09-03: `isProcessedPreferred` resolves to exactly
+ * one group on **92 of 92**, while exactly-one-group-has-a-factor fails
+ * on **10** (75811, 75052, 67057, 67053 each have two groups that both
+ * carry a factor).
  *
- * The stronger signal is that the DEA analyses all point at one group
- * (eid 79038: 10 of 10 on the live group, 0 on the dead one), but that
- * is another request; this join is free once both lists are in hand.
+ * `liveAmbiguous` is kept even though nothing currently trips it — when
+ * the test does not resolve to exactly one group, nothing is marked
+ * superseded and the curator sees every group rather than a coin-flip.
+ * Guessing which cut is live is the failure this whole join exists to
+ * avoid.
+ *
+ * The independent confirmation is that the DEA analyses all point at one
+ * group (eid 79038: 10 of 10 on the live group, 0 on the dead one), but
+ * that is another request; this join is free once both lists are in hand.
  */
 export function summarizeSubsetGroups(
   rows: DatasetSubset[],
@@ -289,9 +323,7 @@ export function summarizeSubsetGroups(
   }
 
   const preferredIds = groups
-    .filter((g) =>
-      (g.quantitation_types ?? []).some((q) => q.is_preferred === true),
-    )
+    .filter((g) => (g.quantitation_types ?? []).some(isProcessedPreferred))
     .map((g) => g.id);
   const liveAmbiguous = preferredIds.length !== 1;
   const liveId = liveAmbiguous ? null : preferredIds[0];
@@ -307,9 +339,7 @@ export function summarizeSubsetGroups(
       factorNames: (g.factors ?? [])
         .map((f) => (f.name ?? "").trim())
         .filter(Boolean),
-      preferred: (g.quantitation_types ?? []).some(
-        (q) => q.is_preferred === true,
-      ),
+      preferred: (g.quantitation_types ?? []).some(isProcessedPreferred),
       groundedCount: summary.subsets.filter(isGrounded).length,
       superseded: liveId != null && g.id !== liveId,
     };

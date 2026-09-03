@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   sharedNamePrefix,
+  isProcessedPreferred,
   summarizeSubsetGroups,
   summarizeSubsets,
   type DatasetSubset,
@@ -207,7 +208,30 @@ const LIVE: SubsetGroup = {
   name: "Split part 3 of: … [organism part = visual cortex]",
   factors: [{ id: 68843, name: "cell type" }],
   quantitation_types: [
-    { id: 615713, name: "10x MEX aggregated by cell type", is_preferred: true },
+    // The raw single-cell counts — preferred, but NOT the processed cut.
+    {
+      id: 615700,
+      name: "10x MEX",
+      is_preferred: true,
+      is_masked_preferred: false,
+      is_single_cell_preferred: true,
+    },
+    // The live one.
+    {
+      id: 615713,
+      name: "10x MEX aggregated by cell type (log2cpm)",
+      is_preferred: true,
+      is_masked_preferred: false,
+      is_single_cell_preferred: false,
+    },
+    // The masked aggregate — also answers is_preferred true.
+    {
+      id: 615714,
+      name: "10x MEX aggregated by cell type (log2cpm) - Processed version",
+      is_preferred: true,
+      is_masked_preferred: true,
+      is_single_cell_preferred: false,
+    },
   ],
   sub_sets: [{ id: 79076 }, { id: 79081 }],
 };
@@ -219,7 +243,13 @@ const DEAD: SubsetGroup = {
   name: "Split part 3 of: … [organism part = visual cortex]",
   factors: [],
   quantitation_types: [
-    { id: 615709, name: "10x MEX aggregated by cell type", is_preferred: false },
+    {
+      id: 615709,
+      name: "10x MEX aggregated by cell type (log2cpm)",
+      is_preferred: false,
+      is_masked_preferred: false,
+      is_single_cell_preferred: false,
+    },
   ],
   sub_sets: [{ id: 79059 }, { id: 79064 }],
 };
@@ -258,8 +288,16 @@ describe("summarizeSubsetGroups", () => {
   });
 
   it("does not guess when two groups both claim a preferred type", () => {
-    // eid 65454 and 51179, 2 of 92 datasets measured.
-    const both = { ...DEAD, quantitation_types: [{ is_preferred: true }] };
+    const both = {
+      ...DEAD,
+      quantitation_types: [
+        {
+          is_preferred: true,
+          is_masked_preferred: false,
+          is_single_cell_preferred: false,
+        },
+      ],
+    };
     const out = summarizeSubsetGroups(ROWS, [LIVE, both]);
     expect(out.liveAmbiguous).toBe(true);
     expect(out.groups.every((g) => !g.superseded)).toBe(true);
@@ -308,5 +346,81 @@ describe("summarizeSubsetGroups", () => {
     const out = summarizeSubsetGroups([], []);
     expect(out.groups).toEqual([]);
     expect(out.ungrouped).toEqual([]);
+  });
+});
+
+/**
+ * 🛑 `is_preferred` is ONE field conflating THREE flags — Gemma computes
+ * it as `isPreferred || isSingleCellPreferred || isMaskedPreferred`, so
+ * three quantitation types answer true on a single-cell dataset. Reading
+ * it alone made eids 65454 and 51179 look like two live cuts.
+ * `isSingleCellPreferred` was exposed 2026-09-03 (`50903ef8e7`) to tell
+ * them apart, taking the discriminator from 90 of 92 datasets to 92.
+ *
+ * Rows below are the three QTs gembro measured on eid 65454.
+ */
+describe("isProcessedPreferred", () => {
+  const RAW_SINGLE_CELL = {
+    name: "10x MEX",
+    is_preferred: true,
+    is_masked_preferred: false,
+    is_single_cell_preferred: true,
+  };
+  const AGGREGATE = {
+    name: "10x MEX aggregated by cell type (log2cpm)",
+    is_preferred: true,
+    is_masked_preferred: false,
+    is_single_cell_preferred: false,
+  };
+  const MASKED = {
+    name: "10x MEX aggregated by cell type (log2cpm) - Processed version",
+    is_preferred: true,
+    is_masked_preferred: true,
+    is_single_cell_preferred: false,
+  };
+
+  it("picks the aggregate — the only one of the three that is the live cut", () => {
+    expect([RAW_SINGLE_CELL, AGGREGATE, MASKED].filter(isProcessedPreferred))
+      .toEqual([AGGREGATE]);
+  });
+
+  it("rejects the raw single-cell counts even though is_preferred is true", () => {
+    expect(isProcessedPreferred(RAW_SINGLE_CELL)).toBe(false);
+  });
+
+  it("rejects the masked aggregate even though is_preferred is true", () => {
+    expect(isProcessedPreferred(MASKED)).toBe(false);
+  });
+
+  it("rejects a type that is not preferred at all", () => {
+    expect(isProcessedPreferred({ is_preferred: false })).toBe(false);
+  });
+
+  it("treats the two new flags as absent-means-false, for an older host", () => {
+    // A host predating `50903ef8e7` sends neither flag; the rule has to
+    // degrade to the old behaviour rather than rejecting everything.
+    expect(isProcessedPreferred({ is_preferred: true })).toBe(true);
+  });
+});
+
+/** A group carries every QT reachable through its dimension, so more
+ *  than one — and only some of them preferred — is the normal shape,
+ *  not a defect. eid 51179 has a group whose flags read [False, True]. */
+describe("a group with several quantitation types", () => {
+  it("is live when ANY of them is preferred in the processed sense", () => {
+    const many: SubsetGroup = {
+      ...LIVE,
+      quantitation_types: [
+        { is_preferred: false },
+        {
+          is_preferred: true,
+          is_masked_preferred: false,
+          is_single_cell_preferred: false,
+        },
+      ],
+    };
+    const out = summarizeSubsetGroups(ROWS, [many, DEAD]);
+    expect(out.liveAmbiguous).toBe(false);
+    expect(out.groups.find((g) => g.id === many.id)!.superseded).toBe(false);
   });
 });
