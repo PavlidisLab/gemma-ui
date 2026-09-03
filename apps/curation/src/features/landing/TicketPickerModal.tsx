@@ -1,9 +1,10 @@
 import { useEffect, useRef } from "react";
 
 import type { Ticket } from "@/api/tickets";
-import { ticketTypeLabel } from "@/api/tickets";
+import { ticketTypeLabel, useScratchpadOwnerResolver } from "@/api/tickets";
 import {
   PriorityPill,
+  ScratchpadOwnerPill,
   StatePill,
   formatFiledDate,
 } from "@/features/tickets/ticketPills";
@@ -52,6 +53,9 @@ export function TicketPickerModal({
   // to is live work, whatever day it was opened. Falls back to
   // `created_at`, then to id, so rows with a missing stamp still order
   // stably instead of shuffling.
+  // Taken once: a scratchpad in this list can be another curator's,
+  // and a row here must read the same as its dashboard card.
+  const ownerOf = useScratchpadOwnerResolver();
   const sorted = tickets.slice().sort((a, b) => {
     const at = a.updated_at || a.created_at || "";
     const bt = b.updated_at || b.created_at || "";
@@ -100,6 +104,7 @@ export function TicketPickerModal({
                   <span className="text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
                     {ticketTypeLabel(t.type)}
                   </span>
+                  <ScratchpadOwnerPill owner={ownerOf(t)} />
                   <StatePill state={t.state} />
                   {/* The list is ordered by this, so show it. Sorting
                       by a field the rows don't carry reads as no order
