@@ -839,7 +839,16 @@ function TriageRow({
     reason?: string,
   ) => {
     patch.mutate({
-      target_type: "GEO_ACCESSION",
+      // 🛑 Was hardcoded "GEO_ACCESSION" — fine for local mode (the only
+      // type that store ever carries), but a real Gemma ticket's targets
+      // are PREBOARDED_EXPERIMENT / EXPRESSION_EXPERIMENT / etc., and
+      // patchGemmaTargetStatus resolves the row id by matching BOTH
+      // target_type AND target_id (api/tickets.ts::findTicketTarget) — a
+      // wrong type here means the lookup never matches and every
+      // Include/Exclude click throws. CandidateCard's `apply` (below)
+      // already gets this right; mirrored here. Confirmed live
+      // 2026-09-03: this was a real, reproducible bug, not theoretical.
+      target_type: target.target_type,
       target_id: target.target_id,
       patch: {
         triage_disposition: next,
