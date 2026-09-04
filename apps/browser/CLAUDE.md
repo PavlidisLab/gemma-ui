@@ -52,20 +52,34 @@ The build is plain static files — no Tomcat, no container, no server
 runtime. Publish with:
 
 ```sh
-scripts/deploy-browser.sh --dry-run   # show what would change
-scripts/deploy-browser.sh             # build + rsync --delete
+scripts/deploy-browser.sh --dry-run           # production, show changes
+scripts/deploy-browser.sh                     # production: build + rsync --delete
+scripts/deploy-browser.sh staging --dry-run   # staging, show changes
+scripts/deploy-browser.sh staging             # staging: build + rsync --delete
 ```
 
+Two deployments, published to sibling directories under the same
+parent:
+
+| Target | Env file | Build mode | Serves |
+|---|---|---|---|
+| `production` (default) | `.env.production` | `production` | https://gemma.msl.ubc.ca/ (was gemma2.msl.ubc.ca) |
+| `staging` | `.env.staging` | `staging` | https://staging-gemma.msl.ubc.ca/ — **server side not yet configured** |
+
 Nothing about a specific target lives in the app source or in that
-script. Config comes from `.env.production` — one file per deployment,
-holding public URLs only, never secrets:
+script. Config comes from the target's env file — public URLs only,
+never secrets. Only that one file is loaded (`vite build --mode
+staging` does not read `.env.production`), so each target spells out
+everything it needs; a staging-style file also needs
+`NODE_ENV=production`, or Vite emits a non-production bundle for a
+mode not literally named "production".
 
 | Var | Drives |
 |---|---|
 | `VITE_BASE_PATH` | Vite's `base` — the sub-path the app is mounted at, baked into every asset URL. Unset = origin root |
 | `VITE_GEMMA_API_URL` | `src/api/base.ts` — the REST root. Unset = `/rest/v2` same-origin, which is right whenever the app is served from the Gemma host itself |
 | `VITE_GEMMA_BASE_URL` | absolute origin for links a *human* follows or copies: legacy JSP pages, gemmapy/curl snippets. Never a proxy prefix |
-| `DEPLOY_DEST` | where `deploy-browser.sh` publishes to |
+| `DEPLOY_DEST` | where `deploy-browser.sh` publishes to. The two targets must not share a directory — the deploy is `rsync --delete`, so each would wipe the other; the script checks and refuses |
 
 Two things that bite:
 
