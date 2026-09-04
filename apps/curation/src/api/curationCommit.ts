@@ -377,7 +377,14 @@ export interface CommittableDesign {
  */
 export function buildCurationDocument(
   design: CommittableDesign,
-  opts: { mode: "local" | "remote"; baselineLastModified?: string },
+  opts: {
+    mode: "local" | "remote";
+    baselineLastModified?: string;
+    /** The design as Gemma last served it. The ONLY witness for
+     *  whether a tag already exists and whether its content changed —
+     *  see the tags block below. Required once any tag carries an id. */
+    baseline?: Pick<CommittableDesign, "tags">;
+  },
   removals?: CommittableRemovals,
 ): CurationDocument {
   if (opts.mode !== "remote") {
@@ -421,22 +428,89 @@ export function buildCurationDocument(
       })),
     },
   }));
-  // 🛑 **The sign rule does not hold for tags, and this is where it
-  // shows.** A tag the curator adds is given `max(existing id) + 1`
-  // (`mutations.ts::nextTagId`), so in remote mode a NEW tag carries a
-  // positive id one past a real Gemma id — and `commitTarget` reads any
-  // positive id as "update this". Deletions are unaffected: a tag can
-  // only be deleted if it was in the saved design, so its id came from
-  // Gemma. Creation is the exposed half, and fixing it means minting
-  // negative ids for new tags the way `composeDesign.ts` does for
-  // proposed rows — a change to the editor, not to this builder.
-  const tags: TagCommit[] = (design.tags ?? [])
-    .filter((t) => !t.inferred)
-    .map((t) => ({
-      ...commitTarget(t.id, "tag"),
+  // 🛑 **A tag is not updatable, and the id's sign is not the witness.**
+  //
+  // Gemma's own `PUT /datasets/{id}/curation` says it: in `tags` and
+  // `sampleCharacteristics`, an item carrying a `gemmaId` is a
+  // KEEP-MARKER, the id is the only field read, and any other field on
+  // such an item is a 400 naming every offending one, "because
+  // accepting it would report success for an edit that never
+  // happened". The `design` section is the opposite — a `gemmaId`
+  // factor / FV / statement IS updated in place from the fields it
+  // carries — so the intuition does not carry across sections.
+  //
+  // This builder used to emit `{gemmaId, category, value}` for every
+  // existing tag: precisely the rejected shape. It never fired because
+  // the remote commit path had never written; the first commit against
+  // a dataset carrying any tag would have 400'd.
+  //
+  // So the three cases are spelled out, and the BASELINE decides which:
+  //   unchanged → `{gemmaId}` alone, the keep-marker
+  //   changed   → `{clientRef, …}` plus the old id in `deletedIds`,
+  //               the detour Gemma's own description names
+  //   new       → `{clientRef, …}`
+  //
+  // 🛑 The baseline also replaces the sign rule, which was WRONG here
+  // in the other direction: a curator-added tag is given
+  // `max(existing id) + 1` (`mutations.ts::nextTagId`), so a NEW tag
+  // carried a positive id one past a real Gemma id and read as "update
+  // this". Membership in the baseline cannot be fooled that way.
+  //
+  // ⚠️ A re-term is therefore delete + create, so the replacement is a
+  // NEW identity and the tag's provenance does not survive its own
+  // correction. That is a real cost, raised with gembro; the blocker on
+  // in-place update is that `Characteristic.hashCode()` hashes exactly
+  // the fields a re-term changes while `Investigation.characteristics`
+  // is a `HashSet`.
+  const baselineTags = new Map<number, NonNullable<CommittableDesign["tags"]>[number]>();
+  for (const t of opts.baseline?.tags ?? []) {
+    if (typeof t.id === "number") baselineTags.set(t.id, t);
+  }
+  const sameTerm = (
+    a: { label?: string; uri?: string | null } | null | undefined,
+    b: { label?: string; uri?: string | null } | null | undefined,
+  ) => JSON.stringify(term(a) ?? null) === JSON.stringify(term(b) ?? null);
+
+  const tags: TagCommit[] = [];
+  const retermedIds: number[] = [];
+  let unidentified = 0;
+  for (const t of (design.tags ?? []).filter((x) => !x.inferred)) {
+    const prior = typeof t.id === "number" ? baselineTags.get(t.id) : undefined;
+    if (prior) {
+      if (sameTerm(prior.category, t.category) && sameTerm(prior.value, t.value)) {
+        // Keep-marker: the id and NOTHING else, or Gemma 400s.
+        tags.push({ gemmaId: t.id });
+        continue;
+      }
+      retermedIds.push(t.id);
+    } else if (typeof t.id === "number" && t.id > 0 && !opts.baseline) {
+      // 🛑 No baseline, and an id that MIGHT be Gemma's. The builder
+      // cannot tell an untouched tag from an edited one, and both wrong
+      // answers are bad: a keep-marker silently discards the curator's
+      // edit, and content beside the id is a 400. Refuse rather than
+      // pick one — the caller has the saved design and can pass it.
+      throw new Error(
+        `Cannot build a tag commit without the baseline design: tag ${t.id} ` +
+          `carries a Gemma id, and whether its content changed is only ` +
+          `answerable against what Gemma last served. Pass ` +
+          `opts.baseline.`,
+      );
+    }
+    tags.push({
+      // Named for the id it replaces where there is one, so the
+      // report's `idMap` reads `tag-9018 → 9019` and the
+      // reidentification is legible rather than a bare counter.
+      clientRef:
+        typeof t.id === "number" ? `tag-${t.id}` : `tag-new${(unidentified += 1)}`,
       ...(term(t.category) ? { category: term(t.category) } : {}),
       ...(term(t.value) ? { value: term(t.value) } : {}),
-    }));
+    });
+  }
+  // A re-term's old id rides with the curator's own deletions: same
+  // section, same key, and Gemma applies the whole document in one
+  // transaction, so the delete and the create cannot half-land.
+  const tagDeletions = [...(removals?.tagIds ?? []), ...retermedIds];
+
   return {
     ...(opts.baselineLastModified
       ? { baseline: { lastModified: opts.baselineLastModified } }
@@ -450,6 +524,6 @@ export function buildCurationDocument(
         ? { shouldSplitRationale: design.should_split_rationale }
         : {}),
     },
-    tags: { ...deletion(removals?.tagIds), items: tags },
+    tags: { ...deletion(tagDeletions), items: tags },
   };
 }

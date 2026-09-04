@@ -20,7 +20,17 @@ import {
   type CommittableDesign,
 } from "./curationCommit";
 
-const REMOTE = { mode: "remote" } as const;
+/** Gemma's own copy of the design. The tag section needs it: a tag is
+ *  add/delete only, so "did this change" is answerable only against
+ *  what Gemma last served. */
+const BASELINE: Pick<CommittableDesign, "tags"> = {
+  tags: [
+    { id: 42, category: { label: "organism part" }, value: { label: "liver" } },
+    { id: 43, inferred: true, category: { label: "cell type" }, value: { label: "hepatocyte" } },
+  ],
+};
+
+const REMOTE = { mode: "remote", baseline: BASELINE } as const;
 
 /** A Gemma-seeded factor beside an agent-proposed one. */
 const DESIGN: CommittableDesign = {
@@ -71,7 +81,9 @@ describe("buildCurationDocument", () => {
   it("🛑 refuses a local-mode design outright", () => {
     // The store's ids are small locals AND positive, so no per-row test
     // can tell them from Gemma's. Refusing beats being clever.
-    expect(() => buildCurationDocument(DESIGN, { mode: "local" })).toThrow(
+    expect(() =>
+      buildCurationDocument(DESIGN, { mode: "local", baseline: BASELINE }),
+    ).toThrow(
       LOCAL_DESIGN_NOT_COMMITTABLE,
     );
   });
@@ -117,6 +129,14 @@ describe("buildCurationDocument", () => {
     expect(tags[0].gemmaId).toBe(42);
   });
 
+  it("🛑 an unchanged tag is the id ALONE — anything beside it is a 400", () => {
+    // Gemma reads a `gemmaId` in `tags` as a KEEP-MARKER and rejects
+    // any other field on that item, "because accepting it would report
+    // success for an edit that never happened". This builder used to
+    // send `{gemmaId, category, value}`.
+    expect(doc.tags?.items?.[0]).toEqual({ gemmaId: 42 });
+  });
+
   it("passes terms through as label + uri, dropping empties", () => {
     expect(factors[0].category).toEqual({
       label: "treatment",
@@ -139,7 +159,7 @@ describe("buildCurationDocument", () => {
     expect(doc.baseline).toBeUndefined();
     expect(
       buildCurationDocument(DESIGN, {
-        mode: "remote",
+        ...REMOTE,
         baselineLastModified: "2026-08-29T15:49:07Z",
       }).baseline,
     ).toEqual({ lastModified: "2026-08-29T15:49:07Z" });
@@ -190,5 +210,94 @@ describe("buildCurationDocument, handed removals", () => {
     });
     expect(none.design?.factors?.deletedIds).toBeUndefined();
     expect(none.tags?.deletedIds).toBeUndefined();
+  });
+});
+
+/**
+ * The tag section, which is add/delete only on Gemma's side.
+ *
+ * Verbatim from `PUT /datasets/{id}/curation`'s own description: an
+ * item carrying a `gemmaId` is a KEEP-MARKER, the id is the only field
+ * read, and any other field on such an item is a 400 naming every
+ * offending one, "because accepting it would report success for an
+ * edit that never happened". To change one: drop the `gemmaId`, send
+ * the content under a `clientRef`, and name the old id in `deletedIds`.
+ */
+describe("buildCurationDocument — tags are add/delete only", () => {
+  const baseline = {
+    tags: [
+      { id: 9018, category: { label: "organism part" }, value: { label: "liver" } },
+      { id: 9019, category: { label: "disease" }, value: { label: "cirrhosis" } },
+    ],
+  };
+
+  it("re-terms as delete + create, naming the old id", () => {
+    const doc = buildCurationDocument(
+      {
+        tags: [
+          // Same id, different value: a re-term.
+          { id: 9018, category: { label: "organism part" }, value: { label: "hepatocyte" } },
+          { id: 9019, category: { label: "disease" }, value: { label: "cirrhosis" } },
+        ],
+      },
+      { mode: "remote", baseline },
+    );
+    const items = doc.tags?.items ?? [];
+    // The re-termed one carries content under a clientRef…
+    expect(items[0]).toEqual({
+      clientRef: "tag-9018",
+      category: { label: "organism part" },
+      value: { label: "hepatocyte" },
+    });
+    // …its old id is named for deletion…
+    expect(doc.tags?.deletedIds).toEqual([9018]);
+    // …and the untouched one stays a bare keep-marker.
+    expect(items[1]).toEqual({ gemmaId: 9019 });
+  });
+
+  it("a curator's new tag is a create, even with a positive id", () => {
+    // 🛑 `mutations.ts::nextTagId` gives a new tag `max(id) + 1`, so it
+    // carries a positive id one past a real Gemma id. The SIGN would
+    // read that as "update this"; membership in the baseline cannot be
+    // fooled that way.
+    const doc = buildCurationDocument(
+      { tags: [{ id: 9020, category: { label: "sex" }, value: { label: "female" } }] },
+      { mode: "remote", baseline },
+    );
+    expect(doc.tags?.items?.[0]).toEqual({
+      clientRef: "tag-9020",
+      category: { label: "sex" },
+      value: { label: "female" },
+    });
+    expect(doc.tags?.deletedIds).toBeUndefined();
+  });
+
+  it("a re-term's old id rides beside the curator's own deletions", () => {
+    const doc = buildCurationDocument(
+      { tags: [{ id: 9018, category: { label: "organism part" }, value: { label: "hepatocyte" } }] },
+      { mode: "remote", baseline },
+      { tagIds: [9019] },
+    );
+    expect(doc.tags?.deletedIds).toEqual([9019, 9018]);
+  });
+
+  it("🛑 refuses rather than guess when no baseline came with it", () => {
+    // Both wrong answers are bad: a keep-marker silently discards the
+    // curator's edit, and content beside the id is a 400. The caller
+    // holds the saved design.
+    expect(() =>
+      buildCurationDocument(
+        { tags: [{ id: 9018, category: { label: "organism part" }, value: { label: "liver" } }] },
+        { mode: "remote" },
+      ),
+    ).toThrow(/without the baseline design/);
+  });
+
+  it("needs no baseline when nothing carries a Gemma id", () => {
+    const doc = buildCurationDocument(
+      { tags: [{ id: 0, category: { label: "sex" }, value: { label: "male" } }] },
+      { mode: "remote" },
+    );
+    expect(doc.tags?.items?.[0].clientRef).toBe("tag-0");
   });
 });

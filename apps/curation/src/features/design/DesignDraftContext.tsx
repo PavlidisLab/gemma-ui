@@ -711,12 +711,25 @@ export function DesignDraftProvider({
       setRemoteCommitError(null);
       void (async () => {
         try {
-          const dryRun = buildCurationDocument(draft, { mode: "remote" }, removals);
+          // 🛑 The baseline is not optional here. A tag is add/delete
+          // only on Gemma's side, so whether a tag's content changed —
+          // keep-marker vs delete-and-recreate — is answerable only
+          // against what Gemma last served. Without it the builder
+          // refuses rather than guess.
+          const dryRun = buildCurationDocument(
+            draft,
+            { mode: "remote", baseline: saved ?? undefined },
+            removals,
+          );
           const report = await preflightCuration(experimentId, dryRun, reviewer);
           const baselineLastModified = report.newBaseline ?? undefined;
           const doc = buildCurationDocument(
             draft,
-            { mode: "remote", baselineLastModified },
+            {
+              mode: "remote",
+              baselineLastModified,
+              baseline: saved ?? undefined,
+            },
             removals,
           );
           await commitCuration(experimentId, doc, {
