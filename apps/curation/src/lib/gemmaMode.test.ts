@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { resolveGemmaMode } from "./gemmaMode";
+import { afterEach, describe, expect, it } from "vitest";
+import { resolveGemmaMode, setRuntimeConfig } from "./gemmaMode";
 
 /**
  * Pin the runtime > build-time > default precedence the runtime-config
@@ -104,5 +104,33 @@ describe("resolveGemmaMode — host tier", () => {
     const r = resolveGemmaMode({ mode: "local" });
     expect(r.isProd).toBe(false);
     expect(r.isUnverified).toBe(false);
+  });
+});
+
+describe("runtime config reaches callers outside React", () => {
+  afterEach(() => setRuntimeConfig(null));
+
+  // 🛑 The mode had two answers before this: `useGemmaMode()` read the
+  // runtime config through the provider while a plain
+  // `resolveGemmaMode()` in a queryFn saw only the build-time env. A
+  // bundle built remote whose runtime config says local then fetched
+  // Gemma paths while the chip read LOCAL. Caught 2026-09-03 by four
+  // @critical specs timing out on an aborted `annotation-sets` call.
+  it("lets a published runtime config decide the mode", () => {
+    setRuntimeConfig({ mode: "remote", gemmaBaseUrl: "https://gemma2.msl.ubc.ca" });
+    expect(resolveGemmaMode().mode).toBe("remote");
+    setRuntimeConfig({ mode: "local" });
+    expect(resolveGemmaMode().mode).toBe("local");
+  });
+
+  it("still answers from build-time env when asked with an explicit null", () => {
+    setRuntimeConfig({ mode: "remote", gemmaBaseUrl: "https://gemma2.msl.ubc.ca" });
+    // `null` is the deliberate "ignore the cache" call; `undefined`
+    // (the usual one) consults it.
+    expect(resolveGemmaMode(null).mode).toBe("local");
+  });
+
+  it("falls back to build-time when nothing has been published", () => {
+    expect(resolveGemmaMode().mode).toBe("local");
   });
 });

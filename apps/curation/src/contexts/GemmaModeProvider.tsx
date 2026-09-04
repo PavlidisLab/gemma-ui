@@ -3,6 +3,7 @@ import {
   GemmaModeContext,
   fetchRuntimeConfig,
   resolveGemmaMode,
+  setRuntimeConfig,
   type GemmaModeInfo,
 } from "@/lib/gemmaMode";
 
@@ -24,7 +25,12 @@ export function GemmaModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     fetchRuntimeConfig().then((rc) => {
-      if (alive && rc) setInfo(resolveGemmaMode(rc));
+      if (!alive || !rc) return;
+      // Publish BEFORE the state update: code outside React resolves
+      // the mode through the same cache, and a queryFn that fires on
+      // this render must not still see the build-time answer.
+      setRuntimeConfig(rc);
+      setInfo(resolveGemmaMode(rc));
     });
     return () => {
       alive = false;

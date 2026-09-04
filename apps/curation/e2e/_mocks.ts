@@ -251,6 +251,23 @@ export async function mockTickets(page: Page, seed: MockTicket[]) {
     );
   });
 
+  // The STORE shape of the same two lists. `useTicketsForExperiment`
+  // asks Gemma for `/datasets/{id}/tickets` and the store for
+  // `/tickets?target_id=…`, and `useMyTickets` asks for a plain
+  // `/tickets` — so a spec that runs in local mode needs these or the
+  // ticket menu comes up empty. Mocked from the same store as the
+  // routes above so both modes answer identically, which is what this
+  // file means by working in either mode.
+  await page.route(/\/curation\/v1\/tickets(\?|$)/, (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const url = new URL(route.request().url());
+    const target = url.searchParams.get("target_id");
+    const rows = [...store.values()].filter((t) =>
+      target ? hasTarget(t, Number(target)) : true,
+    );
+    return route.fulfill(json({ data: rows }));
+  });
+
   await page.route("**/curation/v1/tickets", (route) => handleCreate(route));
   await page.route(/\/rest\/v2\/tickets$/, (route) => handleCreate(route));
 

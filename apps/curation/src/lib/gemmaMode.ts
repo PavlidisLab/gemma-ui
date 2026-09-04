@@ -117,9 +117,35 @@ function hostFromUrl(url: string): string {
   }
 }
 
-/** Resolve mode + base URL from build-time env vars. Pure — no React;
- *  hookified below for ergonomic use in components. */
+/** Last runtime config seen from `/curation/v1/__config__`, so code
+ *  outside React reaches the same answer the mode chip shows.
+ *
+ *  🛑 **Without this, "the mode" had two answers.** `useGemmaMode()`
+ *  reads the runtime config through the provider; a plain
+ *  `resolveGemmaMode()` inside a queryFn saw only the build-time
+ *  `VITE_GEMMA_MODE`. A bundle built remote whose runtime config says
+ *  local then fetched Gemma paths while the chip read LOCAL — which is
+ *  exactly the split the mocked e2e specs are built on, since they pin
+ *  `__config__` so a spec works in either mode rather than in whichever
+ *  one the HAR happened to record. Caught 2026-09-03 when the review
+ *  reads moved to Gemma and four @critical specs timed out on an
+ *  aborted `annotation-sets` call. */
+let runtimeConfigCache: RuntimeConfig | null = null;
+
+/** Publish the runtime config for non-React callers. Called by
+ *  `GemmaModeProvider` the moment the fetch lands. */
+export function setRuntimeConfig(rc: RuntimeConfig | null): void {
+  runtimeConfigCache = rc;
+}
+
+/** Resolve mode + base URL. Pure given its input; hookified below for
+ *  ergonomic use in components.
+ *
+ *  Passing `undefined` (the usual call) consults the cached runtime
+ *  config, so every caller — hook or not — resolves the same way.
+ *  Passing `null` explicitly asks for the build-time answer alone. */
 export function resolveGemmaMode(runtime?: RuntimeConfig | null): GemmaModeInfo {
+  runtime = runtime === undefined ? runtimeConfigCache : runtime;
   const envMode = import.meta.env.VITE_GEMMA_MODE;
   const envBase = import.meta.env.VITE_GEMMA_BASE_URL;
   // Precedence everywhere below: runtime config (from
