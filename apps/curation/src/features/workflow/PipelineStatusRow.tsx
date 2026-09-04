@@ -314,7 +314,7 @@ export function PipelineStatusRow({
           ) : null}
           {hasLocalDraft ? (
             <StatusGlyph
-              glyph="\u25CF"
+              glyph="●"
               tone="emerald"
               label="Uncommitted local edits on this experiment"
             />
