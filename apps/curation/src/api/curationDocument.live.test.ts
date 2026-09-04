@@ -99,9 +99,22 @@ interface WireTag {
 
 /** Gemma's experiment-level annotations → the tag shape the builder
  *  takes. Reads BOTH spellings: Gemma renamed these with no aliases and
- *  an older instance still serves the old ones. */
+ *  an older instance still serves the old ones.
+ *
+ *  🛑 **`objectClass` is a filter, not decoration — and leaving it out
+ *  gave this file a green that meant nothing.** `/annotations` returns
+ *  `ExperimentTag`, `FactorValue` AND `BioMaterial` rows together. On
+ *  dataset 2706 that is 6 / 5 / 17, so the first version of this
+ *  control fed 28 ids to the tag section of which 22 are not tags —
+ *  and the preflight answered `unchanged: 28`, because a keep-marker
+ *  is an id and the id existed. The assertion passed while the input
+ *  was wrong, one commit after this file's own header warned about
+ *  exactly that. `toExperimentTags` in `designFromGemma.ts` has always
+ *  filtered here; this now mirrors it. */
 function tagsFromWire(rows: WireTag[]): NonNullable<CommittableDesign["tags"]> {
-  return rows.map((r) => ({
+  return rows
+    .filter((r) => r.objectClass === "ExperimentTag")
+    .map((r) => ({
     id: r.id,
     category: {
       label: r.category ?? r.className ?? undefined,
@@ -228,5 +241,185 @@ describe.skipIf(!LIVE)("the document this UI would commit, against Gemma", () =>
       deleted: 1,
       unchanged: tags.length - 1,
     });
+  });
+});
+
+/**
+ * The one thing preflight cannot answer: does a commit actually land?
+ *
+ * gembro, 2026-09-04: the dry run is exempt from the write-target guard
+ * and skips the curation-lock check, so a green preflight says the
+ * document parses — never that the write would be allowed. The UI's
+ * remote commit path has never written anything, so "remote mode
+ * commits" was an inference until this ran.
+ *
+ * 🛑 **SANDBOX ONLY.** `:8081` is a real Gemma bound to `gemdsandbox`
+ * by container environment — it cannot route to production, and its
+ * password is deliberately different from gemma2's so a misdirected
+ * call fails rather than succeeds. The host check below is a refusal,
+ * not a default: this suite must be incapable of writing to gemma2
+ * even if someone points `GEMMA_BASE_URL` at it.
+ *
+ *     GEMMA_SANDBOX_WRITE=1 npx vitest run src/api/curationDocument.live.test.ts
+ *
+ * Leaves the sandbox as it found it: the tag it creates is deleted by a
+ * second commit through the same builder, which exercises the delete
+ * path rather than just tidying up.
+ */
+const SANDBOX_WRITE = process.env.GEMMA_SANDBOX_WRITE === "1";
+const SANDBOX = "http://localhost:8081";
+const SANDBOX_DATASET = Number(process.env.GEMMA_SANDBOX_DATASET ?? 9001);
+
+function sandboxAuth(): string {
+  return (
+    "Basic " +
+    Buffer.from(`gemmaAgent:${keychain("GEMMA_SANDBOX_PASSWORD")}`).toString("base64")
+  );
+}
+
+async function sandbox(
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  // 🛑 The refusal. Not configurable, and not a warning.
+  if (!SANDBOX.startsWith("http://localhost:8081")) {
+    throw new Error("refusing to write anywhere but the sandbox");
+  }
+  const r = await fetch(`${SANDBOX}/rest/v2${path}`, {
+    method: init?.method ?? "GET",
+    headers: {
+      Authorization: sandboxAuth(),
+      Accept: "application/json",
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(init?.body ? { body: JSON.stringify(init.body) } : {}),
+  });
+  return { status: r.status, body: (await r.json()) as Record<string, unknown> };
+}
+
+async function sandboxTags(): Promise<NonNullable<CommittableDesign["tags"]>> {
+  const { body } = await sandbox(
+    `/datasets/${SANDBOX_DATASET}/annotations?includeFreeText=true`,
+  );
+  return tagsFromWire((body.data as WireTag[]) ?? []);
+}
+
+/** The baseline token a commit must carry. A preflight returns the
+ *  dataset's current `lastUpdated`, which is how a client picks one up
+ *  without a second read. */
+async function baselineToken(doc: unknown): Promise<string> {
+  const { body } = await sandbox(`/datasets/${SANDBOX_DATASET}/curation/preflight`, {
+    method: "POST",
+    body: doc,
+  });
+  const token = (body.data as { newBaseline?: string } | undefined)?.newBaseline;
+  if (!token) throw new Error(`preflight returned no baseline: ${JSON.stringify(body).slice(0, 300)}`);
+  return token;
+}
+
+describe.skipIf(!SANDBOX_WRITE)("a real commit, on the sandbox", () => {
+  it("🛑 CONTROL: committing an unchanged design changes nothing", async () => {
+    // The write-path equivalent of the preflight control. It proves the
+    // commit is REACHED — auth, baseline token, guards — while moving
+    // nothing, which is the smallest blast radius a real write can have.
+    const tags = await sandboxTags();
+    expect(tags.length, "sandbox dataset has no ExperimentTag rows").toBeGreaterThan(0);
+    const doc = buildCurationDocument({ tags }, { mode: "remote", baseline: { tags } });
+    const baseline = await baselineToken(doc);
+
+    const { status, body } = await sandbox(`/datasets/${SANDBOX_DATASET}/curation`, {
+      method: "PUT",
+      body: { ...doc, baseline: { lastModified: baseline } },
+    });
+    expect(status, JSON.stringify(body).slice(0, 400)).toBe(200);
+    const data = body.data as Record<string, unknown>;
+    // 🛑 `applied` must be TRUE here. On the preflight it is false, and
+    // a suite that accepted either would pass against the dry run —
+    // which is the check that never engages, one more time.
+    expect(data.applied).toBe(true);
+    // 🛑 `changes.tags`, not the whole object. A COMMIT reports every
+    // section it considered — measured on the sandbox, a tags-only
+    // document comes back with a `design` block too
+    // (`{created: 0, deleted: 0, updated: 0, unchanged: 1}`) where the
+    // preflight on gemma2 returned `tags` alone. Asserting the whole
+    // object made the suite fail on a correct write.
+    expect(tagChanges(body)).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      unchanged: tags.length,
+    });
+    // And the tags are still there, read back rather than assumed.
+    expect((await sandboxTags()).map((t) => t.id)).toEqual(tags.map((t) => t.id));
+  });
+
+  it("creates a tag, then deletes it, and the ids say which is which", async () => {
+    const before = await sandboxTags();
+
+    // CREATE. A new tag needs a real URI: the grounding gate refuses a
+    // value with none ("value URI null").
+    const added = {
+      id: 0,
+      category: { label: "organism part", uri: "http://www.ebi.ac.uk/efo/EFO_0000635" },
+      value: { label: "brain", uri: "http://purl.obolibrary.org/obo/UBERON_0000955" },
+    };
+    const createDoc = buildCurationDocument(
+      { tags: [...before, added] },
+      { mode: "remote", baseline: { tags: before } },
+    );
+    const created = await sandbox(`/datasets/${SANDBOX_DATASET}/curation`, {
+      method: "PUT",
+      body: { ...createDoc, baseline: { lastModified: await baselineToken(createDoc) } },
+    });
+    expect(created.status, JSON.stringify(created.body).slice(0, 400)).toBe(200);
+    const createdData = created.body.data as Record<string, unknown>;
+    const newId = (createdData.idMap as Record<string, number> | undefined)?.["tag-0"];
+
+    // 🛑 Everything after the write happens in a `finally`. The first
+    // run of this test asserted before deleting, the assertion was
+    // wrong, and it left a real tag behind on the sandbox — a harness
+    // that dirties the system it is measuring. The cleanup must not be
+    // reachable only along the happy path.
+    try {
+      expect(createdData.applied).toBe(true);
+      expect(tagChanges(created.body)).toEqual({
+        created: 1,
+        updated: 0,
+        deleted: 0,
+        unchanged: before.length,
+      });
+      // `idMap` names the row Gemma minted for our clientRef.
+      expect(typeof newId, JSON.stringify(createdData.idMap)).toBe("number");
+      expect((await sandboxTags()).map((t) => t.id)).toContain(newId);
+    } finally {
+      if (typeof newId === "number") {
+        // DELETE, through the same builder: the tag is absent from the
+        // design and its id is named in removals.
+        const after = await sandboxTags();
+        const deleteDoc = buildCurationDocument(
+          { tags: before },
+          { mode: "remote", baseline: { tags: after } },
+          { tagIds: [newId] },
+        );
+        expect(deleteDoc.tags?.deletedIds).toEqual([newId]);
+        const deleted = await sandbox(`/datasets/${SANDBOX_DATASET}/curation`, {
+          method: "PUT",
+          body: {
+            ...deleteDoc,
+            baseline: { lastModified: await baselineToken(deleteDoc) },
+          },
+        });
+        expect(deleted.status, JSON.stringify(deleted.body).slice(0, 400)).toBe(200);
+        expect(tagChanges(deleted.body)).toEqual({
+          created: 0,
+          updated: 0,
+          deleted: 1,
+          unchanged: before.length,
+        });
+      }
+    }
+
+    // Left as found — asserted, not hoped.
+    expect((await sandboxTags()).map((t) => t.id)).toEqual(before.map((t) => t.id));
   });
 });
