@@ -23,13 +23,17 @@ import {
   useMyScratchpad,
   useScratchpadOwner,
   useMyTickets,
+  useMyContactId,
   pinScratchpadFirst,
+  hoistPinned,
+  ticketIsMine,
   usePatchTicket,
   ticketTypeLabel,
   ticketPriorityRank,
   type Ticket,
   type TicketState,
 } from "@/api/tickets";
+import { usePinnedTickets } from "./pinnedTickets";
 import { navigate } from "@/routes";
 import { UnderCurationPanel } from "@/features/landing/UnderCurationPanel";
 import {
@@ -110,6 +114,61 @@ const SORT_STORAGE_KEY = "curator_dashboard.ticket_sort";
 
 function isDashboardSort(v: string | null): v is DashboardSort {
   return v === "newest" || v === "oldest" || v === "updated" || v === "priority";
+}
+
+/** Whose tickets the list shows. An axis of its own, ORTHOGONAL to the
+ *  lifecycle chips above — "my open tickets" is a pair of choices, not a
+ *  fourth chip, and folding ownership into the same row would have made
+ *  every combination its own option. Paul, 2026-09-03: *"add a filter to
+ *  the curation dashboard: my tickets/all tickets"*. */
+type DashboardOwner = "mine" | "everyone";
+
+const OWNER_OPTIONS: { id: DashboardOwner; label: string; title: string }[] = [
+  {
+    id: "mine",
+    label: "Mine",
+    title:
+      "Tickets assigned to you, plus unassigned ones you filed — including your scratchpad.",
+  },
+  {
+    id: "everyone",
+    label: "Everyone",
+    title: "Every ticket in the queue, whoever it belongs to.",
+  },
+];
+
+/** Shown on the disabled Mine tab. It names the gap rather than hiding
+ *  it: the curator sees that the answer is unavailable, not that they
+ *  own nothing. */
+const OWNER_UNAVAILABLE_TITLE =
+  "Unavailable — this Gemma hasn't told the app which account you are, so it can't tell which tickets are yours.";
+
+const OWNER_STORAGE_KEY = "curator_dashboard.ticket_owner";
+const DEFAULT_OWNER: DashboardOwner = "everyone";
+
+function isDashboardOwner(v: string | null): v is DashboardOwner {
+  return v === "mine" || v === "everyone";
+}
+
+/** Same precedence as the filter and sort: URL ``?owner=`` wins, then
+ *  localStorage, then ``everyone``.
+ *
+ *  The default is EVERYONE rather than mine: the dashboard is also how a
+ *  curator finds unclaimed work, and a "mine" default on a queue where
+ *  almost every ticket is unassigned would open on a near-empty page. */
+function readInitialOwner(): DashboardOwner {
+  if (typeof window === "undefined") return DEFAULT_OWNER;
+  try {
+    const hash = window.location.hash;
+    const q = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const fromUrl = new URLSearchParams(q).get("owner");
+    if (isDashboardOwner(fromUrl)) return fromUrl;
+    const fromStore = window.localStorage.getItem(OWNER_STORAGE_KEY);
+    if (isDashboardOwner(fromStore)) return fromStore;
+  } catch {
+    // Fall through to default.
+  }
+  return DEFAULT_OWNER;
 }
 
 /** Same precedence as ``readInitialFilter``: URL ``?sort=`` wins, then
@@ -219,7 +278,6 @@ function ticketMatchesFilter(ticket: Ticket, filter: DashboardFilter): boolean {
   }
 }
 
-
 export function CuratorDashboard({
   reviewer,
   onSelect,
@@ -235,6 +293,7 @@ export function CuratorDashboard({
     readInitialFilter(),
   );
   const [sort, setSort] = useState<DashboardSort>(() => readInitialSort());
+  const [owner, setOwner] = useState<DashboardOwner>(() => readInitialOwner());
   const [showCreateScreening, setShowCreateScreening] = useState(false);
   const [showImportExperiment, setShowImportExperiment] = useState(false);
   // Importing an experiment copies Gemma into the local store. In
@@ -284,6 +343,26 @@ export function CuratorDashboard({
     }
   }, [sort]);
 
+  // Persist the ownership tab the same way. ``everyone`` is the default
+  // and stays out of the URL.
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(OWNER_STORAGE_KEY, owner);
+      const hash = window.location.hash || "#/";
+      const [path, queryStr] = hash.split("?");
+      const params = new URLSearchParams(queryStr ?? "");
+      if (owner === DEFAULT_OWNER) params.delete("owner");
+      else params.set("owner", owner);
+      const next = params.toString();
+      const newHash = next ? `${path}?${next}` : path;
+      if (newHash !== hash) {
+        window.history.replaceState(null, "", newHash);
+      }
+    } catch {
+      // Best-effort — state stays live in React.
+    }
+  }, [owner]);
+
   // Always fetch RESOLVED/CANCELLED tickets, on every filter. The light
   // endpoint returns the whole list regardless — ``includeClosed`` only
   // toggles a client-side filter inside the hook (see tickets.ts), so
@@ -311,10 +390,39 @@ export function CuratorDashboard({
   // to pin, which renders exactly as the dashboard did before.
   const scratchpad = useMyScratchpad();
 
-  // Apply the chip filter, then sort by the curator's chosen order
-  // (default: newest filed first).
-  const filteredTickets = (tickets ?? []).filter((t) =>
-    ticketMatchesFilter(t, filter),
+  // This session's contact id, read off its own scratchpad — the only
+  // id-exact identity the wire offers (see ``useMyContactId``). ``null``
+  // means "could not establish", which disables the Mine tab rather than
+  // filtering the list down to nothing.
+  const myId = useMyContactId();
+  const canFilterByOwner = myId !== null;
+  // A stale ``?owner=mine`` — bookmarked, or left in localStorage from a
+  // session where the id resolved — must not strand the curator on a
+  // tab that cannot answer. Fall back to everyone for this render;
+  // the state itself is left alone so the tab re-arms if the id lands.
+  const effectiveOwner: DashboardOwner = canFilterByOwner ? owner : "everyone";
+
+  const {
+    pinned,
+    isPinned,
+    toggle: togglePin,
+    prune: prunePins,
+  } = usePinnedTickets();
+  // Drop pins for tickets this curator can no longer see, so the set
+  // doesn't grow forever behind a closed or deleted ticket. Guarded on
+  // the list having actually ARRIVED — pruning against the empty
+  // in-flight list would clear every pin on each cold load.
+  useEffect(() => {
+    if (!tickets) return;
+    prunePins(tickets.map((t) => t.id));
+  }, [tickets, prunePins]);
+
+  // Apply the ownership tab, then the chip filter, then sort by the
+  // curator's chosen order (default: newest filed first).
+  const filteredTickets = (tickets ?? []).filter(
+    (t) =>
+      ticketMatchesFilter(t, filter) &&
+      (effectiveOwner === "everyone" || ticketIsMine(t, myId)),
   );
   // 🛑 The scratchpad is pinned AFTER the curator's sort, not folded
   // into the comparator (Paul: "each curator would automatically get a
@@ -326,10 +434,19 @@ export function CuratorDashboard({
   // Filtered first, so a scratchpad excluded by the chip filter stays
   // excluded. Pinning past the filter would make "Resolved" show an
   // open ticket.
+  //
+  // The curator's own pins are hoisted between the two — Paul,
+  // 2026-09-03: pinned tickets stay at the top *"(after the
+  // scratchpad)"* — so ``hoistPinned`` runs first and
+  // ``pinScratchpadFirst`` puts the scratchpad above its result.
   const sortedTickets = pinScratchpadFirst(
-    filteredTickets.slice().sort((a, b) => compareTickets(a, b, sort)),
+    hoistPinned(
+      filteredTickets.slice().sort((a, b) => compareTickets(a, b, sort)),
+      pinned,
+    ),
     // Only pin the fetched scratchpad when it survives the same filter
-    // the list did, for the same reason.
+    // the list did, for the same reason. On the Mine tab it always
+    // does: a scratchpad is filed for its own curator.
     scratchpad.data && ticketMatchesFilter(scratchpad.data, filter)
       ? scratchpad.data
       : null,
@@ -339,7 +456,25 @@ export function CuratorDashboard({
   // fetched list (``includeClosed`` is always on above), so every chip
   // — All / Open / Resolved — shows its true total on every filter,
   // not just the one the curator happens to be viewing.
-  const totalForLabel = tickets ?? [];
+  //
+  // 🛑 Scoped by the OWNERSHIP tab, though. The two controls are
+  // orthogonal axes, not competing filters: on "Mine", "Open 3" has to
+  // mean three of the curator's own, or the chips describe a list that
+  // is not on screen.
+  //
+  // 🛑 The fetched scratchpad counts too. It is hoisted in from its own
+  // query and can be absent from the list, so counting the list alone
+  // said "All 20" beside 21 cards. Unnoticeable at that size and plainly
+  // wrong at the size the Mine tab produces — "All 1" over two cards.
+  const countable = (() => {
+    const rows = tickets ?? [];
+    const sp = scratchpad.data;
+    if (!sp || rows.some((t) => t.id === sp.id)) return rows;
+    return [...rows, sp];
+  })();
+  const totalForLabel = countable.filter(
+    (t) => effectiveOwner === "everyone" || ticketIsMine(t, myId),
+  );
   const openTickets = totalForLabel.filter((t) => !ticketIsResolved(t));
   const counts: Record<DashboardFilter, number> = {
     all: totalForLabel.length,
@@ -502,6 +637,43 @@ export function CuratorDashboard({
               ``?filter=`` on the dashboard URL + localStorage
               fallback. */}
           <div className="flex items-center gap-1 flex-wrap mb-3 text-xs">
+            {/* Ownership tab — a separate axis from the lifecycle chips
+                beside it, so it reads as a segmented pair rather than a
+                fourth chip. Disabled, not hidden, when the session's
+                contact id could not be established: a curator who can
+                see the control and its reason knows the answer is
+                unavailable, where a missing control just looks like a
+                feature that was never built. */}
+            <div
+              className="inline-flex rounded-full bg-slate-100 dark:bg-slate-800 p-0.5 mr-2"
+              role="tablist"
+              aria-label="Whose tickets"
+            >
+              {OWNER_OPTIONS.map((opt) => {
+                const active = effectiveOwner === opt.id;
+                const disabled = opt.id === "mine" && !canFilterByOwner;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    disabled={disabled}
+                    onClick={() => setOwner(opt.id)}
+                    title={disabled ? OWNER_UNAVAILABLE_TITLE : opt.title}
+                    className={cn(
+                      "px-2.5 py-1 rounded-full transition-colors",
+                      active
+                        ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm font-medium"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100",
+                      disabled && "opacity-50 cursor-not-allowed",
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
             {FILTER_OPTIONS.map((opt) => {
               const active = filter === opt.id;
               const count = counts[opt.id];
@@ -578,7 +750,12 @@ export function CuratorDashboard({
             <ul className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
               {sortedTickets.map((t) => (
                 <li key={t.id} className="h-full">
-                  <TicketCard ticket={t} onOpenTarget={onSelect} />
+                  <TicketCard
+                    ticket={t}
+                    onOpenTarget={onSelect}
+                    pinned={isPinned(t.id)}
+                    onTogglePin={() => togglePin(t.id)}
+                  />
                 </li>
               ))}
             </ul>
@@ -606,8 +783,6 @@ export function CuratorDashboard({
     </div>
   );
 }
-
-
 
 /** Placeholder card shown while the ticket list loads. Mirrors
  *  ``TicketCard``'s frame (``card p-3 min-h-[220px]``) so the skeleton
@@ -699,12 +874,72 @@ function TicketCloseReopenControl({ ticket }: { ticket: Ticket }) {
   );
 }
 
+/** Pin / unpin this ticket to the top of the dashboard.
+ *
+ *  🛑 `stopPropagation` is not optional here. The whole card is a click
+ *  target that opens the ticket, so without it a pin click also
+ *  navigates away — and the curator never sees the thing they pinned
+ *  move.
+ *
+ *  Drawn as an outline when unpinned and a solid when pinned, one glyph
+ *  either way: a control that swaps between two different shapes reads
+ *  as two different controls at a glance down a grid of cards. */
+function PinControl({
+  pinned,
+  onToggle,
+}: {
+  pinned: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pinned}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      title={
+        pinned
+          ? "Unpin — stop keeping this ticket at the top"
+          : "Pin — keep this ticket at the top of your dashboard"
+      }
+      className={cn(
+        "rounded p-0.5 -ml-0.5 leading-none transition-colors",
+        pinned
+          ? "text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-slate-800"
+          : "text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800",
+      )}
+    >
+      <span className="sr-only">{pinned ? "Unpin ticket" : "Pin ticket"}</span>
+      <svg
+        viewBox="0 0 16 16"
+        width="12"
+        height="12"
+        aria-hidden
+        fill={pinned ? "currentColor" : "none"}
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      >
+        {/* A pushpin: head, shaft, and the point it stands on. */}
+        <path d="M6 1.6h4l-.6 3.2 2.2 2.1v1.3H4.4V6.9l2.2-2.1z" />
+        <path d="M8 8.2v6.2" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+}
+
 function TicketCard({
   ticket,
   onOpenTarget,
+  pinned,
+  onTogglePin,
 }: {
   ticket: Ticket;
   onOpenTarget: (experimentId: number | string, ticketId?: number) => void;
+  pinned: boolean;
+  onTogglePin: () => void;
 }) {
   // Whole card opens the ticket detail page. The detail page lists
   // the targets; the curator clicks from there into individual EEs.
@@ -761,7 +996,13 @@ function TicketCard({
       }}
     >
       <div className="flex items-start justify-between gap-2">
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* The pin leads the chip row rather than joining Close on the
+            right. Beside Close it cost the right-hand cluster ~25px, and
+            every card's state pill wrapped onto a second line. Here it
+            reads as what it is — a marker on this card's position — and
+            the row it joins already wraps by design. */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <PinControl pinned={pinned} onToggle={onTogglePin} />
           <span
             className="font-mono text-base font-semibold text-slate-800 dark:text-slate-100"
             title={`Ticket #${ticket.id}`}

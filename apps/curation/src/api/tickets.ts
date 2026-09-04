@@ -1186,6 +1186,76 @@ export function pinScratchpadFirst(
   return [...pinned, ...tickets.filter((t) => !pinnedIds.has(t.id))];
 }
 
+/** Hoist the curator's pinned tickets to the front, keeping the order
+ *  they already have within each group.
+ *
+ *  Applied BEFORE `pinScratchpadFirst`, so the scratchpad ends up above
+ *  the pins — Paul, 2026-09-03: pinned tickets stay at the top *"(after
+ *  the scratchpad)"*. Same reasoning as the scratchpad pin: this is a
+ *  property of the dashboard, not of the sort, so it runs after the
+ *  curator's chosen comparator rather than inside it.
+ *
+ *  Exported for test. */
+export function hoistPinned(
+  tickets: Ticket[],
+  pinnedIds: Set<number>,
+): Ticket[] {
+  if (pinnedIds.size === 0) return tickets;
+  const pinned = tickets.filter((t) => pinnedIds.has(t.id));
+  if (pinned.length === 0) return tickets;
+  return [...pinned, ...tickets.filter((t) => !pinnedIds.has(t.id))];
+}
+
+/** Is this ticket the current curator's?
+ *
+ *  An ASSIGNED ticket belongs to its assignee; an UNASSIGNED one belongs
+ *  to whoever filed it. The second half is what makes the answer useful
+ *  here — on gemma2 today essentially every ticket serializes
+ *  `assigneeId: null` and carries a real reporter, so an assignee-only
+ *  rule would call the whole queue nobody's.
+ *
+ *  🛑 **Answered by ID or not at all.** The tempting comparison is
+ *  `reporter_name` against the session username, and it does not work:
+ *  `reporter_name` is `Contact.getName()` while `/users/me` answers
+ *  `userName`, and on gemma2 the account whose contact name is "admin"
+ *  signs in as "administrator" — the same mismatch documented on
+ *  `scratchpadOwner`. A name rule would quietly report that curator owns
+ *  nothing. `myId` is `null` when it could not be established, and every
+ *  ticket then answers `false`; the caller is expected to disable the
+ *  filter rather than show an empty list, because "you have no tickets"
+ *  and "I could not tell" are different claims.
+ *
+ *  Exported for test; `useTicketIsMine` is the hook render sites use. */
+export function ticketIsMine(
+  ticket: Pick<Ticket, "assignee_id" | "reporter_id">,
+  myId: number | null | undefined,
+): boolean {
+  if (typeof myId !== "number") return false;
+  if (typeof ticket.assignee_id === "number")
+    return ticket.assignee_id === myId;
+  return ticket.reporter_id === myId;
+}
+
+/** The current curator's contact id, or `null` when the wire has not
+ *  established one.
+ *
+ *  It comes from the curator's own scratchpad: `GET /tickets/scratchpad`
+ *  answers the ticket filed FOR this session, so its `reporter_id` is
+ *  this session's contact id — exact, numeric, and free, because the
+ *  dashboard has already fetched that query for the pin. `/users/me`
+ *  cannot supply it: the normalized `User` carries username, name, email
+ *  and authorities, and no id at all.
+ *
+ *  `null` while the query is in flight, and on any host where the
+ *  scratchpad route 404s (it is gembro's, and was still rolling out on
+ *  2026-09-03). Callers must treat that as "cannot tell", never as
+ *  "nothing is yours". */
+export function useMyContactId(): number | null {
+  const scratchpad = useMyScratchpad();
+  const id = scratchpad.data?.reporter_id;
+  return typeof id === "number" ? id : null;
+}
+
 export function useMyTickets(
   options: {
     refetchInterval?: number | false;

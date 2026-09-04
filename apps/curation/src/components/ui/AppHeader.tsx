@@ -288,6 +288,18 @@ function useHashMatches(prefixes: string[]): boolean {
     window.addEventListener("hashchange", onChange);
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
-  const h = hash || "#/";
-  return prefixes.some((p) => (p === "#/" ? h === "#/" || h === "" : h.startsWith(p)));
+  // 🛑 Compare the PATH, not the whole hash. The dashboard carries its
+  // filter / sort / owner selections as `#/?filter=open&…`, so an exact
+  // match against "#/" answered false there and the header rendered a
+  // "← Dashboard" link, plus its compact search box, on the dashboard
+  // itself — the two things gated on being somewhere else.
+  //
+  // It looked intermittent, which is why it survived: those params are
+  // written with `history.replaceState`, and that fires no `hashchange`,
+  // so the header kept the answer it computed on mount. Only a load with
+  // the params already in the URL — a reload, or a bookmark — showed it.
+  const h = (hash || "#/").split("?")[0] || "#/";
+  return prefixes.some((p) =>
+    p === "#/" ? h === "#/" || h === "" : h.startsWith(p),
+  );
 }
