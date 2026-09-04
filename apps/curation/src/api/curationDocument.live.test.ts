@@ -491,7 +491,9 @@ function designFromWire(factors: WireFactor[]): CommittableDesign {
       category: { label: f.category?.category, uri: f.category?.categoryUri ?? null },
       factor_values: (f.values ?? []).map((v) => ({
         id: v.id,
-        is_baseline: !!v.isBaseline,
+        // 🛑 Absent stays absent — `!!v.isBaseline` here is the exact
+        // coercion that forced sandbox FV 9005 from null to false.
+        ...(v.isBaseline === undefined ? {} : { is_baseline: v.isBaseline }),
         statements: (v.statements ?? []).map((st) => ({
           gemma_id: st.id,
           category: { label: st.category ?? undefined, uri: st.categoryUri ?? null },
@@ -534,10 +536,14 @@ describe.skipIf(!SANDBOX_WRITE)("the design section, on the sandbox", () => {
     // hold is that a design committed twice settles: no audit churn,
     // no baseline token moving under other clients, from the second
     // commit on.
+    // The baseline is what lets the builder tell "the stored flag was
+    // null" from "the curator unset it" — without it every flag is
+    // omitted and the document says less than it should.
     const doc = () =>
-      sandboxDesign().then((fs) =>
-        buildCurationDocument(designFromWire(fs), { mode: "remote" }),
-      );
+      sandboxDesign().then((fs) => {
+        const d = designFromWire(fs);
+        return buildCurationDocument(d, { mode: "remote", baseline: d });
+      });
 
     const first = await commitDesign(await doc());
     expect(first.status, JSON.stringify(first.body).slice(0, 400)).toBe(200);
@@ -579,7 +585,10 @@ describe.skipIf(!SANDBOX_WRITE)("the design section, on the sandbox", () => {
 
     try {
       const { status, body } = await commitDesign(
-        buildCurationDocument(mutate(renamed), { mode: "remote" }),
+        buildCurationDocument(mutate(renamed), {
+          mode: "remote",
+          baseline: designFromWire(before),
+        }),
       );
       expect(status, JSON.stringify(body).slice(0, 400)).toBe(200);
       // One changed entity: the statement. (Measured as 2 before the
@@ -595,7 +604,12 @@ describe.skipIf(!SANDBOX_WRITE)("the design section, on the sandbox", () => {
       expect(same?.subject).toBe(renamed);
     } finally {
       // Put the label back whatever happened above.
-      await commitDesign(buildCurationDocument(mutate(originalSubject), { mode: "remote" }));
+      await commitDesign(
+        buildCurationDocument(mutate(originalSubject), {
+          mode: "remote",
+          baseline: designFromWire(before),
+        }),
+      );
     }
 
     const restored = await sandboxDesign()

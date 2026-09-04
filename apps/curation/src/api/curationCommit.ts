@@ -380,16 +380,75 @@ export function buildCurationDocument(
   opts: {
     mode: "local" | "remote";
     baselineLastModified?: string;
-    /** The design as Gemma last served it. The ONLY witness for
-     *  whether a tag already exists and whether its content changed —
-     *  see the tags block below. Required once any tag carries an id. */
-    baseline?: Pick<CommittableDesign, "tags">;
+    /** The design as Gemma last served it. The ONLY witness for two
+     *  things the draft cannot answer on its own: whether a tag already
+     *  exists and whether its content changed (see the tags block), and
+     *  whether a factor value's baseline flag was ever SET (see
+     *  `baselineFlag`). Required once any tag carries an id. */
+    baseline?: Pick<CommittableDesign, "tags" | "factors">;
   },
   removals?: CommittableRemovals,
 ): CurationDocument {
   if (opts.mode !== "remote") {
     throw new Error(LOCAL_DESIGN_NOT_COMMITTABLE);
   }
+  // 🛑 **`isBaseline` has THREE states, and `false` is not the empty
+  // one.** Gemma's `BaselineSelection.isBaselineCondition` short-
+  // circuits on an explicit flag and otherwise INFERS from the terms:
+  //
+  //     null  → unforced; infer (a control-group term IS the baseline)
+  //     true  → forced baseline
+  //     false → forced NOT baseline, and inference is off permanently
+  //
+  // So writing `false` over a null is destructive rather than
+  // cosmetic: on a factor value whose terms imply a control
+  // (`control`, `reference substance role`, `wild type`, …) it turns
+  // baseline detection OFF, changing which group differential
+  // expression treats as the reference — the direction of every
+  // contrast on that factor.
+  //
+  // This builder emitted `isBaseline: !!v.is_baseline` unconditionally,
+  // and `composeDesign` collapses `?? false` on the way in, so the
+  // first remote commit of any dataset carrying a null flag forced it
+  // to false. Caught 2026-09-04 on sandbox factor value 9005, which had
+  // no flag before a probe commit and reads `false` after; gembro
+  // confirmed the semantics from `BaselineSelection`.
+  //
+  // ⇒ Absent stays absent. The flag is emitted when the curator forces
+  // a baseline, or when the stored state already carried an explicit
+  // value to overwrite — never to write a default over a null.
+  //
+  // ⚠️ **Known limitation, and it is the smaller of two wrongs.** A
+  // curator who UNMARKS a value Gemma inferred as baseline (null flag,
+  // control-group term) means a forced `false`, and this omits it, so
+  // the inference stands and the unmark appears to revert. The model
+  // cannot tell that apart from the default it used to invent —
+  // `is_baseline: boolean` in `features/experiment/types.ts` has no
+  // third state, and `composeDesign` collapses `?? false` before this
+  // code ever sees it. Fixing it properly means a tri-state there.
+  // Until then: the systematic wrong (every null flag forced to false
+  // on first commit, silently, changing DE contrast direction) beats
+  // the rare and VISIBLE one (an unmark that does not stick).
+  const priorValues = new Map<
+    number,
+    NonNullable<NonNullable<CommittableDesign["factors"]>[number]["factor_values"]>[number]
+  >();
+  for (const f of opts.baseline?.factors ?? []) {
+    for (const v of f.factor_values ?? []) priorValues.set(v.id, v);
+  }
+
+  function baselineFlag(
+    v: { id: number; is_baseline?: boolean },
+    prior: { is_baseline?: boolean } | undefined,
+  ): { isBaseline?: boolean } {
+    if (v.is_baseline) return { isBaseline: true };
+    // Stored state already explicit → an explicit false is a real
+    // un-setting the curator asked for, not a default.
+    if (prior && prior.is_baseline !== undefined) return { isBaseline: false };
+    // No baseline in hand, or the stored flag was null: say nothing.
+    return {};
+  }
+
   const factors: FactorCommit[] = (design.factors ?? []).map((f) => ({
     // A factor has a second, better witness than the sign: Gemma's own
     // `gemmaFactorId`, populated on every imported experiment. Prefer
@@ -408,7 +467,7 @@ export function buildCurationDocument(
       items: (f.factor_values ?? []).map((v) => ({
         ...commitTarget(v.id, "fv"),
         ...(v.free_text_label ? { freeTextLabel: v.free_text_label } : {}),
-        isBaseline: !!v.is_baseline,
+        ...baselineFlag(v, priorValues.get(v.id)),
         ...(v.biomaterial_short_names?.length
           ? { biomaterialShortNames: v.biomaterial_short_names }
           : {}),

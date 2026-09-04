@@ -146,13 +146,16 @@ describe("buildCurationDocument", () => {
     expect(factors[1].category).toBeUndefined();
   });
 
-  it("keeps isBaseline explicit on every value", () => {
-    // Not `...(x ? {} : {})` — false is meaningful here. Omitting it
-    // on a value the curator just UNMARKED would leave the old
-    // baseline standing.
+  it("forces true, and says nothing where the stored flag was null", () => {
+    // 🛑 This test used to assert `isBaseline: false` on every
+    // unmarked value, reasoning that omitting it "on a value the
+    // curator just UNMARKED would leave the old baseline standing".
+    // That reasoning holds only where a flag was SET; against a null
+    // it writes a forced non-baseline over Gemma's inference, which is
+    // the destructive case — see the tri-state block below.
     const vs = factors[0].factorValues?.items ?? [];
     expect(vs[0].isBaseline).toBe(true);
-    expect(vs[1].isBaseline).toBe(false);
+    expect("isBaseline" in vs[1]).toBe(false);
   });
 
   it("sends the baseline stamp only when given one", () => {
@@ -299,5 +302,62 @@ describe("buildCurationDocument — tags are add/delete only", () => {
       { mode: "remote" },
     );
     expect(doc.tags?.items?.[0].clientRef).toBe("tag-0");
+  });
+});
+
+/**
+ * `isBaseline` has THREE states and `false` is not the empty one.
+ *
+ * Gemma's `BaselineSelection.isBaselineCondition` short-circuits on an
+ * explicit flag and otherwise infers from the terms: null is
+ * "unforced, infer", true is "forced baseline", false is "forced NOT
+ * baseline" — which turns the inference off permanently. So writing
+ * `false` over a null on a control-labelled factor value changes which
+ * group differential expression treats as the reference.
+ *
+ * Measured 2026-09-04 on sandbox factor value 9005: no flag before a
+ * probe commit, `false` after, from a client that coerced absent to
+ * false. This builder was that client.
+ */
+describe("buildCurationDocument — the baseline flag is tri-state", () => {
+  const fv = (id: number, is_baseline?: boolean) => ({ id, is_baseline });
+  const design = (values: ReturnType<typeof fv>[]): CommittableDesign => ({
+    factors: [{ id: 7, gemma_factor_id: 7, factor_values: values }],
+  });
+  const emitted = (doc: ReturnType<typeof buildCurationDocument>) =>
+    doc.design?.factors?.items?.[0].factorValues?.items ?? [];
+
+  it("🛑 says NOTHING when the stored flag was null and nothing was forced", () => {
+    // The destructive case. `false` here would switch off baseline
+    // detection for a factor value whose terms imply a control.
+    const doc = buildCurationDocument(design([fv(1, false)]), {
+      mode: "remote",
+      baseline: design([fv(1, undefined)]),
+    });
+    expect("isBaseline" in emitted(doc)[0]).toBe(false);
+  });
+
+  it("forces true when the curator picked a baseline", () => {
+    const doc = buildCurationDocument(design([fv(1, true)]), {
+      mode: "remote",
+      baseline: design([fv(1, undefined)]),
+    });
+    expect(emitted(doc)[0].isBaseline).toBe(true);
+  });
+
+  it("writes false only over a flag that was already explicit", () => {
+    // Un-setting a forced baseline IS what the curator asked for.
+    const doc = buildCurationDocument(design([fv(1, false)]), {
+      mode: "remote",
+      baseline: design([fv(1, true)]),
+    });
+    expect(emitted(doc)[0].isBaseline).toBe(false);
+  });
+
+  it("says nothing when there is no baseline design to compare against", () => {
+    // A caller with no baseline cannot know whether the stored flag was
+    // null, and a default written into that gap is the bug above.
+    const doc = buildCurationDocument(design([fv(1, false)]), { mode: "remote" });
+    expect("isBaseline" in emitted(doc)[0]).toBe(false);
   });
 });
