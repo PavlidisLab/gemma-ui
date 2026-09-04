@@ -618,3 +618,64 @@ describe.skipIf(!SANDBOX_WRITE)("the design section, on the sandbox", () => {
     expect(restored?.subject).toBe(originalSubject);
   });
 });
+
+/**
+ * The regression that a unit test cannot carry: a REAL null surviving a
+ * REAL commit.
+ *
+ * Sandbox factor value 9005 is the only witness on that dataset — the
+ * other four carry explicit true/false — and it is the case the bug
+ * destroyed. gembro restored it by hand after a probe of mine forced it
+ * to `false`, because no API call can write null back:
+ * `FactorValueCommit.baseline` documents `null = leave unchanged`, and
+ * absent is indistinguishable from explicit null, so a client can force
+ * true or false or say nothing. There is no unforce.
+ *
+ * ⇒ The only way to keep a null is to SAY NOTHING about it, which is
+ * what the builder now does — and the only way to know it still does is
+ * to commit and look.
+ */
+describe.skipIf(!SANDBOX_WRITE)("a null baseline flag survives a commit", () => {
+  it("🛑 an unset flag is still unset after committing the whole design", async () => {
+    const before = await sandboxDesign();
+    const unset = before
+      .flatMap((f) => f.values ?? [])
+      .filter((v) => v.isBaseline === undefined)
+      .map((v) => v.id);
+    // The assertion is worthless without one, so say so rather than
+    // passing vacuously on a fixture that has drifted.
+    expect(
+      unset,
+      "no factor value on the sandbox has an unset baseline flag — the " +
+        "fixture has drifted and this test proves nothing",
+    ).not.toHaveLength(0);
+
+    const design = designFromWire(before);
+    const doc = buildCurationDocument(design, { mode: "remote", baseline: design });
+
+    // The document must not mention them at all. Checked before the
+    // write, because after it the evidence is gone either way.
+    const emitted = (doc.design?.factors?.items ?? []).flatMap(
+      (f) => f.factorValues?.items ?? [],
+    );
+    for (const id of unset) {
+      const item = emitted.find((v) => v.gemmaId === id);
+      expect(item && "isBaseline" in item, `document forces isBaseline on fv ${id}`).toBe(
+        false,
+      );
+    }
+
+    const { status, body } = await commitDesign(doc);
+    expect(status, JSON.stringify(body).slice(0, 400)).toBe(200);
+
+    const after = await sandboxDesign();
+    for (const id of unset) {
+      const v = after.flatMap((f) => f.values ?? []).find((x) => x.id === id);
+      // Still absent. `false` here is the bug: it forces a
+      // non-baseline and switches the term inference off permanently.
+      expect(v && "isBaseline" in v, `fv ${id} was forced to ${v?.isBaseline}`).toBe(
+        false,
+      );
+    }
+  });
+});
