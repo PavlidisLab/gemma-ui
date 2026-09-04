@@ -34,10 +34,10 @@
  * — no dependency. Output is a single ``.json.gz`` file; the agent
  * (or any consumer) can decompress with stock zlib.
  */
+import { fetchReviewsForExperiment } from "@/api/annotationSetReviews";
 import { fetchDesignSnapshot, fetchPolishedSnapshot } from "@/api/design";
-import { api } from "@/api/client";
 import { exportAgentFeedback } from "@/features/audit/agentFeedback";
-import type { AuditReport, CurationReviewKind } from "@/api/auditTypes";
+import type { CurationReviewKind } from "@/api/auditTypes";
 import type { Design } from "@/features/experiment/types";
 import type { Group } from "@/api/workflowTypes";
 
@@ -165,33 +165,14 @@ function numericTail(memberId: string): number | null {
 async function fetchLatestReviewStatus(
   experimentId: number | string,
 ): Promise<SetExportReviewStatus | null> {
-  async function fetchList(path: string): Promise<AuditReport[]> {
-    try {
-      const resp = await api.get<{ items: AuditReport[]; total: number }>(
-        path,
-      );
-      return Array.isArray(resp.items) ? resp.items : [];
-    } catch (err) {
-      // 404 → endpoint not exposed on this backend. Treat as
-      // "no items" so the other endpoint's items still count.
-      const e = err as { status?: number };
-      if (e && typeof e === "object" && e.status === 404) return [];
-      throw err;
-    }
-  }
-  const [audits, proposals] = await Promise.all([
-    fetchList(`/curation/v1/datasets/${experimentId}/audits`),
-    fetchList(`/curation/v1/datasets/${experimentId}/proposals`),
-  ]);
-  const all = [...audits, ...proposals];
+  // Both review kinds, from whichever service this mode reads —
+  // one Gemma call in remote mode, the two store calls in local.
+  const all = await fetchReviewsForExperiment(experimentId);
   if (all.length === 0) return null;
   // Most-recent-first by audited_at; server already sorts each
   // list this way but the cross-endpoint merge needs a unified pass.
-  const latest = all.slice().sort((a, b) => {
-    const ta = a.audited_at ? Date.parse(a.audited_at) : 0;
-    const tb = b.audited_at ? Date.parse(b.audited_at) : 0;
-    return tb - ta;
-  })[0];
+  // Sorted newest-first by `fetchReviewsForExperiment`.
+  const latest = all[0];
   return {
     kind: latest.kind ?? "audit",
     is_finalized: !!latest.finalized_at,

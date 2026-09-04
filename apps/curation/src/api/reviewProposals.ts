@@ -22,7 +22,9 @@
  * this file is for the new rich-review proposal flow only.
  */
 import { useQueries, useQuery } from "@tanstack/react-query";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { api } from "./client";
+import { annotationSetsToReviews, reviewsPath } from "./annotationSetReviews";
 import type { AuditReport } from "./auditTypes";
 
 interface ReviewProposalListResponse {
@@ -40,10 +42,19 @@ const KEY = {
 async function fetchProposalReviewsForExperiment(
   experimentId: number | string,
 ): Promise<ReviewProposalListResponse> {
+  // 🛑 **In remote mode the reviews are Gemma's.** `/curation/v1`
+  // proxies to local_api in BOTH modes, so naming it unconditionally
+  // read the store even when every experiment on the page came from
+  // Gemma — a proposal written to Gemma had no surface here at all
+  // (cab, 2026-09-03, on set 2563 / GSE6966).
+  const remote = resolveGemmaMode().mode === "remote";
   try {
-    return await api.get<ReviewProposalListResponse>(
-      `/curation/v1/datasets/${experimentId}/proposals`,
+    const raw = await api.get<unknown>(
+      reviewsPath(experimentId, remote, "proposals"),
     );
+    return remote
+      ? annotationSetsToReviews(raw, "proposal")
+      : (raw as ReviewProposalListResponse);
   } catch (e: unknown) {
     if (
       e &&

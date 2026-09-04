@@ -13,6 +13,7 @@
  * etc.) are listed under ``skipped`` with a reason — the bundle is
  * complete-by-design rather than partial-by-bug.
  */
+import { fetchReviewsForExperiment } from "@/api/annotationSetReviews";
 import { fetchDesignSnapshot, fetchPolishedSnapshot } from "@/api/design";
 import type { Design } from "@/features/experiment/types";
 import type { Ticket, TicketTarget } from "@/api/tickets";
@@ -25,8 +26,6 @@ import {
   type SetExportReviewStatus,
 } from "@/features/workflow/exportSet";
 import { exportAgentFeedback } from "@/features/audit/agentFeedback";
-import { api } from "@/api/client";
-import type { AuditReport } from "@/api/auditTypes";
 
 const BUNDLE_VERSION = 2 as const;
 const UI_VERSION = "0.8.0";
@@ -69,34 +68,18 @@ export interface TicketExportExperiment {
   error: string | null;
 }
 
-/** Same merge-from-/audits-and-/proposals dance as exportSet — kept
- *  local so this file doesn't reach into exportSet's privates. */
+/** Latest review of either kind on an experiment. Shares
+ *  ``fetchReviewsForExperiment`` with exportSet — both wanted the same
+ *  merge, and in remote mode both kinds come from one Gemma call. */
 async function fetchLatestReviewStatus(
   experimentId: number | string,
 ): Promise<SetExportReviewStatus | null> {
-  async function fetchList(path: string): Promise<AuditReport[]> {
-    try {
-      const resp = await api.get<{ items: AuditReport[]; total: number }>(
-        path,
-      );
-      return Array.isArray(resp.items) ? resp.items : [];
-    } catch (err) {
-      const e = err as { status?: number };
-      if (e && typeof e === "object" && e.status === 404) return [];
-      throw err;
-    }
-  }
-  const [audits, proposals] = await Promise.all([
-    fetchList(`/curation/v1/datasets/${experimentId}/audits`),
-    fetchList(`/curation/v1/datasets/${experimentId}/proposals`),
-  ]);
-  const all = [...audits, ...proposals];
+  // Both review kinds, from whichever service this mode reads —
+  // one Gemma call in remote mode, the two store calls in local.
+  const all = await fetchReviewsForExperiment(experimentId);
   if (all.length === 0) return null;
-  const latest = all.slice().sort((a, b) => {
-    const ta = a.audited_at ? Date.parse(a.audited_at) : 0;
-    const tb = b.audited_at ? Date.parse(b.audited_at) : 0;
-    return tb - ta;
-  })[0];
+  // Sorted newest-first by `fetchReviewsForExperiment`.
+  const latest = all[0];
   return {
     kind: latest.kind ?? "audit",
     is_finalized: !!latest.finalized_at,

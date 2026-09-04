@@ -22,7 +22,17 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { api } from "./client";
+import {
+  annotationSetToReview,
+  annotationSetsToReviews,
+  asAnnotationSetRows,
+  isReviewPayload,
+  parseReviewPayload,
+  reviewsPath,
+  type AnnotationSetRow,
+} from "./annotationSetReviews";
 import type {
   AuditFindingDispositionPatch,
   AuditReport,
@@ -47,10 +57,17 @@ const KEY = {
 async function fetchAuditsForExperiment(
   experimentId: number | string,
 ): Promise<AuditListResponse> {
+  // Remote mode reads Gemma's annotation sets; local mode keeps the
+  // store route. See `annotationSetReviews.ts` for why the audit /
+  // proposal split lives in `kind` rather than the path.
+  const remote = resolveGemmaMode().mode === "remote";
   try {
-    return await api.get<AuditListResponse>(
-      `/curation/v1/datasets/${experimentId}/audits`,
+    const raw = await api.get<unknown>(
+      reviewsPath(experimentId, remote, "audits"),
     );
+    return remote
+      ? annotationSetsToReviews(raw, "audit")
+      : (raw as AuditListResponse);
   } catch (e: unknown) {
     // Gemma 2.0 doesn't yet expose the local_api ``/audits``
     // surface (it has ``/auditEvents``, a different concept).
@@ -120,9 +137,52 @@ export function useAuditsForExperiments(
 export function useAuditsInbox() {
   return useQuery({
     queryKey: KEY.inbox(),
-    queryFn: () => api.get<AuditListResponse>(`/curation/v1/audits`),
+    queryFn: () =>
+      resolveGemmaMode().mode === "remote"
+        ? fetchRemoteInbox("audit")
+        : api.get<AuditListResponse>(`/curation/v1/audits`),
     refetchOnWindowFocus: true,
   });
+}
+
+/** Cross-experiment review list from Gemma.
+ *
+ *  🛑 **Two round trips, because the cross-experiment route is thin by
+ *  construction.** `GET /annotation-sets` has no `shape` parameter and
+ *  ships `payloadSize` in place of `payloadJson` — its own description
+ *  says to "fetch one whole set with `GET /annotation-sets/{id}`". The
+ *  inbox filters on `summary.overall_verdict`, which lives in the
+ *  payload, so the ids come from the list and the reports come from
+ *  the per-set reads.
+ *
+ *  `limit` is capped at 100 server-side (a larger value is a 400, not
+ *  a clamp), so this is one page of the newest sets rather than the
+ *  whole table. */
+async function fetchRemoteInbox(
+  kind: "audit" | "proposal",
+): Promise<AuditListResponse> {
+  const rows = await api.get<unknown>(
+    `/rest/v2/annotation-sets?role=proposal&limit=100`,
+  );
+  // 🛑 Paginated envelope, NOT a bare array — see `asAnnotationSetRows`.
+  const wanted = asAnnotationSetRows(rows).filter(
+    (r) => (r?.kind ?? "audit") === kind,
+  );
+  const full = await Promise.all(
+    wanted.map((r) =>
+      api
+        .get<AnnotationSetRow>(`/rest/v2/annotation-sets/${r.id}`)
+        .catch(() => null),
+    ),
+  );
+  const items: AuditReport[] = [];
+  for (const row of full) {
+    if (!row) continue;
+    const payload = parseReviewPayload(row);
+    if (!payload || !isReviewPayload(payload)) continue;
+    items.push(annotationSetToReview(row, payload));
+  }
+  return { items, total: items.length };
 }
 
 /** Single-audit detail. Useful after an SSE stream closes (or for
@@ -131,10 +191,131 @@ export function useAuditsInbox() {
 export function useAuditDetail(auditId: string | null | undefined) {
   return useQuery({
     queryKey: KEY.detail(auditId ?? ""),
-    queryFn: () => api.get<AuditReport>(`/curation/v1/audits/${auditId}`),
+    queryFn: () =>
+      resolveGemmaMode().mode === "remote"
+        ? fetchRemoteReview(auditId as string)
+        : api.get<AuditReport>(`/curation/v1/audits/${auditId}`),
     enabled: !!auditId,
     refetchOnWindowFocus: true,
   });
+}
+
+/** One Gemma annotation set → the review the panels render. Backs the
+ *  detail page in remote mode. */
+async function fetchRemoteReview(setId: string): Promise<AuditReport> {
+  const row = await api.get<AnnotationSetRow>(
+    `/rest/v2/annotation-sets/${setId}`,
+  );
+  const payload = parseReviewPayload(row);
+  if (!payload || !isReviewPayload(payload)) {
+    throw new Error(
+      `Annotation set ${setId} carries no findings — its payload is not a ` +
+        `curation review. Agent-proposal payloads (tags / proposed_factors) ` +
+        `render through the proposal panel, not the finding cards.`,
+    );
+  }
+  return annotationSetToReview(row, payload);
+}
+
+/** Finalize a review — "I'm done triaging this".
+ *
+ *  🛑 **In remote mode this write has no home yet, and it must not be
+ *  sent to Gemma from here.** Paul, 2026-09-03, asked directly whether
+ *  the UI should POST `/annotation-sets/{id}/finalize` itself:
+ *  *"it really should be the agent."* That is the 2026-08-25 ruling
+ *  applied to review state — the UI is a read-only client of Gemma and
+ *  the agent performs the writes.
+ *
+ *  The agent serves `/curation-draft`, `/curation-lock`,
+ *  `/curation-preflight`, `/curation-commit` and `/curation-sign`
+ *  (measured against the running agent 2026-09-03) — no finalize and no
+ *  reopen. So this refuses in remote rather than either writing to
+ *  Gemma directly or sending the finalize to a store review that merely
+ *  shares the id. Asked of cab; when the relay lands it belongs on its
+ *  own top-level prefix like the others, never under `/rest`.
+ *
+ *  🛑 Gemma's finalize also takes NO note — no request body at all —
+ *  so the curator's closing note needs a home in whatever the agent
+ *  exposes. Filed with gembro as the second of two gaps. */
+async function finalizeReview(
+  auditId: string,
+  reviewer: string,
+  notes?: string,
+): Promise<AuditReport> {
+  assertAgentOwnsThisWrite(
+    "finalize",
+    "The agent has no finalize relay yet, and the UI does not write " +
+      "review state to Gemma itself.",
+  );
+  return api.post<AuditReport>(`/curation/v1/audits/${auditId}/finalize`, {
+    reviewer,
+    ...(notes ? { notes } : {}),
+  });
+}
+
+/** Reopen a finalized review. Same ruling and the same missing relay as
+ *  `finalizeReview`. */
+async function reopenReview(
+  auditId: string,
+  reviewer: string,
+): Promise<AuditReport> {
+  assertAgentOwnsThisWrite(
+    "reopen",
+    "The agent has no reopen relay yet, and the UI does not write " +
+      "review state to Gemma itself.",
+  );
+  return api.post<AuditReport>(`/curation/v1/audits/${auditId}/reopen`, {
+    reviewer,
+  });
+}
+
+/** 🛑 A curation write the AGENT owns, called in a mode where the UI
+ *  cannot perform it.
+ *
+ *  Distinct from `assertStoreReviews`, and the distinction is the
+ *  reason each exists: that one guards a capability GEMMA does not
+ *  have; this one guards a capability Gemma has and the UI is not the
+ *  one allowed to use ([[feedback_ui_is_readonly_client_agent_writes]]).
+ *  A future agent relay clears this one and leaves that one standing. */
+function assertAgentOwnsThisWrite(action: string, because: string): void {
+  if (resolveGemmaMode().mode === "remote") {
+    throw new Error(
+      `Cannot ${action} this review from the UI in remote mode: ${because} ` +
+        `Switch to a store-backed session, or wait for the agent relay.`,
+    );
+  }
+}
+
+/** 🛑 Refuse a write Gemma's annotation-set API has no equivalent for.
+ *
+ *  Read against the gemma2 OpenAPI 2026-09-03, route by route. Gemma
+ *  serves `POST /annotation-sets/{id}/finalize`, `/reopen`,
+ *  `PATCH /{id}` and `PATCH /{id}/triage`. What it does NOT serve is a
+ *  **per-finding disposition**:
+ *
+ *  - `PATCH /annotation-sets/{id}` is envelope-only — it accepts
+ *    `agentName`, `model`, `ranAt`, `agentVersion`, `runSha` and 400s
+ *    on anything else, so it cannot record a curator's ruling.
+ *  - `PATCH /annotation-sets/{id}/triage` rules on the whole SET
+ *    (`fine` / `wont_fix` / `might_fix` / `must_fix`). Its own
+ *    description draws the line: *"Not the per-finding audit
+ *    disposition (`accepted` / `dismissed` / ...), which answers
+ *    whether a curator agrees with one finding. This answers how much
+ *    the whole set matters."*
+ *
+ *  Sending the disposition to the store while the panel is showing
+ *  Gemma's review would write to a `curation_review` row that merely
+ *  shares an id — the same collision `assertStoreTickets` guards in
+ *  `tickets.ts`. Better to say so than to record it against the wrong
+ *  row. */
+function assertStoreReviews(action: string, because: string): void {
+  if (resolveGemmaMode().mode === "remote") {
+    throw new Error(
+      `Cannot ${action} on a Gemma review: ${because} The store and Gemma ` +
+        `number their reviews independently, so sending it anyway would ` +
+        `write to a store row that merely shares this id.`,
+    );
+  }
 }
 
 /** Apply one curator disposition. Append-only on the server; the
@@ -153,7 +334,15 @@ export function usePatchDisposition(experimentId: number | string) {
     }: {
       auditId: string;
       patch: AuditFindingDispositionPatch;
-    }) => api.patch<AuditReport>(`/curation/v1/audits/${auditId}`, patch),
+    }) => {
+      assertStoreReviews(
+        "record a per-finding disposition",
+        "Gemma has no route for one — `PATCH /annotation-sets/{id}` is " +
+          "envelope-only and `/triage` rules on the whole set, not on one " +
+          "finding.",
+      );
+      return api.patch<AuditReport>(`/curation/v1/audits/${auditId}`, patch);
+    },
     onSuccess: (refreshed, vars) => {
       // Smoking-gun trace per the 2026-06-14 "3 pending stays 3
       // pending" investigation. If the PATCH returns a report whose
@@ -244,11 +433,7 @@ export function useFinalizeAudit(experimentId: number | string) {
       auditId: string;
       reviewer: string;
       notes?: string;
-    }) =>
-      api.post<AuditReport>(`/curation/v1/audits/${auditId}/finalize`, {
-        reviewer,
-        ...(notes ? { notes } : {}),
-      }),
+    }) => finalizeReview(auditId, reviewer, notes),
     onSuccess: (refreshed) => {
       // Refresh BOTH per-experiment caches — same kind-mismatch
       // bug as usePatchDisposition: finalizing a proposal-kind
@@ -283,12 +468,17 @@ export function useResetAuditDispositions(
 ) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ auditId }: { auditId: string }) =>
-      api.post<{
+    mutationFn: ({ auditId }: { auditId: string }) => {
+      assertStoreReviews(
+        "clear the dispositions",
+        "Gemma stores no per-finding dispositions to clear.",
+      );
+      return api.post<{
         audit_id: string;
         n_deleted: number;
         audit: AuditReport;
-      }>(`/curation/v1/audits/${auditId}/reset-dispositions`, {}),
+      }>(`/curation/v1/audits/${auditId}/reset-dispositions`, {});
+    },
     onSuccess: (refreshed) => {
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed.audit);
@@ -321,10 +511,7 @@ export function useReopenAudit(experimentId: number | string) {
     }: {
       auditId: string;
       reviewer: string;
-    }) =>
-      api.post<AuditReport>(`/curation/v1/audits/${auditId}/reopen`, {
-        reviewer,
-      }),
+    }) => reopenReview(auditId, reviewer),
     onSuccess: (refreshed) => {
       qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
       qc.invalidateQueries({
