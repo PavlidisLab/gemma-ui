@@ -58,19 +58,23 @@ scripts/deploy-browser.sh staging --dry-run   # staging, show changes
 scripts/deploy-browser.sh staging             # staging: build + rsync --delete
 ```
 
-Two deployments, published to sibling directories under the same
-parent:
+One deployment per env file, published to sibling directories under
+the same parent. Adding another is writing
+`apps/browser/.env.<name>` — the script has no list of targets to
+extend, and `<name>` doubles as the Vite mode so it has to be a plain
+lowercase identifier:
 
 | Target | Env file | Build mode | Serves |
 |---|---|---|---|
 | `production` (default) | `.env.production` | `production` | https://gemma.msl.ubc.ca/ (was gemma2.msl.ubc.ca) |
 | `staging` | `.env.staging` | `staging` | https://staging-gemma.msl.ubc.ca/ — **server side not yet configured** |
+| `gemma2testing` | `.env.gemma2testing` | `gemma2testing` | https://gemma2.msl.ubc.ca/ — a testing build for the Gemma 2.0 host, in its own docroot. gemma2 currently serves the *production* docroot, so nothing points at this one yet |
 
 Nothing about a specific target lives in the app source or in that
 script. Config comes from the target's env file — public URLs only,
 never secrets. Only that one file is loaded (`vite build --mode
 staging` does not read `.env.production`), so each target spells out
-everything it needs; a staging-style file also needs
+everything it needs; every file but `.env.production` also needs
 `NODE_ENV=production`, or Vite emits a non-production bundle for a
 mode not literally named "production".
 
