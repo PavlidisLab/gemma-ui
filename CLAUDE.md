@@ -50,6 +50,33 @@ npm run build              # both apps
 Or `cd apps/<app>` and run scripts there directly — each app's
 scripts are unchanged from when it was a standalone repo.
 
+## Committing: start the curation dev server first
+
+`.husky/pre-commit` gates every commit. Most of it is self-contained
+(NUL-byte scan, both apps' `tsc --noEmit`, both apps' vitest), but the
+last stage — the curation `@critical` Playwright specs — drives a
+**dev server the hook does not start**. `playwright.config.ts` points
+at `http://localhost:5175` and assumes it is already up (normally the
+curation-ui docker container).
+
+With nothing on :5175, all 46 specs fail with
+`net::ERR_CONNECTION_REFUSED` and the commit is refused. That failure
+looks exactly like a real regression — a wall of red specs — and says
+nothing about your change. Start the server, then commit:
+
+```sh
+npm --prefix apps/curation run dev -- --port 5175 --strictPort
+```
+
+The specs are HAR-mocked (`e2e/_mocks.ts`) and pin the session, so it
+does not matter which backend mode that server is in, and no backend
+needs to be running.
+
+`git commit --no-verify` skips the whole gate. It is the wrong reflex
+when the only thing wrong is a missing dev server — the checks that
+would catch a real break get skipped along with the ones that can't
+run.
+
 ## Don't make new UI components
 
 **Default = reuse. Building a new component is the exception.**
