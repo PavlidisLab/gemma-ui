@@ -27,6 +27,7 @@ import {
   ticketPayload,
 } from "@/features/triage/triagePayload";
 import { isEditableTarget } from "@/lib/isEditableTarget";
+import { useGemmaMode } from "@/lib/gemmaMode";
 
 interface PreboardingRow {
   id?: number | string;
@@ -140,6 +141,49 @@ function pickIm(
   };
 }
 
+/** Gemma's real ``PreboardedExperiment`` shape (``GET /preboarded/{id}``),
+ *  after ``api.get``'s ``snakeify`` pass — top-level keys are snake_case,
+ *  but ``identifying_metadata`` is a JSON STRING and stays whatever case
+ *  the writer used (Gemma writes camelCase). Same trap as `TriageRow`'s
+ *  fallback fetch in triage/TriageView.tsx. */
+interface RealPreboardedRow {
+  accession?: string;
+  source?: string;
+  identifying_metadata?: string | null;
+}
+
+/**
+ * Real Gemma has no ``preboarding:N``-id-aware ``/datasets/{id}`` route —
+ * that convention only exists in local_api's mock backend. Against real
+ * Gemma, ``GET /rest/v2/datasets/preboarding%3AN`` is a SEARCH call, not
+ * a lookup: the id string becomes a ``shortName`` filter, matches
+ * nothing, and returns an empty list (confirmed live, 2026-09-04) — no
+ * error, just every field on this page rendering blank. The real
+ * per-row data lives at ``GET /rest/v2/preboarded/{numeric id}``
+ * instead (the same endpoint `TriageRow`'s fallback already uses), so
+ * remote mode maps that response into the same ``PreboardingRow`` shape
+ * this page already knows how to render.
+ */
+function mapRealPreboardedToRow(row: RealPreboardedRow): PreboardingRow {
+  let im: IdentifyingMetadata | null = null;
+  if (row.identifying_metadata) {
+    try {
+      im = JSON.parse(row.identifying_metadata) as IdentifyingMetadata;
+    } catch {
+      im = null;
+    }
+  }
+  const numSamples = im?.numSamples ?? im?.num_samples;
+  return {
+    short_name: row.accession,
+    accession: row.accession,
+    name: im?.title,
+    external_database: row.source,
+    number_of_bio_assays: typeof numSamples === "number" ? numSamples : undefined,
+    identifying_metadata: im,
+  };
+}
+
 /**
  * Resolve the ticket decision this candidate page can record, if any.
  *
@@ -246,13 +290,25 @@ export function PreboardingDetailPage({
   // Skip the fetch when the caller supplied data. ``enabled`` gating
   // also keeps React Query from firing a duplicate request when
   // ``preloaded`` is provided.
+  const { mode } = useGemmaMode();
+  const rowId = preboardingRowId(experimentId);
   const { data: fetched, isLoading, error } = useQuery({
-    queryKey: ["preboarding-detail", String(experimentId)],
+    queryKey: mode === "remote"
+      ? ["preboarding-detail-remote", rowId]
+      : ["preboarding-detail", String(experimentId)],
     queryFn: () =>
-      api.get<PreboardingRow>(
-        `/rest/v2/datasets/${encodeURIComponent(String(experimentId))}`,
-      ),
-    enabled: !!experimentId && !preloaded,
+      mode === "remote" && rowId != null
+        ? api
+            .get<RealPreboardedRow>(`/rest/v2/preboarded/${rowId}`)
+            .then(mapRealPreboardedToRow)
+        : api.get<PreboardingRow>(
+            `/rest/v2/datasets/${encodeURIComponent(String(experimentId))}`,
+          ),
+    enabled: !!experimentId && !preloaded && (mode !== "remote" || rowId != null),
+    // A 404 here means this id isn't a preboarded row (e.g. already
+    // promoted to a real EE) -- legitimate absence, not a transient
+    // failure worth retrying. Same convention TriageRow's fallback uses.
+    retry: false,
   });
 
   const data = preloaded ?? fetched;

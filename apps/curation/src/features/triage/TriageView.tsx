@@ -883,10 +883,19 @@ function TriageRow({
     });
   };
 
+  // A candidate that turns out to already be a real, imported experiment
+  // is typed EXPRESSION_EXPERIMENT (scrape_geo_and_open_triage.py's
+  // _create_preboarded, 2026-09-04) and carries no preboarding_id at all
+  // -- it isn't a preboarding row, so there's no preboarding page to
+  // link to. Its own real experiment page already exists; link straight
+  // there (a bare id, not "preboarding:"-prefixed, routes App.tsx's
+  // normal Shell view) rather than leaving the row with no link.
   const detailHref =
-    meta?.preboarding_id != null
-      ? `#/experiments/preboarding:${meta.preboarding_id}?ticket=${ticketId}`
-      : null;
+    target.target_type === "EXPRESSION_EXPERIMENT"
+      ? `#/experiments/${target.target_id}?ticket=${ticketId}`
+      : meta?.preboarding_id != null
+        ? `#/experiments/preboarding:${meta.preboarding_id}?ticket=${ticketId}`
+        : null;
 
   // The whole row opens the candidate. The accession link below is the
   // real, keyboard-reachable control; this just widens the target to

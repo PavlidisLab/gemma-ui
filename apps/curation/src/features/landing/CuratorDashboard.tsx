@@ -930,7 +930,7 @@ function PinControl({
   );
 }
 
-function TicketCard({
+export function TicketCard({
   ticket,
   onOpenTarget,
   pinned,
@@ -953,13 +953,26 @@ function TicketCard({
   // in-hand EE target when the full ``targets`` array is present; under
   // light list mode it isn't, so fall back to the server-backfilled
   // ``investigation_id`` for a single-target dataset ticket.
+  //
+  // 🛑 Never for a SCREENING ticket. TicketDetailPage always renders
+  // TriageView for one of these regardless of target count — the
+  // useful landing is the triage list (Include/Exclude), not a raw
+  // experiment page. This mattered only in theory until a screen could
+  // mix target types: a candidate that turns out to already be a real,
+  // imported experiment is now correctly typed EXPRESSION_EXPERIMENT
+  // (see scrape_geo_and_open_triage.py's _create_preboarded), so a
+  // TWO-target screening ticket with exactly one such candidate used
+  // to satisfy `expTargets.length === 1` and skip the ticket page
+  // entirely — confirmed live, 2026-09-04, ticket #43/#45.
   const rollup = ticketRollup(ticket);
   const scratchpadOwner = useScratchpadOwner(ticket);
+  const isScreening = ticket.type === "SCREENING";
   const expTargets = (ticket.targets ?? []).filter(
     (t) => t.target_type === "EXPRESSION_EXPERIMENT",
   );
-  const singleExpId =
-    expTargets.length === 1
+  const singleExpId = isScreening
+    ? null
+    : expTargets.length === 1 && rollup.total === 1
       ? expTargets[0].target_id
       : rollup.total === 1 &&
           ticket.investigation_kind === "dataset" &&
