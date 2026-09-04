@@ -74,9 +74,15 @@ Nothing about a specific target lives in the app source or in that
 script. Config comes from the target's env file — public URLs only,
 never secrets. Only that one file is loaded (`vite build --mode
 staging` does not read `.env.production`), so each target spells out
-everything it needs; every file but `.env.production` also needs
-`NODE_ENV=production`, or Vite emits a non-production bundle for a
-mode not literally named "production".
+everything it needs.
+
+Don't add `NODE_ENV=production` to a non-production env file. `vite
+build` is a production build whatever `--mode` says — Vite sets
+NODE_ENV from the build command's default before reading the file,
+and a `.env` NODE_ENV can only move it to `development`. The line
+just earns `NODE_ENV=production is not supported in the .env file`
+and changes nothing (verified by diffing bundles). Vite's own "Modes"
+doc still shows it; that was Vite ≤4.
 
 | Var | Drives |
 |---|---|
