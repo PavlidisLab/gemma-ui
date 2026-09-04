@@ -393,6 +393,70 @@ function EmptyStateEvidenceCrumb({
 // FindingList — the main body render
 // ---------------------------------------------------------------------------
 
+/**
+ * The finding sections, in render order — and the ONLY place a
+ * `target_kind` becomes a visible card.
+ *
+ * 🛑 **A kind missing here renders NOTHING, and says so misleadingly.**
+ * `hasAnyVisible` is computed from these groups, so an actionable
+ * finding of an ungrouped kind is neither counted nor drawn: the
+ * sidebar shows "the agent ran but didn't return anything to review"
+ * while `report.summary` counts it. That happened to `publication`,
+ * which was added to `AuditTargetKind` and wired through `targetIds`,
+ * `applyHandlers` and `auditPresentation` in PR #12 but never added
+ * here (Rachel, 2026-08-26). The orphan fallback below catches only
+ * MATCH findings, not actionable ones, so it did not cover for it.
+ *
+ * The `_everyKindIsGrouped` check below now makes that a COMPILE
+ * error: add a value to `AuditTargetKind` without a section here and
+ * `tsc` fails, so the next one cannot land silently.
+ *
+ * 🛑 One section for `characteristic` AND `statement`, because they
+ * are the same thing. A statement is a characteristic with the
+ * predicate columns filled in — same row, same id on the wire — and
+ * Paul's ruling is that the distinction is not useful for dataset
+ * curation, so the UI says "statement" for both.
+ *
+ * Safe to collapse, measured by cab 2026-08-28: across 357 stored
+ * dispositions and 196 stored reviews, `characteristic` and
+ * `statement` appear ZERO times, and no agents-side emitter produces
+ * either. `statement` is reserved for Phase 2 (predicate/object on an
+ * FV); `characteristic` never arrived at all. So there is nothing
+ * keyed on the split and no migration behind it — but the kinds stay
+ * distinct in `AuditTargetKind` because they are still separate
+ * values on the wire, and `target_kind` is persisted in disposition
+ * and review payloads.
+ */
+export const FINDING_GROUPS = [
+  { kinds: ["factor"],                      header: "Experimental factors" },
+  { kinds: ["fv"],                          header: "Design — factor values" },
+  { kinds: ["tag"],                         header: "Experiment tags" },
+  { kinds: ["statement", "characteristic"], header: "Statements" },
+  { kinds: ["assignment"],                  header: "Sample assignments" },
+  { kinds: ["publication"],                 header: "Publications" },
+  { kinds: ["experiment"],                  header: "Experiment" },
+] as const satisfies readonly {
+  kinds: readonly AuditTargetKind[];
+  header: string;
+}[];
+
+/** Every `AuditTargetKind` has a section. `Exclude<…>` is `never` when
+ *  the list is complete, and any uncovered kind makes this assignment
+ *  a type error naming it. Compile-time on purpose: the failure it
+ *  guards is a card that silently never renders, which no runtime test
+ *  runs unless someone thinks to write one for the new kind. */
+type UngroupedKinds = Exclude<
+  AuditTargetKind,
+  (typeof FINDING_GROUPS)[number]["kinds"][number]
+>;
+// Resolves to `true` when the list is complete and to the offending
+// kind otherwise, so the error NAMES it: `Type 'true' is not
+// assignable to type '"publication"'`.
+const _everyKindIsGrouped: [UngroupedKinds] extends [never]
+  ? true
+  : UngroupedKinds = true;
+void _everyKindIsGrouped;
+
 export function FindingList({ findings }: { findings: AuditFinding[] }) {
   const { kind, dispositionByTarget, report, experimentId } = useAudit();
   const { draft, saved } = useDesignDraft();
@@ -584,32 +648,15 @@ export function FindingList({ findings }: { findings: AuditFinding[] }) {
   for (const [k, items] of groupedActionable) {
     groupedActionable.set(k, reorderConsequentPairs(items));
   }
-  // One source of truth for both render order and section headers —
-  // adding a new AuditTargetKind only touches this list.
-  //
-  // 🛑 One section for `characteristic` AND `statement`, because they
-  // are the same thing. A statement is a characteristic with the
-  // predicate columns filled in — same row, same id on the wire — and
-  // Paul's ruling is that the distinction is not useful for dataset
-  // curation, so the UI says "statement" for both.
-  //
-  // Safe to collapse, measured by cab 2026-08-28: across 357 stored
-  // dispositions and 196 stored reviews, `characteristic` and
-  // `statement` appear ZERO times, and no agents-side emitter produces
-  // either. `statement` is reserved for Phase 2 (predicate/object on an
-  // FV); `characteristic` never arrived at all. So there is nothing
-  // keyed on the split and no migration behind it — but the kinds stay
-  // distinct in `AuditTargetKind` because they are still separate
-  // values on the wire, and `target_kind` is persisted in disposition
-  // and review payloads.
-  const GROUPS: { kinds: AuditTargetKind[]; header: string }[] = [
-    { kinds: ["factor"],                     header: "Experimental factors" },
-    { kinds: ["fv"],                          header: "Design — factor values" },
-    { kinds: ["tag"],                         header: "Experiment tags" },
-    { kinds: ["statement", "characteristic"], header: "Statements" },
-    { kinds: ["assignment"],                  header: "Sample assignments" },
-    { kinds: ["experiment"],                  header: "Experiment" },
-  ];
+  // Widened from the `as const` literal above: the const assertion is
+  // what makes `_everyKindIsGrouped` able to see which kinds are
+  // covered, but it also narrows `kinds.includes(...)` to the literal
+  // union, which rejects a general `AuditTargetKind`. One widening
+  // here rather than a cast at each use.
+  const GROUPS: readonly {
+    kinds: readonly AuditTargetKind[];
+    header: string;
+  }[] = FINDING_GROUPS;
 
   // Boss-critic review feed → grouped verdicts (round-collapsed +
   // deduped), then partitioned by scope: ``design`` verdicts stay in the
