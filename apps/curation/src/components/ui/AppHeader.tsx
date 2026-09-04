@@ -21,6 +21,7 @@
  * URL directly anyway.
  */
 import { type ReactNode, useEffect, useState } from "react";
+import { GemmaMark } from "@gemma/ui";
 import { HashLink } from "@/components/ui/HashLink";
 import { ModeChip } from "@/components/ui/ModeChip";
 import { HealthChip } from "@/components/ui/HealthChip";
@@ -103,13 +104,22 @@ export function AppHeader({
           It REPLACES the brand words rather than sitting beside them.
           This header is already tight enough to wrap at 1400px, so the
           slot has to pay for itself: "which app am I in" is answered by
-          the orange mark, by the ← Dashboard chip and by the whole
+          the mark, by the ← Dashboard chip and by the whole
           surrounding chrome, and it is answered on every page. Which
           dataset am I editing is answered nowhere else once the banner
-          scrolls. */}
+          scrolls.
+
+          The mark is `GemmaMark`, the inline-SVG cut that draws in
+          `currentColor` — NOT the `gemmaMark` image asset. This header
+          is stone-900 on stone-100 in light mode and slate-100 on
+          slate-900 in dark, and only the inline cut inherits that; an
+          `<img>` would need a second file and a media query to follow
+          it. Monochrome also keeps the header's one saturated accent
+          for things that mean something (state pills, the mode chip)
+          rather than spending it on chrome. */}
       {experimentLabel ? (
         <span className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 shrink-0 whitespace-nowrap">
-          <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
+          <GemmaMark size={17} />
           <span className="font-normal text-stone-600 dark:text-slate-400">
             Curating
           </span>
@@ -122,7 +132,7 @@ export function AppHeader({
           className="flex items-center gap-2 font-semibold text-stone-900 dark:text-slate-100 bg-transparent border-none cursor-pointer p-0 shrink-0 whitespace-nowrap"
           title="Curator dashboard"
         >
-          <span className="inline-block w-2 h-2 rounded-sm bg-orange-500" />
+          <GemmaMark size={17} />
           <span>Gemma Curation</span>
         </button>
       )}

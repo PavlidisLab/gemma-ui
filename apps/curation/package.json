@@ -21,7 +21,9 @@
     "e2e:critical": "playwright test --grep '@critical' --grep-invert '@live'",
     "e2e:mocked": "playwright test --grep-invert '@live'",
     "e2e:live": "playwright test --grep '@live'",
-    "test:ci": "vitest run && playwright test --grep '@critical' --grep-invert '@live'"
+    "test:ci": "vitest run && playwright test --grep '@critical' --grep-invert '@live'",
+    "emit:favicon": "node ../../packages/assets/scripts/emit-favicon.mjs --variant mono --out public/favicon.svg",
+    "emit:mark-component": "node ../../packages/assets/scripts/emit-mark-component.mjs"
   },
   "dependencies": {
     "@gemma/assets": "*",

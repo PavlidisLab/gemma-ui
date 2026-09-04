@@ -1,0 +1,14 @@
+# Binary art. Without these, git sniffs a file's leading bytes and can
+# decide an Illustrator .ai is TEXT — the PDF wrapper it ships inside is
+# mostly ASCII — then stages a 1.3 MB working file as ~6,000 "insertions"
+# and diffs it line by line on every change.
+#
+# The real cost is not the diff. These files carry literal NUL bytes, and
+# BSD grep (the macOS default) treats a NUL-carrying file as binary: it
+# exits 1 and prints NOTHING. A repo-wide search for a helper answers with
+# silence rather than a match, so "not found" and "found nothing" look
+# identical — the same fail-open the pre-commit hook rejects in source.
+*.ai   binary
+*.xcf  binary
+*.ico  binary
+*.png  binary

@@ -21,13 +21,10 @@ import { Link } from "@tanstack/react-router";
 import { GENERAL_INFO } from "../copy";
 import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
-import {
-  LoginModal,
-  SIGN_IN_BUTTON_COLOR,
-} from "@/features/shared/LoginModal";
+import { LoginModal, SIGN_IN_BUTTON_COLOR } from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
-import { gemmaMarkAmber } from "@gemma/assets";
+import { gemmaLockup } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge, Panel } from "../panels";
@@ -367,7 +364,9 @@ function RecentActivityCard({
   const annsQ = useQuery({
     queryKey: ["dataset-annotations", current?.id ?? 0],
     queryFn: ({ signal }) =>
-      current ? getDatasetAnnotations(current.id, signal) : Promise.resolve(null),
+      current
+        ? getDatasetAnnotations(current.id, signal)
+        : Promise.resolve(null),
     enabled: !!current,
     staleTime: 10 * 60_000,
   });
@@ -375,7 +374,8 @@ function RecentActivityCard({
   const chips = useMemo(() => {
     const rows = annsQ.data?.data ?? [];
     const seen = new Set<string>();
-    const out: Array<{ category: string; term: string; uri: string | null }> = [];
+    const out: Array<{ category: string; term: string; uri: string | null }> =
+      [];
     for (const a of rows) {
       // The category an annotation is SERVING, which is what Gemma
       // reports per annotation — not what the term is ontologically.
@@ -499,9 +499,7 @@ function RecentActivityCard({
           </div>
         </div>
       ) : (
-        <div className="px-5 py-4 text-stone-500 text-xs italic">
-          loading…
-        </div>
+        <div className="px-5 py-4 text-stone-500 text-xs italic">loading…</div>
       )}
     </div>
   );
@@ -612,37 +610,51 @@ function WeekStat({
  * Visual area is a placeholder slot — a small decorative grid
  * standing in until design ships the real element.
  */
-// Masthead brand: the mark plus the word set in type. It replaced
-// gemma-logo-text.png, which baked mark and wordmark into one raster.
+// Masthead brand: the Gemma lockup, one SVG carrying the mark and the
+// outlined wordmark. It replaced a mark plus the word set in the UI face,
+// which itself replaced gemma-logo-text.png.
 //
 // The wordmark, the tagline and the right-side controls all sit on ONE
 // baseline, and the browser is what computes it: the row aligns on
-// `last baseline`, so nothing here needs to know where the baseline falls.
+// `last baseline`, so nothing here needs to know where the FACE's baseline
+// falls.
 //
-// This used to be done by hand — a MASTHEAD_LINE_DESCENT ratio subtracted as
-// a margin — and it could not be made correct. The share of a `leading-none`
-// line box sitting below the baseline is a property of the FACE, not a
-// constant: measured in-browser it is 0.087 for system-ui/Segoe UI, 0.152 for
-// Arial, 0.174 for Inter. This app asks for `"Inter", ui-sans-serif,
-// system-ui` but ships no @font-face for Inter, so which face actually
-// renders depends on what the visitor has installed — one hardcoded ratio is
-// wrong for most of them. (The shipped 0.1196 matched none of the three, and
-// left the mark 1.5px high on a machine that resolved to system-ui.)
+// That much used to be done by hand — a MASTHEAD_LINE_DESCENT ratio
+// subtracted as a margin — and it could not be made correct. The share of a
+// `leading-none` line box sitting below the baseline is a property of the
+// face, not a constant: measured in-browser it is 0.087 for
+// system-ui/Segoe UI, 0.152 for Arial, 0.174 for Inter. This app asks for
+// `"Inter", ui-sans-serif, system-ui` but ships no @font-face for Inter, so
+// which face actually renders depends on what the visitor has installed —
+// one hardcoded ratio is wrong for most of them. (The shipped 0.1196 matched
+// none of the three, and left the mark 1.5px high on a machine that resolved
+// to system-ui.)
 //
-// The mark needs no ratio either: it is an inline replaced box, and
-// `vertical-align: baseline` puts an inline image's BOTTOM EDGE on the text
-// baseline by definition — exactly the alignment wanted, for free.
+// The lockup does need a ratio, and this one CAN be made correct, because it
+// is a property of the artwork rather than of the visitor's font. An inline
+// image's BOTTOM EDGE is what `vertical-align: baseline` puts on the text
+// baseline, but the lockup's bottom edge is the bottom of the mark, which
+// hangs below the wordmark's own baseline — align on the box and the tagline
+// drops. Measured off gemma-lockup.svg: the wordmark baseline sits at
+// 840/964 of the lockup height, leaving 0.1286 of it below. Pulling that
+// much off the bottom margin lets the box's bottom edge land where the
+// wordmark baseline is. Re-measure it if the lockup art is ever re-exported.
+//
+// The wrapper then pays the overhang back as padding. A negative margin
+// shrinks the layout box as well as shifting it, so the mark hung 6.7px into
+// whatever came next — it overlapped the top border of the hero search box
+// below. The padding restores the row height without moving the baseline,
+// which is computed from the last line box and doesn't see it.
 //
 // `last baseline` (not `baseline`) matters once the tagline wraps: at higher
 // zoom the row narrows and the tagline breaks onto 2+ lines. First-baseline
 // alignment would pin line 1 and let the rest spill DOWN past the wordmark;
 // anchoring the last line keeps the bottom line on the wordmark baseline and
 // stacks earlier lines upward.
-const MASTHEAD_WORDMARK_SIZE = 46;
-const MASTHEAD_MARK_HEIGHT = 46;
-// Gap between mark and word. A margin rather than flex `gap`, because the
-// two are inline boxes sharing a line, not flex items.
-const MASTHEAD_MARK_GAP = 12;
+const MASTHEAD_LOCKUP_HEIGHT = 52;
+const MASTHEAD_LOCKUP_BASELINE_DROP = 0.1286;
+const MASTHEAD_LOCKUP_OVERHANG =
+  MASTHEAD_LOCKUP_HEIGHT * MASTHEAD_LOCKUP_BASELINE_DROP;
 // Set inline, not as a utility class: Tailwind 3.4's `align-items` plugin
 // takes only its fixed keyword set, so `items-[last_baseline]` emits NO rule
 // at all and the row silently falls back to `normal` — which stretches the
@@ -658,32 +670,34 @@ function Masthead() {
   const [aboutOpen, setAboutOpen] = useState(false);
 
   return (
-    <div className="border-b border-stone-950 bg-stone-100">
+    /* `pb-1` is clearance for the mark, which hangs below the wordmark
+       baseline the rest of the row aligns on — without it the bottom arc
+       lands flush on the border. */
+    <div className="border-b border-stone-950 bg-stone-100 pb-1">
       {/* One shared baseline across the wordmark, the tagline and the
           right-side controls — `last baseline` on this row, resolved by the
           browser from the face that actually rendered. */}
       <div className="flex gap-3 flex-wrap" style={LAST_BASELINE}>
-        {/* Mark + typed wordmark. There is no wordmark-only cut of the mark,
-            so the word is set in the UI face. Both are inline boxes on one
-            line, so `align-baseline` on the image drops its bottom edge onto
-            that line's baseline — the mark rides the line the letters sit on
-            without anything here measuring the font. */}
-        <div className="whitespace-nowrap">
+        {/* The lockup. `align-baseline` drops an inline image's bottom edge
+            onto the line's baseline; the negative bottom margin pushes the
+            box down by the part of the lockup that hangs below its own
+            wordmark baseline, so the row aligns on the letters rather than
+            on the bottom of the mark. The wrapper's matching padding gives
+            that overhang its height back, so it doesn't sit on the row
+            below. */}
+        <div
+          className="whitespace-nowrap"
+          style={{ paddingBottom: MASTHEAD_LOCKUP_OVERHANG }}
+        >
           <img
-            src={gemmaMarkAmber}
-            alt=""
-            style={{ height: MASTHEAD_MARK_HEIGHT }}
+            src={gemmaLockup}
+            alt="Gemma"
+            style={{
+              height: MASTHEAD_LOCKUP_HEIGHT,
+              marginBottom: -MASTHEAD_LOCKUP_OVERHANG,
+            }}
             className="inline-block w-auto align-baseline"
           />
-          <span
-            className="inline-block font-semibold tracking-tight text-stone-950 leading-none align-baseline"
-            style={{
-              fontSize: MASTHEAD_WORDMARK_SIZE,
-              marginLeft: MASTHEAD_MARK_GAP,
-            }}
-          >
-            Gemma
-          </span>
         </div>
 
         <div
@@ -968,4 +982,3 @@ function StatBlock({
   }
   return <div className={baseCls}>{body}</div>;
 }
-

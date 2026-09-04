@@ -6,7 +6,7 @@ import { curationUrl } from "@/lib/appLinks";
 import { LoginModal, SIGN_IN_BUTTON_COLOR } from "./LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
-import { gemmaMarkAmber } from "@gemma/assets";
+import { gemmaLockup } from "@gemma/assets";
 
 export function AppBar() {
   const me = useMe();
@@ -27,21 +27,19 @@ export function AppBar() {
 
   return (
     <header className="shrink-0 flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
-      <Link
-        to="/"
-        className="flex shrink-0 items-center gap-2 font-semibold text-stone-900 hover:no-underline"
-      >
-        {/* Mark + typed wordmark. ``gemmaLogoText`` baked the old mark and
-            the word into one raster; the candidate mark has no wordmark cut,
-            so the word is set in the UI face here. That means the type below
-            is NOT a proposed wordmark — it is a stand-in. */}
+      <Link to="/" className="flex shrink-0 items-center hover:no-underline">
+        {/* The lockup — one SVG carrying the mark and the outlined
+            wordmark. It replaces a mark plus the word set in the UI face,
+            which stood in while the mark had no wordmark cut. At 28px tall
+            the wordmark's cap height lands at ~17.7px (the lockup is
+            1.585x its own cap height), so the word reads a little larger
+            than the 19px type it replaces. */}
         <img
-          src={gemmaMarkAmber}
-          alt=""
-          style={{ height: 30 }}
+          src={gemmaLockup}
+          alt="Gemma"
+          style={{ height: 28 }}
           className="block w-auto shrink-0"
         />
-        <span className="text-[19px] leading-none tracking-tight">Gemma</span>
       </Link>
 
       <nav className="flex items-center gap-1 ml-4">
@@ -157,7 +155,13 @@ function AuthControls({
  *  state, since we're never "on" an external app when this bar
  *  renders. Trailing ↗ marks the navigation as leaving the current
  *  origin so curators don't lose their place by accident. */
-function ExternalNavTab({ href, children }: { href: string; children: ReactNode }) {
+function ExternalNavTab({
+  href,
+  children,
+}: {
+  href: string;
+  children: ReactNode;
+}) {
   return (
     <a
       href={href}
@@ -203,7 +207,13 @@ function ExtGlyph() {
 /** Button styled like NavTab's resting state — for nav entries that
  *  open an in-app modal (About) rather than navigating to a route, so
  *  there's no active state to track. */
-function NavButton({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+function NavButton({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: ReactNode;
+}) {
   return (
     <button
       type="button"

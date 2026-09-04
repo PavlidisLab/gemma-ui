@@ -57,7 +57,7 @@ export const COPY = {
 export const GENERAL_INFO = {
   idea: {
     title: "What Gemma is",
-    accent: "orange", // identity colour, matches the favicon
+    accent: "orange",
     /** One-line essence — rendered large + bold at the top. */
     lead: "Curated and re-analyzed gene-expression data — human, mouse, and rat.",
     /** Supporting paragraphs, rendered as separate <p> elements

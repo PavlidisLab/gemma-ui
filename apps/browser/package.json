@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "test": "vitest run",
-    "check:annotations": "node scripts/check-annotation-contract.mjs"
+    "check:annotations": "node scripts/check-annotation-contract.mjs",
+    "emit:favicon": "node ../../packages/assets/scripts/emit-favicon.mjs --variant colour --out public/favicon.svg",
+    "emit:mark-component": "node ../../packages/assets/scripts/emit-mark-component.mjs"
   },
   "dependencies": {
     "@gemma/assets": "*",
