@@ -423,3 +423,184 @@ describe.skipIf(!SANDBOX_WRITE)("a real commit, on the sandbox", () => {
     expect((await sandboxTags()).map((t) => t.id)).toEqual(before.map((t) => t.id));
   });
 });
+
+/**
+ * The design section, which is the OPPOSITE rule to tags.
+ *
+ * A `gemmaId` factor / factor value / statement is UPDATED IN PLACE
+ * from the fields it carries, where a `gemmaId` tag is a keep-marker
+ * and any content beside it is a 400. Same document, two sections, two
+ * contracts — so the tag cases above prove nothing about these.
+ *
+ * 🛑 **The FIRST commit of an apparently unchanged design can be a real
+ * write, and the audit note will not say so.** Measured on the sandbox
+ * 2026-09-04: a document rebuilt verbatim from `GET /design` reported
+ * `updated: 1`, moved `lastUpdated`, and wrote an audit event reading
+ * "Design replaced via REST: factors +0 / -0, factor values +0 / -0,
+ * biomaterial assignments changed: 0" — every counter zero. The change
+ * was real: factor value 9005 had NO `isBaseline` before and reads
+ * `false` after, because the client coerced absent to false.
+ *
+ * Our builder does the same — `isBaseline: !!v.is_baseline`, with
+ * `composeDesign` already collapsing `?? false` on the way in — so this
+ * is the app's behaviour, not the harness's. Whether null and false
+ * differ to Gemma is with gembro.
+ *
+ * ⇒ The property worth asserting is therefore IDEMPOTENCE ON THE
+ * SECOND COMMIT, not "the first changes nothing".
+ *
+ * The counters, once settled: `updated` is the number of entities that
+ * actually changed — one renamed statement reads `updated: 1` — and a
+ * document that changes nothing reads `unchanged: 1`. Before the
+ * design had settled the same rename read `updated: 2`, the extra
+ * being the design object itself, which is why a count measured on a
+ * dataset in an unknown state is not a contract.
+ *
+ * A first draft of this file asserted "an unchanged design commits as
+ * `updated`" and would have gone red the moment the flag settled —
+ * encoding a transient as a contract.
+ */
+interface WireStatement {
+  id: number;
+  category?: string | null;
+  categoryUri?: string | null;
+  subject?: string | null;
+  subjectUri?: string | null;
+}
+interface WireFactorValue {
+  id: number;
+  isBaseline?: boolean;
+  statements?: WireStatement[];
+}
+interface WireFactor {
+  id: number;
+  name?: string;
+  type?: string;
+  category?: { category?: string; categoryUri?: string | null } | null;
+  values?: WireFactorValue[];
+}
+
+/** Gemma's design → the shape the builder takes, ids preserved. */
+function designFromWire(factors: WireFactor[]): CommittableDesign {
+  return {
+    factors: factors.map((f) => ({
+      id: f.id,
+      gemma_factor_id: f.id,
+      name: f.name,
+      type: f.type,
+      category: { label: f.category?.category, uri: f.category?.categoryUri ?? null },
+      factor_values: (f.values ?? []).map((v) => ({
+        id: v.id,
+        is_baseline: !!v.isBaseline,
+        statements: (v.statements ?? []).map((st) => ({
+          gemma_id: st.id,
+          category: { label: st.category ?? undefined, uri: st.categoryUri ?? null },
+          subject: { label: st.subject ?? undefined, uri: st.subjectUri ?? null },
+        })),
+      })),
+    })),
+  };
+}
+
+async function sandboxDesign(): Promise<WireFactor[]> {
+  const { body } = await sandbox(`/datasets/${SANDBOX_DATASET}/design`);
+  return ((body.data as { experimentalFactors?: WireFactor[] })?.experimentalFactors ?? []);
+}
+
+function designChanges(res: { body: Record<string, unknown> } | Record<string, unknown>): Record<string, number> {
+  const body = ("body" in res ? (res as { body: Record<string, unknown> }).body : res) as Record<string, unknown>;
+  const changes = (body.data as { changes?: Record<string, unknown> } | undefined)?.changes;
+  const design = changes?.design as Record<string, number> | undefined;
+  if (!design || typeof design.updated !== "number") {
+    throw new Error(
+      `commit reported no design counts — the assertions would be vacuous. ` +
+        `Body: ${JSON.stringify(body).slice(0, 400)}`,
+    );
+  }
+  return design;
+}
+
+async function commitDesign(doc: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
+  return sandbox(`/datasets/${SANDBOX_DATASET}/curation`, {
+    method: "PUT",
+    body: { ...(doc as object), baseline: { lastModified: await baselineToken(doc) } },
+  });
+}
+
+describe.skipIf(!SANDBOX_WRITE)("the design section, on the sandbox", () => {
+  it("🛑 committing the same design twice: the SECOND is a no-op", async () => {
+    // The first may normalize (see the block comment) — that is a real
+    // write and the assertion must not pretend otherwise. What must
+    // hold is that a design committed twice settles: no audit churn,
+    // no baseline token moving under other clients, from the second
+    // commit on.
+    const doc = () =>
+      sandboxDesign().then((fs) =>
+        buildCurationDocument(designFromWire(fs), { mode: "remote" }),
+      );
+
+    const first = await commitDesign(await doc());
+    expect(first.status, JSON.stringify(first.body).slice(0, 400)).toBe(200);
+
+    const second = await commitDesign(await doc());
+    expect(second.status, JSON.stringify(second.body).slice(0, 400)).toBe(200);
+    expect((second.body.data as Record<string, unknown>).applied).toBe(true);
+    expect(designChanges(second)).toEqual({
+      created: 0,
+      updated: 0,
+      deleted: 0,
+      unchanged: 1,
+    });
+  });
+
+  it("a renamed statement updates IN PLACE — the ids do not move", async () => {
+    // The contrast that matters. A re-termed TAG is delete + create and
+    // comes back with a new id; a re-termed STATEMENT keeps its own.
+    const before = await sandboxDesign();
+    const target = before
+      .flatMap((f) => f.values ?? [])
+      .flatMap((v) => v.statements ?? [])
+      .find((st) => st.subject);
+    expect(target, "sandbox design has no statement to rename").toBeTruthy();
+    const originalSubject = target!.subject!;
+    const renamed = `${originalSubject} (battle test)`;
+
+    const mutate = (label: string): CommittableDesign => {
+      const d = designFromWire(before);
+      for (const f of d.factors ?? []) {
+        for (const v of f.factor_values ?? []) {
+          for (const st of v.statements ?? []) {
+            if (st.gemma_id === target!.id) st.subject = { ...st.subject, label };
+          }
+        }
+      }
+      return d;
+    };
+
+    try {
+      const { status, body } = await commitDesign(
+        buildCurationDocument(mutate(renamed), { mode: "remote" }),
+      );
+      expect(status, JSON.stringify(body).slice(0, 400)).toBe(200);
+      // One changed entity: the statement. (Measured as 2 before the
+      // design had settled — the extra was the design object itself.)
+      expect(designChanges(body).updated).toBe(1);
+
+      const after = await sandboxDesign();
+      const same = after
+        .flatMap((f) => f.values ?? [])
+        .flatMap((v) => v.statements ?? [])
+        .find((st) => st.id === target!.id);
+      // Same id, new label: updated in place, not replaced.
+      expect(same?.subject).toBe(renamed);
+    } finally {
+      // Put the label back whatever happened above.
+      await commitDesign(buildCurationDocument(mutate(originalSubject), { mode: "remote" }));
+    }
+
+    const restored = await sandboxDesign()
+      .then((fs) => fs.flatMap((f) => f.values ?? []).flatMap((v) => v.statements ?? []))
+      .then((sts) => sts.find((st) => st.id === target!.id));
+    expect(restored?.subject).toBe(originalSubject);
+  });
+});
