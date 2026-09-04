@@ -217,6 +217,73 @@ async function fetchRemoteReview(setId: string): Promise<AuditReport> {
   return annotationSetToReview(row, payload);
 }
 
+/** `?onBehalfOf=<curator>` — who the ruling belongs to.
+ *
+ *  🛑 **Required on every relayed write, and it is not a nicety.** The
+ *  agent authenticates to Gemma as `administrator`, so a relayed call
+ *  without it records the AGENT as the decider: `decidedBy` reads
+ *  `administrator` on the one ruling written that way (set 2564, id 1).
+ *  Gemma honours the parameter only for `GROUP_AGENT` / `GROUP_ADMIN`
+ *  and REFUSES it for a plain curator — which is the mechanical reason
+ *  these writes go through the agent rather than from here. */
+function onBehalfOf(reviewer: string): string {
+  return reviewer ? `?onBehalfOf=${encodeURIComponent(reviewer)}` : "";
+}
+
+/** The curator's chip + prose, composed into Gemma's single `reason`.
+ *
+ *  Gemma stores ONE free-text reason where we hold a structured chip
+ *  (`dismiss_reason` / `accept_reason` / `not_sure_reason`) and separate
+ *  `notes`. Composing `"<chip>: <notes>"` follows the precedent Gemma
+ *  set for the curation commit's audit note (`"reasonCode: reason"`),
+ *  and cab talked gembro out of adding one column per chip — so this is
+ *  the agreed shape, not a workaround.
+ *
+ *  🛑 `applied_fix` is deliberately NOT composed in. It is a fact about
+ *  what the agent DID, not about what the curator decided; folded into
+ *  the ruling, a later read cannot tell a judgement from an executor's
+ *  receipt. It belongs in the apply journal. */
+export function composeDispositionReason(
+  patch: AuditFindingDispositionPatch,
+): string {
+  const chip =
+    patch.dismiss_reason ?? patch.accept_reason ?? patch.not_sure_reason ?? null;
+  const notes = (patch.notes ?? "").trim();
+  if (chip && notes) return `${chip}: ${notes}`;
+  return chip ?? notes;
+}
+
+/** One curator ruling, through the agent.
+ *
+ *  Sends the status VERBATIM, `parked` included: cab's relay maps our
+ *  button's word onto Gemma's `needs_more_info` before it gets there,
+ *  so the label does not have to leak into this call site and a
+ *  curator's park never returns as a 400 they cannot read. (Today the
+ *  card already posts `needs_more_info`; this holds either way.)
+ *
+ *  `judgeKind` is stated, never inferred — the agent authenticates as
+ *  `administrator`, so an inferred kind would file the agent's own
+ *  rulings as a curator's. The relay refuses a missing one.
+ *
+ *  The response is the relay's, not a report, so the refreshed review
+ *  comes from a read — the same shape `finalizeReview` uses. */
+async function relayDisposition(
+  setId: string,
+  patch: AuditFindingDispositionPatch,
+): Promise<AuditReport> {
+  const reason = composeDispositionReason(patch);
+  await api.post<unknown>(
+    `/curation-disposition/${setId}${onBehalfOf(patch.reviewer)}`,
+    {
+      targetId: patch.target_id,
+      disposition: patch.status,
+      judgeKind: "curator",
+      ...(reason ? { reason } : {}),
+    },
+  );
+  return fetchRemoteReview(setId);
+}
+
 /** Finalize a review — "I'm done triaging this".
  *
  *  🛑 **In remote mode this write has no home yet, and it must not be
@@ -249,15 +316,17 @@ async function finalizeReview(
   reviewer: string,
   notes?: string,
 ): Promise<AuditReport> {
-  assertAgentOwnsThisWrite(
-    "finalize",
-    "The agent has no finalize relay yet, and the UI does not write " +
-      "review state to Gemma itself.",
+  if (resolveGemmaMode().mode !== "remote") {
+    return api.post<AuditReport>(`/curation/v1/audits/${auditId}/finalize`, {
+      reviewer,
+      ...(notes ? { notes } : {}),
+    });
+  }
+  await api.post<unknown>(
+    `/curation-finalize/${auditId}${onBehalfOf(reviewer)}`,
+    { note: notes ?? "" },
   );
-  return api.post<AuditReport>(`/curation/v1/audits/${auditId}/finalize`, {
-    reviewer,
-    ...(notes ? { notes } : {}),
-  });
+  return fetchRemoteReview(auditId);
 }
 
 /** Reopen a finalized review. Same ruling and the same missing relay as
@@ -266,31 +335,24 @@ async function reopenReview(
   auditId: string,
   reviewer: string,
 ): Promise<AuditReport> {
-  assertAgentOwnsThisWrite(
-    "reopen",
-    "The agent has no reopen relay yet, and the UI does not write " +
-      "review state to Gemma itself.",
-  );
-  return api.post<AuditReport>(`/curation/v1/audits/${auditId}/reopen`, {
-    reviewer,
-  });
-}
-
-/** 🛑 A curation write the AGENT owns, called in a mode where the UI
- *  cannot perform it.
- *
- *  Distinct from `assertStoreReviews`, and the distinction is the
- *  reason each exists: that one guards a capability GEMMA does not
- *  have; this one guards a capability Gemma has and the UI is not the
- *  one allowed to use ([[feedback_ui_is_readonly_client_agent_writes]]).
- *  A future agent relay clears this one and leaves that one standing. */
-function assertAgentOwnsThisWrite(action: string, because: string): void {
-  if (resolveGemmaMode().mode === "remote") {
-    throw new Error(
-      `Cannot ${action} this review from the UI in remote mode: ${because} ` +
-        `Switch to a store-backed session, or wait for the agent relay.`,
-    );
+  if (resolveGemmaMode().mode !== "remote") {
+    return api.post<AuditReport>(`/curation/v1/audits/${auditId}/reopen`, {
+      reviewer,
+    });
   }
+  // 🛑 **The relay hands back what reopen destroys.** Gemma's reopen
+  // CLEARS `finalizedNotes`, so cab's relay reads the note first and
+  // returns it as `previousNote`. Read it HERE — after the reopen there
+  // is nothing left to read, and a re-close box that pre-fills from the
+  // old note is the whole reason the note survives the call.
+  const { previous_note } = await api.post<{ previous_note?: string | null }>(
+    `/curation-reopen/${auditId}${onBehalfOf(reviewer)}`,
+    {},
+  );
+  const report = await fetchRemoteReview(auditId);
+  return previous_note
+    ? { ...report, finalized_notes: previous_note }
+    : report;
 }
 
 /** 🛑 Refuse a write Gemma's annotation-set API has no equivalent for.
@@ -302,10 +364,13 @@ function assertAgentOwnsThisWrite(action: string, because: string): void {
  *  has no Gemma equivalent is the BULK CLEAR: an append-only log has no
  *  "delete every ruling on this review", and there is no route for one.
  *
- *  Distinct from `assertAgentOwnsThisWrite`, and the distinction is the
- *  reason both exist: this one guards a capability GEMMA does not have,
- *  that one a capability Gemma has and the UI is not the one allowed to
- *  use. A future agent relay clears that one and leaves this standing.
+ *  🛑 **It is the last of its kind, and that is the point.** Its sibling
+ *  guarded writes Gemma HAS that the UI may not make — finalize, reopen,
+ *  per-finding dispositions — and it is gone because cab built the
+ *  relays (`/curation-disposition`, `/curation-finalize`,
+ *  `/curation-reopen`), which is what such a guard is for: to be
+ *  deleted. This one cannot be, because no relay can add an operation
+ *  the backend does not have.
  *
  *  Sending the write to the store while the panel is showing Gemma's
  *  review would address a `curation_review` row that merely shares an
@@ -337,16 +402,9 @@ export function usePatchDisposition(experimentId: number | string) {
       auditId: string;
       patch: AuditFindingDispositionPatch;
     }) => {
-      // Gemma HAS the route now; the UI is simply not the caller.
-      // Paul, 2026-09-03, asked whether a curator's Agree / Reject /
-      // Park should go straight to Gemma now that the route exists:
-      // through the agent, like finalize.
-      assertAgentOwnsThisWrite(
-        "record a per-finding disposition",
-        "`POST /annotation-sets/{id}/dispositions` is live on Gemma, but " +
-          "the agent has no relay for it and the UI does not write review " +
-          "state to Gemma itself.",
-      );
+      if (resolveGemmaMode().mode === "remote") {
+        return relayDisposition(auditId, patch);
+      }
       return api.patch<AuditReport>(`/curation/v1/audits/${auditId}`, patch);
     },
     onSuccess: (refreshed, vars) => {

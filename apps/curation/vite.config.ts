@@ -471,6 +471,35 @@ export default defineConfig(({ mode }) => {
         // `/curation-*` route the moment someone adds one, and a
         // path that silently acquires a target is exactly what the
         // note above is about.
+        // Review-state relays. Same reasoning as the pair above and the
+        // commit chain: Gemma serves `POST /annotation-sets/{id}/
+        // dispositions`, `/finalize` and `/reopen`, and the UI is not
+        // their caller — Paul ruled twice on 2026-09-03 that review
+        // writes go through the agent, like every other curation write.
+        //
+        // 🛑 The `/curation-` prefix is not decoration. A bare
+        // `/disposition` lands in the store's namespace and the write
+        // goes silently to the wrong backend — the same trap
+        // `/curation-draft` exists to avoid.
+        //
+        // `?onBehalfOf=` is also why these cannot be direct: Gemma
+        // honours it only for `GROUP_AGENT` / `GROUP_ADMIN` and refuses
+        // it for a plain curator, so the relay is the only caller that
+        // can name whose ruling it is.
+        // One entry covers `/curation-dispositions` too — vite matches
+        // by prefix, and both go to the same relay.
+        "/curation-disposition": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
+        "/curation-finalize": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
+        "/curation-reopen": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         "/curation-preflight": {
           target: PROPOSER_URL,
           changeOrigin: true,
