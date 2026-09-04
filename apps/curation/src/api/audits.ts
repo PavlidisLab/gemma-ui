@@ -234,9 +234,16 @@ async function fetchRemoteReview(setId: string): Promise<AuditReport> {
  *  shares the id. Asked of cab; when the relay lands it belongs on its
  *  own top-level prefix like the others, never under `/rest`.
  *
- *  🛑 Gemma's finalize also takes NO note — no request body at all —
- *  so the curator's closing note needs a home in whatever the agent
- *  exposes. Filed with gembro as the second of two gaps. */
+ *  🛑 **Gemma's finalize now DOES take a note** — `{note}` on the body,
+ *  live on gemma2 since `9dc985a` (2026-09-04). That gap is closed, so
+ *  what remains is only the routing question: the relay is missing, not
+ *  the field. Whatever the agent exposes should carry the note through.
+ *
+ *  Two properties of Gemma's version worth carrying into the relay: the
+ *  note is the one NON-idempotent part of finalize (a second call
+ *  records a new note without re-stamping `finalizedAt`), and reopen
+ *  CLEARS it — so a re-close box that pre-fills from the old note has
+ *  to read it before reopening. */
 async function finalizeReview(
   auditId: string,
   reviewer: string,
@@ -288,26 +295,21 @@ function assertAgentOwnsThisWrite(action: string, because: string): void {
 
 /** 🛑 Refuse a write Gemma's annotation-set API has no equivalent for.
  *
- *  Read against the gemma2 OpenAPI 2026-09-03, route by route. Gemma
- *  serves `POST /annotation-sets/{id}/finalize`, `/reopen`,
- *  `PATCH /{id}` and `PATCH /{id}/triage`. What it does NOT serve is a
- *  **per-finding disposition**:
+ *  🛑 **This used to cover per-finding dispositions and no longer does.**
+ *  Gemma serves `POST /annotation-sets/{id}/dispositions` as of
+ *  `9dc985a` (live on gemma2 2026-09-04) — append-only, keyed by
+ *  `targetId`, latest-wins, 409 once the set is finalized. What still
+ *  has no Gemma equivalent is the BULK CLEAR: an append-only log has no
+ *  "delete every ruling on this review", and there is no route for one.
  *
- *  - `PATCH /annotation-sets/{id}` is envelope-only — it accepts
- *    `agentName`, `model`, `ranAt`, `agentVersion`, `runSha` and 400s
- *    on anything else, so it cannot record a curator's ruling.
- *  - `PATCH /annotation-sets/{id}/triage` rules on the whole SET
- *    (`fine` / `wont_fix` / `might_fix` / `must_fix`). Its own
- *    description draws the line: *"Not the per-finding audit
- *    disposition (`accepted` / `dismissed` / ...), which answers
- *    whether a curator agrees with one finding. This answers how much
- *    the whole set matters."*
+ *  Distinct from `assertAgentOwnsThisWrite`, and the distinction is the
+ *  reason both exist: this one guards a capability GEMMA does not have,
+ *  that one a capability Gemma has and the UI is not the one allowed to
+ *  use. A future agent relay clears that one and leaves this standing.
  *
- *  Sending the disposition to the store while the panel is showing
- *  Gemma's review would write to a `curation_review` row that merely
- *  shares an id — the same collision `assertStoreTickets` guards in
- *  `tickets.ts`. Better to say so than to record it against the wrong
- *  row. */
+ *  Sending the write to the store while the panel is showing Gemma's
+ *  review would address a `curation_review` row that merely shares an
+ *  id — the same collision `assertStoreTickets` guards in `tickets.ts`. */
 function assertStoreReviews(action: string, because: string): void {
   if (resolveGemmaMode().mode === "remote") {
     throw new Error(
@@ -335,11 +337,15 @@ export function usePatchDisposition(experimentId: number | string) {
       auditId: string;
       patch: AuditFindingDispositionPatch;
     }) => {
-      assertStoreReviews(
+      // Gemma HAS the route now; the UI is simply not the caller.
+      // Paul, 2026-09-03, asked whether a curator's Agree / Reject /
+      // Park should go straight to Gemma now that the route exists:
+      // through the agent, like finalize.
+      assertAgentOwnsThisWrite(
         "record a per-finding disposition",
-        "Gemma has no route for one — `PATCH /annotation-sets/{id}` is " +
-          "envelope-only and `/triage` rules on the whole set, not on one " +
-          "finding.",
+        "`POST /annotation-sets/{id}/dispositions` is live on Gemma, but " +
+          "the agent has no relay for it and the UI does not write review " +
+          "state to Gemma itself.",
       );
       return api.patch<AuditReport>(`/curation/v1/audits/${auditId}`, patch);
     },
@@ -469,9 +475,12 @@ export function useResetAuditDispositions(
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ auditId }: { auditId: string }) => {
+      // Not a routing question like the others: Gemma's disposition log
+      // is append-only and has no bulk-clear, so there is nothing for an
+      // agent relay to call either.
       assertStoreReviews(
         "clear the dispositions",
-        "Gemma stores no per-finding dispositions to clear.",
+        "Gemma's disposition log is append-only and has no bulk clear.",
       );
       return api.post<{
         audit_id: string;

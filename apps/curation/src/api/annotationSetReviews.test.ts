@@ -17,6 +17,7 @@ import {
   annotationSetToReview,
   annotationSetsToReviews,
   asAnnotationSetRows,
+  gemmaDispositionsToOurs,
   isReviewPayload,
   parseReviewPayload,
   reviewsPath,
@@ -317,6 +318,84 @@ describe("fetchReviewsForExperiment", () => {
     });
     await expect(mod.fetchReviewsForExperiment(2706)).rejects.toThrow(
       "forbidden",
+    );
+  });
+});
+
+describe("standing rulings off the envelope", () => {
+  // Live on gemma2 since `9dc985a` (2026-09-04T03:49Z). Both sets on
+  // dataset 2706 answer `dispositions: []` today.
+  const ruling = {
+    target_id: "tag:developmental-stage/embryo-stage",
+    disposition: "accepted",
+    decided_by: "paul",
+    judge_kind: "curator",
+    decided_at: "2026-09-04T04:00:00Z",
+    reason: "remove it",
+  };
+
+  it("maps a Gemma ruling onto the shape the cards read", () => {
+    const row = { ...SET_2563, dispositions: [ruling], payload_json: reviewPayload() };
+    const { items } = annotationSetsToReviews([row], "audit");
+    expect(items[0].dispositions).toEqual([
+      {
+        target_id: "tag:developmental-stage/embryo-stage",
+        status: "accepted",
+        reviewer: "paul",
+        reviewed_at: "2026-09-04T04:00:00Z",
+        notes: "remove it",
+      },
+    ]);
+    // 🛑 No invented `resolved_at`. Gemma has no counterpart, and
+    // stamping one would assert the curator did the work.
+    expect(items[0].dispositions[0].resolved_at).toBeUndefined();
+  });
+
+  it("🛑 an EMPTY envelope list clears what the payload carried", () => {
+    // `[]` is "loaded, nobody has ruled". Falling through to the
+    // payload here would keep rendering a ruling withdrawn on the
+    // server, forever.
+    const row = {
+      ...SET_2563,
+      dispositions: [],
+      payload_json: reviewPayload({
+        dispositions: [{ target_id: "tag:5", status: "accepted" }],
+      }),
+    };
+    expect(annotationSetsToReviews([row], "audit").items[0].dispositions).toEqual([]);
+  });
+
+  it("a NULL envelope list keeps the payload's — the route did not load them", () => {
+    const row = {
+      ...SET_2563,
+      dispositions: null,
+      payload_json: reviewPayload({
+        dispositions: [{ target_id: "tag:5", status: "accepted" }],
+      }),
+    };
+    expect(
+      annotationSetsToReviews([row], "audit").items[0].dispositions,
+    ).toHaveLength(1);
+  });
+
+  it("drops a ruling naming no finding or no status", () => {
+    expect(
+      gemmaDispositionsToOurs([
+        { disposition: "accepted" },
+        { target_id: "tag:5" },
+        { target_id: "tag:6", disposition: "dismissed" },
+      ]).map((d) => d.target_id),
+    ).toEqual(["tag:6"]);
+  });
+
+  it("carries the finalize note the envelope owns", () => {
+    const row = {
+      ...SET_2563,
+      finalized_notes: "closed — the strain tags were duplicates",
+      payload_json: reviewPayload(),
+    };
+    expect(annotationSetsToReviews([row], "audit").items[0].finalized_notes).toBe(
+      "closed — the strain tags were duplicates",
     );
   });
 });

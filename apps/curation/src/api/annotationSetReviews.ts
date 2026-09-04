@@ -26,7 +26,23 @@
  */
 import { api, snakeify } from "./client";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
-import type { AuditReport, CurationReviewKind } from "./auditTypes";
+import type {
+  AuditFindingDisposition,
+  AuditReport,
+  CurationReviewKind,
+  DispositionStatus,
+} from "./auditTypes";
+
+/** One standing ruling as Gemma serves it, post-snakeify. Mirrors
+ *  `DispositionResponse`. */
+export interface GemmaDisposition {
+  target_id?: string | null;
+  disposition?: string | null;
+  decided_by?: string | null;
+  judge_kind?: string | null;
+  decided_at?: string | null;
+  reason?: string | null;
+}
 
 /** Envelope of one annotation set, post-``client.ts`` (snake_case).
  *  Mirrors Gemma's ``AnnotationSetResponse``; only the fields this
@@ -42,6 +58,12 @@ export interface AnnotationSetRow {
   created_at?: string | null;
   finalized_at?: string | null;
   finalized_by?: string | null;
+  finalized_notes?: string | null;
+  /** Standing curator rulings, one row per `target_id`, added to
+   *  `AnnotationSetResponse` 2026-09-03 (gemma2 `9dc985a`). 🛑 `null`
+   *  means the route did not load them; `[]` means loaded and nobody
+   *  has ruled. The two are NOT the same — see `dispositionsFor`. */
+  dispositions?: GemmaDisposition[] | null;
   agent_version?: string | null;
   model?: string | null;
   agent_name?: string | null;
@@ -125,6 +147,71 @@ export function isReviewPayload(payload: Record<string, unknown>): boolean {
   return Array.isArray(payload.findings);
 }
 
+/** Gemma's standing rulings → the shape the cards read.
+ *
+ *  Field-for-field where there is a counterpart, and silent about the
+ *  rest rather than inventing one:
+ *
+ *  | Gemma | ours |
+ *  |---|---|
+ *  | `target_id` | `target_id` |
+ *  | `disposition` | `status` |
+ *  | `decided_by` | `reviewer` |
+ *  | `decided_at` | `reviewed_at` |
+ *  | `reason` | `notes` — free text on both sides, not a chip |
+ *
+ *  🛑 **`resolved_at` has no Gemma counterpart, and its absence MEANS
+ *  something here.** An `accepted` disposition with a null `resolved_at`
+ *  reads in the UI as "curator agrees but hasn't acted" — the parked
+ *  half of accepted. Every ruling read from Gemma therefore lands in
+ *  that half. Stamping a `resolved_at` we were not given would be worse:
+ *  it asserts the curator did the work. Left null, and flagged.
+ *
+ *  The structured chip reasons (`dismiss_reason` / `accept_reason` /
+ *  `not_sure_reason`) and `applied_fix` likewise have no counterpart —
+ *  Gemma stores one free-text `reason`. `judge_kind` (agent vs curator)
+ *  has nowhere to go on `AuditFindingDisposition` at all. */
+export function gemmaDispositionsToOurs(
+  rows: GemmaDisposition[],
+): AuditFindingDisposition[] {
+  const out: AuditFindingDisposition[] = [];
+  for (const r of rows) {
+    const target = str(r?.target_id);
+    const status = str(r?.disposition);
+    if (!target || !status) continue;
+    out.push({
+      target_id: target,
+      status: status as DispositionStatus,
+      reviewer: str(r.decided_by) ?? "",
+      reviewed_at: str(r.decided_at),
+      notes: str(r.reason) ?? "",
+    });
+  }
+  return out;
+}
+
+/** Which dispositions a report should carry.
+ *
+ *  🛑 **`[]` from the envelope CLEARS what the payload carried; `null`
+ *  keeps it.** `[]` is "loaded, nobody has ruled", so falling through
+ *  to the payload there would keep rendering a ruling that was
+ *  withdrawn on the server, forever. `null` is "this route did not
+ *  load them", where the payload is the only thing we have. Both sets
+ *  on dataset 2706 answer `[]` today, so this is live behaviour rather
+ *  than a defensive branch. */
+export function dispositionsFor(
+  row: AnnotationSetRow,
+  payload: Record<string, unknown>,
+): AuditFindingDisposition[] {
+  if (Array.isArray(row.dispositions)) {
+    return gemmaDispositionsToOurs(row.dispositions);
+  }
+  const fromPayload = (payload as { dispositions?: unknown }).dispositions;
+  return Array.isArray(fromPayload)
+    ? (fromPayload as AuditFindingDisposition[])
+    : [];
+}
+
 /**
  * One annotation set → one ``AuditReport``.
  *
@@ -154,17 +241,12 @@ export function annotationSetToReview(
     model: p.model ?? row.model ?? null,
     agent_version: p.agent_version ?? row.agent_version ?? null,
     findings: Array.isArray(p.findings) ? p.findings : [],
-    // 🛑 **Dispositions do not round-trip in remote mode.** Gemma has
-    // no per-finding disposition route — `PATCH /annotation-sets/{id}`
-    // is envelope-only (agentName / model / ranAt / agentVersion /
-    // runSha) and `/triage` rules on how much the whole SET matters,
-    // which its own docs distinguish from "does the curator agree with
-    // this one finding". Whatever the producer baked into the payload
-    // is shown; a curator's ruling has nowhere to go until Gemma
-    // serves one. See `usePatchDisposition`.
-    dispositions: Array.isArray(p.dispositions) ? p.dispositions : [],
+    // Standing rulings come from the ENVELOPE when the route loaded
+    // them, and only fall back to the payload when it did not.
+    dispositions: dispositionsFor(row, payload),
     finalized_at: row.finalized_at ?? p.finalized_at ?? null,
     finalized_by: row.finalized_by ?? p.finalized_by ?? null,
+    finalized_notes: row.finalized_notes ?? p.finalized_notes ?? null,
   };
 }
 
