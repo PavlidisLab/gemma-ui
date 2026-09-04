@@ -189,6 +189,11 @@ interface AuditContextValue {
        *  the agents side shipped in agents commit ``e9e52ea``. */
       appliedFix?: import("@/api/auditTypes").AppliedFix | string;
       firstSeenAt?: string;
+      /** Which finding on the target this ruling is about — passed by
+       *  the card, which holds the finding, because the report cannot
+       *  say when a target carries more than one. See
+       *  `AuditFinding.finding_id`. */
+      findingId?: string;
       /** Stamp the finding as accepted+resolved (two-step accept,
        *  Ask #6). Only valid with status=accepted; the server
        *  validates and returns 422 otherwise. The UI gates this:
@@ -373,6 +378,8 @@ export function AuditProvider({
         notSureReason?: import("@/api/auditTypes").NotSureReason;
         appliedFix?: import("@/api/auditTypes").AppliedFix | string;
         firstSeenAt?: string;
+        /** See the contract type above — which finding on the target. */
+        findingId?: string;
         resolvedAt?: string;
         inheritedFrom?: string;
         structureOk?: boolean | null;
@@ -440,15 +447,41 @@ export function AuditProvider({
       // 2026-05-16). Empty string if the finding isn't found — server
       // will reject, which is the right failure mode (mis-routed
       // disposition).
-      const finding = (report.findings ?? []).find(
+      //
+      // 🛑 **`target_id` does not identify a finding.** One target can
+      // carry several actionable findings from different judges, so a
+      // `.find()` on target alone picks whichever is first and can read
+      // the WRONG finding's `issue_code`. The card passes the
+      // `findingId` it is rendering; only when it cannot do we fall
+      // back to the target, and only then is the identity a guess.
+      const onTarget = (report.findings ?? []).filter(
         (f) => f.target_id === targetId,
       );
+      const finding =
+        (extras.findingId
+          ? onTarget.find((f) => f.finding_id === extras.findingId)
+          : undefined) ?? onTarget[0];
+      // Sent only when it is REAL — from the card, or from the single
+      // finding on an unambiguous target. Never blank: an empty id is
+      // indistinguishable from a legacy row, so the consumer's
+      // refusal-to-guess would quietly become target keying.
+      const findingId =
+        extras.findingId ??
+        (onTarget.length === 1 ? (onTarget[0]?.finding_id ?? undefined) : undefined);
+      if (!findingId && onTarget.length > 1) {
+        console.warn(
+          "setDisposition: %d actionable findings share target_id=%s and no findingId was passed — the ruling cannot say which finding it is about",
+          onTarget.length,
+          targetId,
+        );
+      }
       const patch: import("@/api/auditTypes").AuditFindingDispositionPatch = {
         target_id: targetId,
         status,
         reviewer,
         notes,
         issue_code: finding?.issue_code ?? "",
+        ...(findingId ? { finding_id: findingId } : {}),
       };
       if (extras.dismissReason) patch.dismiss_reason = extras.dismissReason;
       if (extras.acceptReason) patch.accept_reason = extras.acceptReason;

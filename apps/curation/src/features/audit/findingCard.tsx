@@ -1281,6 +1281,9 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       await setDisposition(finding.target_id, status, {
         ...extras,
         firstSeenAt,
+        // The card knows which finding it is rendering; the report
+        // cannot when a target carries more than one.
+        ...(finding.finding_id ? { findingId: finding.finding_id } : {}),
       });
     } catch (err) {
       // 409 means the audit was finalized between the curator's click

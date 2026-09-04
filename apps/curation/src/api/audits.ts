@@ -253,6 +253,24 @@ export function composeDispositionReason(
   return chip ?? notes;
 }
 
+/** The relay's request body. Exported so a test drives the REAL
+ *  builder rather than a copy of it that can drift. */
+export function buildDispositionBody(patch: AuditFindingDispositionPatch) {
+  const reason = composeDispositionReason(patch);
+  return {
+    targetId: patch.target_id,
+    // 🛑 Present only when the report carried one, and OMITTED rather
+    // than blank otherwise. cab's consumer resolves by `findingId`
+    // first and refuses to guess on an ambiguous target; an empty id
+    // is indistinguishable from a legacy row, so the refusal would
+    // silently degrade into target keying.
+    ...(patch.finding_id ? { findingId: patch.finding_id } : {}),
+    disposition: patch.status,
+    judgeKind: "curator" as const,
+    ...(reason ? { reason } : {}),
+  };
+}
+
 /** One curator ruling, through the agent.
  *
  *  Sends the status VERBATIM, `parked` included: cab's relay maps our
@@ -271,15 +289,9 @@ async function relayDisposition(
   setId: string,
   patch: AuditFindingDispositionPatch,
 ): Promise<AuditReport> {
-  const reason = composeDispositionReason(patch);
   await api.post<unknown>(
     `/curation-disposition/${setId}${onBehalfOf(patch.reviewer)}`,
-    {
-      targetId: patch.target_id,
-      disposition: patch.status,
-      judgeKind: "curator",
-      ...(reason ? { reason } : {}),
-    },
+    buildDispositionBody(patch),
   );
   return fetchRemoteReview(setId);
 }

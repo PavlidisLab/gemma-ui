@@ -151,6 +151,24 @@ export interface Recommendation {
 }
 
 export interface AuditFinding {
+  /** Stable identity of THIS finding, distinct from the annotation it
+   *  is about. A hash of the identifying tuple plus the discriminating
+   *  slots of `apply_action.match`, so rewording a rationale or
+   *  changing a severity does not move it (agents side, 2026-09-04).
+   *
+   *  🛑 **`target_id` is not unique and this is.** One target can carry
+   *  several actionable findings — measured by cab across four runs, 20
+   *  of 211 actionable findings share a target with another, so roughly
+   *  one target in ten. `fv:treatment/gsk-3-inhibitor-xv#126255` on set
+   *  2565 carries an `ungrounded_fv` from the grounding judge and a
+   *  `missing_statement` from the FV judge, and a curator can accept one
+   *  and dismiss the other. A ruling keyed on `target_id` alone cannot
+   *  say which.
+   *
+   *  Optional: sets written before the field existed carry none (set
+   *  2564 has it on 0 of 37), and a ruling on those keys on `target_id`
+   *  as it always did. */
+  finding_id?: string | null;
   target_kind: AuditTargetKind;
   /** Stable id of the existing curation element this finding addresses
    *  (factor.id, fv.id, tag.id, biomaterial.short_name, …). Free-form
@@ -1454,6 +1472,16 @@ export type NotSureReason =
  *     `reviewed_at`. */
 export interface AuditFindingDispositionPatch {
   target_id: string;
+  /** Which finding on that target the curator ruled on — see
+   *  `AuditFinding.finding_id`. Sent when the report carries one and
+   *  omitted otherwise; the agents-side consumer resolves by this
+   *  first and falls back to `target_id`.
+   *
+   *  🛑 It must be absent rather than blank when unknown. A row
+   *  carrying an empty id is indistinguishable from a legacy row, so
+   *  the consumer's refusal-to-guess on an ambiguous target would
+   *  silently degrade to target keying. */
+  finding_id?: string;
   status: DispositionStatus;
   reviewer: string;
   notes?: string;
