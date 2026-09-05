@@ -15,7 +15,12 @@
  * The two paths are additive, not mutually exclusive.
  */
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import {
   apiGet,
   apiPost,
@@ -146,6 +151,30 @@ function treatEmptyAsAnonymous(u: LoginUser | null): LoginUser | null {
   return u;
 }
 
+/**
+ * Signing in or out changes what the *whole* API returns, not just
+ * /me and /admin: every dataset / platform / gene / annotation
+ * endpoint is ACL-filtered server-side, so the anonymous
+ * 23k-dataset count becomes 25k the moment the bearer rides along.
+ * None of those query keys mention the session, so without a blanket
+ * invalidation the cache keeps handing back the answers fetched
+ * under the old identity — the browser table's page 1 stayed at
+ * 23k / 942 pages while page 2 (a fresh key, hence a fresh fetch)
+ * showed 25k, and flipping back to page 1 restored the stale
+ * numbers.
+ *
+ * `invalidateQueries` with a predicate rather than a key: it refetches
+ * every *active* query now and marks the inactive ones invalidated, so
+ * a cached page refetches the next time it mounts. The OpenAPI spec is
+ * the one exception — a large, auth-independent document deliberately
+ * held for an hour.
+ */
+export function invalidateAfterIdentityChange(qc: QueryClient): void {
+  void qc.invalidateQueries({
+    predicate: (q) => q.queryKey[0] !== "openapi",
+  });
+}
+
 // ─── Hooks ────────────────────────────────────────────────────────
 
 export function useMe() {
@@ -173,10 +202,10 @@ export function useLogin() {
     mutationFn: postLogin,
     onSuccess: (resp) => {
       writeSessionToken(resp.token);
-      // Re-fire the /me probe under the new token, and any other
-      // auth-sensitive queries (admin/* in particular).
-      qc.invalidateQueries({ queryKey: ["auth"] });
-      qc.invalidateQueries({ queryKey: ["admin"] });
+      // Re-fire the /me probe under the new token — and everything
+      // else the new identity can now see. See
+      // invalidateAfterIdentityChange.
+      invalidateAfterIdentityChange(qc);
     },
   });
 }
@@ -187,8 +216,7 @@ export function useLogout() {
     mutationFn: postLogout,
     onSettled: () => {
       writeSessionToken(null);
-      qc.invalidateQueries({ queryKey: ["auth"] });
-      qc.invalidateQueries({ queryKey: ["admin"] });
+      invalidateAfterIdentityChange(qc);
       // The agents-side /rest/v2/logout only revokes the bearer token (per
       // AuthWebService.java:140) — it does NOT invalidate the
       // HTTP session that Spring sets during /login. Without a
