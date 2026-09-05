@@ -52,10 +52,12 @@ The build is plain static files — no Tomcat, no container, no server
 runtime. Publish with:
 
 ```sh
-scripts/deploy-browser.sh --dry-run           # production, show changes
-scripts/deploy-browser.sh                     # production: build + rsync --delete
-scripts/deploy-browser.sh staging --dry-run   # staging, show changes
-scripts/deploy-browser.sh staging             # staging: build + rsync --delete
+scripts/deploy-browser.sh --dry-run                  # production, show changes
+scripts/deploy-browser.sh                            # production: build + rsync --delete
+scripts/deploy-browser.sh staging --dry-run          # staging, show changes
+scripts/deploy-browser.sh staging                    # staging: build + rsync --delete
+scripts/deploy-browser.sh gemma2testing --dry-run    # gemma2testing, show changes
+scripts/deploy-browser.sh gemma2testing              # gemma2testing: build + rsync --delete
 ```
 
 One deployment per env file, published to sibling directories under
@@ -66,9 +68,9 @@ lowercase identifier:
 
 | Target | Env file | Build mode | Serves |
 |---|---|---|---|
-| `production` (default) | `.env.production` | `production` | https://gemma.msl.ubc.ca/ (was gemma2.msl.ubc.ca) |
-| `staging` | `.env.staging` | `staging` | https://staging-gemma.msl.ubc.ca/ — **server side not yet configured** |
-| `gemma2testing` | `.env.gemma2testing` | `gemma2testing` | https://gemma2.msl.ubc.ca/ — a testing build for the Gemma 2.0 host, in its own docroot. gemma2 currently serves the *production* docroot, so nothing points at this one yet |
+| `production` (default) | `.env.production` | `production` | https://gemma.msl.ubc.ca/ |
+| `staging` | `.env.staging` | `staging` | https://staging-gemma.msl.ubc.ca/ |
+| `gemma2testing` | `.env.gemma2testing` | `gemma2testing` | https://gemma2.msl.ubc.ca/ |
 
 Nothing about a specific target lives in the app source or in that
 script. Config comes from the target's env file — public URLs only,
