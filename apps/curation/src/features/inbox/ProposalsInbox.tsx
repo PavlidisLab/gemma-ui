@@ -31,18 +31,18 @@ export function ProposalsInbox({ reviewer }: { reviewer: string }) {
   const grouped = useMemo(() => groupByExperiment(items), [items]);
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-950">
       <AppHeader reviewer={reviewer}>
-        <span className="text-xs text-slate-400 ml-2" aria-hidden>/</span>
-        <span className="text-sm text-slate-600">Proposals</span>
+        <span className="text-xs text-slate-400 dark:text-slate-500 ml-2" aria-hidden>/</span>
+        <span className="text-sm text-slate-600 dark:text-slate-300">Proposals</span>
       </AppHeader>
 
       <main className="mx-auto w-full max-w-[1800px] px-4 py-6 flex-1 space-y-4">
         <div className="card">
-          <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 flex-wrap">
+          <div className="flex items-center justify-between gap-3 px-3 py-2 border-b border-slate-200 dark:border-slate-700 flex-wrap">
             <h1 className="section-h">
               Curation proposals
-              <span className="ml-2 text-xs text-slate-500 font-normal">
+              <span className="ml-2 text-xs text-slate-500 dark:text-slate-400 font-normal">
                 {total} {statusFilter}
               </span>
             </h1>
@@ -80,17 +80,17 @@ export function ProposalsInbox({ reviewer }: { reviewer: string }) {
           </div>
 
           {isLoading ? (
-            <div className="px-3 py-6 text-sm text-slate-500">loading…</div>
+            <div className="px-3 py-6 text-sm text-slate-500 dark:text-slate-400">loading…</div>
           ) : error ? (
-            <div className="px-3 py-6 text-sm text-rose-700">
+            <div className="px-3 py-6 text-sm text-rose-700 dark:text-rose-300">
               couldn't load: {(error as Error).message}
             </div>
           ) : grouped.length === 0 ? (
-            <div className="px-3 py-6 text-sm text-slate-500">
+            <div className="px-3 py-6 text-sm text-slate-500 dark:text-slate-400">
               No {statusFilter} proposals.
             </div>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {grouped.map((g) => (
                 <ExperimentGroup key={g.experimentId} group={g} />
               ))}
@@ -118,8 +118,8 @@ function StatusTab({
       onClick={() => onChange(value)}
       className={`text-xs px-2 py-1 border rounded ${
         active
-          ? "bg-slate-800 text-white border-slate-800"
-          : "border-slate-200 text-slate-700 hover:bg-slate-50"
+          ? "bg-slate-800 text-white border-slate-800 dark:bg-slate-200 dark:text-slate-900 dark:border-slate-200"
+          : "border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
       }`}
     >
       {value.replace("_", " ")}
@@ -158,20 +158,20 @@ function ExperimentGroup({ group }: { group: Group }) {
       <button
         type="button"
         onClick={() => navigate(experimentRoute(group.experimentId, "proposals"))}
-        className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-baseline gap-3"
+        className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-baseline gap-3"
       >
         <span className="font-mono text-sm shrink-0">
           {group.experimentShortName}
         </span>
-        <span className="text-xs text-slate-500 shrink-0">
+        <span className="text-xs text-slate-500 dark:text-slate-400 shrink-0">
           {group.items.length} proposal{group.items.length === 1 ? "" : "s"}
         </span>
-        <span className="text-xs text-slate-400">
+        <span className="text-xs text-slate-400 dark:text-slate-500">
           newest{" "}
           {formatTimestamp(group.items[0]?.submitted_at ?? "")}
         </span>
       </button>
-      <ul className="border-t border-slate-100 bg-slate-50/40">
+      <ul className="border-t border-slate-100 bg-slate-50/40 dark:border-slate-800 dark:bg-slate-900/40">
         {group.items.map((p, i) => (
           <li
             // ``proposal_id`` is server-assigned and stable; for any
@@ -187,13 +187,13 @@ function ExperimentGroup({ group }: { group: Group }) {
             }
             className="px-6 py-1.5 text-xs flex items-baseline gap-3"
           >
-            <span className="text-slate-500 shrink-0 w-32 truncate">
+            <span className="text-slate-500 dark:text-slate-400 shrink-0 w-32 truncate">
               {p.submitted_by || "agent"}
             </span>
-            <span className="text-slate-700 flex-1">
+            <span className="text-slate-700 dark:text-slate-200 flex-1">
               <ShapeSummary p={p} />
             </span>
-            <span className="text-slate-400 shrink-0">
+            <span className="text-slate-400 dark:text-slate-500 shrink-0">
               {formatTimestamp(p.submitted_at)}
             </span>
           </li>
@@ -242,7 +242,7 @@ function ShapeSummary({ p }: { p: Proposal }) {
   if (fc == null && tc == null) {
     return (
       <span
-        className="italic text-slate-400"
+        className="italic text-slate-400 dark:text-slate-500"
         title="Gemma reports the shape best-effort from the proposal payload and could not read it here. It does not mean the proposal is empty."
       >
         shape not reported
