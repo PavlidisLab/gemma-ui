@@ -586,3 +586,105 @@ export function buildCurationDocument(
     tags: { ...deletion(tagDeletions), items: tags },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Undo — the snapshot history and the compare
+// ---------------------------------------------------------------------------
+
+/** One snapshot in a dataset's undo history, as the annotation-set
+ *  envelope serves it. Only the fields a history list renders are
+ *  declared; the payload is a `CurationDocument` and is not read here —
+ *  `restore` replays it server-side. */
+export interface CurationSnapshot {
+  id: number;
+  dataset_id: number;
+  created_at: string | null;
+  created_by: string | null;
+  /** `curator` on the auto-captures a commit makes. */
+  source: string | null;
+}
+
+/**
+ * A dataset's snapshots, newest first.
+ *
+ * 🛑 **Nobody has to make these — a commit already captures one.**
+ * Measured on gemma2 2026-09-04: dataset 2706 carries 7 and 5381
+ * carries 5, `source: "curator"`, spanning 2026-08-31 to 09-02, with
+ * no snapshot feature in the UI at all. Corpus-wide it is 2,494 of
+ * 2,495 annotation sets. So undo works retroactively over curation
+ * that predates the button, which is the argument for building it on
+ * these rather than on a buffer of our own.
+ *
+ * Every commit also hands back the handle to the one taken before it —
+ * `CommitReport.snapshotAnnotationSetId` — so an "undo that last
+ * commit" affordance needs no lookup at all.
+ */
+export function snapshotsPath(experimentId: number | string): string {
+  return `/rest/v2/datasets/${experimentId}/annotation-sets?role=snapshot`;
+}
+
+export function listSnapshots(
+  experimentId: number | string,
+): Promise<CurationSnapshot[]> {
+  return api.get<CurationSnapshot[]>(snapshotsPath(experimentId));
+}
+
+/**
+ * What restoring this snapshot would change. Writes nothing.
+ *
+ * 🛑 **Goes straight at Gemma rather than through the agent relay, and
+ * that is the same carve-out `preflight` has**: a dry run takes no
+ * lock, needs no write target, and mutates nothing, so the
+ * agent-does-the-writing rule has nothing to guard here. The MUTATING
+ * restore is a different matter — see `restoreSnapshot` below.
+ *
+ * The report is a `CommitReport`, and deliberately so: Gemma's route
+ * *"replays the snapshot's CurationDocument through the ordinary
+ * all-or-none commit, so there is no second diff implementation that
+ * could disagree with the first."* Whatever renders a commit's changes
+ * renders this unchanged.
+ *
+ * 🛑 **A restore returns the curation's CONTENT, not its IDENTITY.**
+ * Gemma's own words. An entity whose id no longer exists — because an
+ * intervening run deleted and recreated it — comes back as a NEW row
+ * with a NEW id, and a differential-expression analysis that survived
+ * that run is cascaded again on the way back. So this is not a plain
+ * undo and the surface must not call it one: the preview is what the
+ * curator decides on, not a formality.
+ *
+ * 409 means the restore would delete analyses or strand a subset.
+ * `force` is deliberately NOT a parameter here, for the same reason
+ * `commitCuration` refuses one — a consequence is reviewed and
+ * consented to, never checkbox-ed past.
+ */
+export function previewRestore(
+  experimentId: number | string,
+  snapshotId: number,
+): Promise<CommitReport> {
+  return api.post<CommitReport>(
+    `/rest/v2/datasets/${experimentId}/annotation-sets/${snapshotId}/restore?dryRun=true`,
+    {},
+  );
+}
+
+/**
+ * 🛑 **The mutating restore has no route to call yet.**
+ *
+ * Restore is a write, and writes go through the agent
+ * (`feedback_ui_is_readonly_client_agent_writes`). The relays that
+ * exist are `/curation-{draft,lock,disposition,finalize,reopen,
+ * preflight,commit,sign}` — there is no `/curation-restore`. Posting
+ * at Gemma directly would be the UI writing curation, which is the one
+ * thing this client does not do.
+ *
+ * Paul, 2026-09-04: *"restore is a curator action"* — so this is a
+ * missing relay, not a permissions question. Filed with cab. This
+ * throws rather than silently offering a button that cannot work, and
+ * deletes itself the day the relay lands.
+ */
+export function restoreSnapshot(): never {
+  throw new Error(
+    "Restore needs the agent relay (/curation-restore), which does not " +
+      "exist yet. The preview is live; the restore is not.",
+  );
+}
