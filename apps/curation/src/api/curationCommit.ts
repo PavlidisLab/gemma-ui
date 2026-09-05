@@ -89,10 +89,31 @@ export interface CurationDocument {
   };
 }
 
+/** Per-section tally on a commit report's `changes` map — the shape
+ *  Gemma's `CurationSectionChange` declares. */
+export interface CommitSectionChange {
+  created?: number;
+  updated?: number;
+  deleted?: number;
+  unchanged?: number;
+}
+
 export interface CommitReport {
   applied: boolean;
   idMap: Record<string, number>;
-  changes: Record<string, unknown>;
+  /** Section name -> tally. `design`, `tags`, `curationDetails`, … */
+  changes: Record<string, CommitSectionChange>;
+  /** 🛑 **The "content, not identity" warning, made concrete.** Old id
+   *  -> new id for every entity that could not be restored in place and
+   *  came back as a new row. Empty on an ordinary commit; the reason a
+   *  restore preview is worth reading. Declared 2026-09-04 off Gemma's
+   *  `CurationCommitReport`; the UI type had `changes` as `unknown` and
+   *  these three not at all. */
+  reidentified?: Record<string, number>;
+  /** Ids that go away. */
+  deletedIdentities?: number[];
+  /** Set when the operation could not be carried out. */
+  error?: string | null;
   auditEventIds: number[];
   canonicalizations: unknown[];
   commitAnnotationSetId: number | null;
@@ -632,59 +653,72 @@ export function listSnapshots(
 /**
  * What restoring this snapshot would change. Writes nothing.
  *
- * 🛑 **Goes straight at Gemma rather than through the agent relay, and
- * that is the same carve-out `preflight` has**: a dry run takes no
- * lock, needs no write target, and mutates nothing, so the
- * agent-does-the-writing rule has nothing to guard here. The MUTATING
- * restore is a different matter — see `restoreSnapshot` below.
+ * 🛑 **Through the agent relay, not straight at Gemma — same as
+ * `preflightCuration`.** A dry run mutates nothing, so a direct call
+ * would work; it would also be the one curation operation in this file
+ * that bypasses the agent, and cab built the relay to serve both halves
+ * precisely so "the preview is not a special case". `dryRun=true` is
+ * exempt from the agent's `GEMMA_WRITE_TARGET` guard on purpose: it is
+ * the half a curator runs BEFORE agreeing, so requiring a write target
+ * to see a diff would make the preview harder to reach than the act it
+ * exists to make safe.
  *
- * The report is a `CommitReport`, and deliberately so: Gemma's route
- * *"replays the snapshot's CurationDocument through the ordinary
- * all-or-none commit, so there is no second diff implementation that
- * could disagree with the first."* Whatever renders a commit's changes
- * renders this unchanged.
+ * The report is a `CommitReport` because the route replays the
+ * snapshot's `CurationDocument` through the ordinary all-or-none
+ * commit, so nothing here re-implements a diff — `CommitChangeSummary`
+ * renders this and a real commit with the same code.
  *
  * 🛑 **A restore returns the curation's CONTENT, not its IDENTITY.**
  * Gemma's own words. An entity whose id no longer exists — because an
  * intervening run deleted and recreated it — comes back as a NEW row
  * with a NEW id, and a differential-expression analysis that survived
- * that run is cascaded again on the way back. So this is not a plain
- * undo and the surface must not call it one: the preview is what the
- * curator decides on, not a formality.
- *
- * 409 means the restore would delete analyses or strand a subset.
- * `force` is deliberately NOT a parameter here, for the same reason
- * `commitCuration` refuses one — a consequence is reviewed and
- * consented to, never checkbox-ed past.
+ * that run is cascaded again on the way back. `reidentified` on the
+ * report is where that shows up, and it is why the dry run is the thing
+ * the curator decides on rather than a formality.
  */
 export function previewRestore(
   experimentId: number | string,
   snapshotId: number,
+  onBehalfOf?: string,
 ): Promise<CommitReport> {
   return api.post<CommitReport>(
-    `/rest/v2/datasets/${experimentId}/annotation-sets/${snapshotId}/restore?dryRun=true`,
+    `/curation-restore/${experimentId}/${snapshotId}${qs({
+      dryRun: true,
+      onBehalfOf,
+    })}`,
     {},
   );
 }
 
 /**
- * 🛑 **The mutating restore has no route to call yet.**
+ * Put the curation back to this snapshot.
  *
- * Restore is a write, and writes go through the agent
- * (`feedback_ui_is_readonly_client_agent_writes`). The relays that
- * exist are `/curation-{draft,lock,disposition,finalize,reopen,
- * preflight,commit,sign}` — there is no `/curation-restore`. Posting
- * at Gemma directly would be the UI writing curation, which is the one
- * thing this client does not do.
+ * 🛑 **`force` is consent AFTER the consequences have been reviewed,
+ * never a checkbox.** Gemma 409s when a restore would delete analyses
+ * or strand a subset. `commitCuration` refuses to take a force
+ * parameter at all for that reason, and cab kept the same restraint on
+ * the relay — default off, never supplied by habit, with a test
+ * asserting the parameter is absent unless passed. So a caller reaching
+ * here with `force` must have shown the curator `previewRestore`'s
+ * report first: wire the confirm step, not a checkbox. Undo should not
+ * be the app's first force button.
  *
- * Paul, 2026-09-04: *"restore is a curator action"* — so this is a
- * missing relay, not a permissions question. Filed with cab. This
- * throws rather than silently offering a button that cannot work, and
- * deletes itself the day the relay lands.
+ * A 409 arrives in the same envelope as commit and sign — `reason` plus
+ * `retryableAfterReread` — so a caller need not know which route it
+ * called to know whether the failure is retryable.
+ *
+ * ⚠️ Relay committed by cab 2026-09-04, NOT deployed anywhere yet.
  */
-export function restoreSnapshot(): never {
-  throw new Error(
-    "Restore needs the agent relay (/curation-restore), which does not " +
-      "exist yet. The preview is live; the restore is not.",
+export function restoreSnapshot(
+  experimentId: number | string,
+  snapshotId: number,
+  opts: { force?: boolean; onBehalfOf?: string } = {},
+): Promise<CommitReport> {
+  return api.post<CommitReport>(
+    `/curation-restore/${experimentId}/${snapshotId}${qs({
+      force: opts.force ? true : undefined,
+      onBehalfOf: opts.onBehalfOf,
+    })}`,
+    {},
   );
 }

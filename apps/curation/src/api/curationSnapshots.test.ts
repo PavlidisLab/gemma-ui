@@ -5,12 +5,16 @@
  * notice: which ROUTE each call goes at, and the fact that the
  * mutating restore has nowhere to go yet.
  */
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "./client";
 import {
+  previewRestore,
   restoreSnapshot,
   snapshotsPath,
 } from "./curationCommit";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("the snapshot history", () => {
   it("reads Gemma's annotation sets, filtered to snapshots", () => {
@@ -31,15 +35,46 @@ describe("the snapshot history", () => {
 });
 
 describe("🛑 the mutating restore", () => {
-  it("refuses rather than offering a button that cannot work", () => {
-    // Restore is a write and writes go through the agent. The relays
-    // are /curation-{draft,lock,disposition,finalize,reopen,preflight,
-    // commit,sign} — there is no /curation-restore. Posting at Gemma
-    // directly would be the UI writing curation.
-    expect(() => restoreSnapshot()).toThrow(/agent relay/i);
+  it("goes through the agent relay, never straight at Gemma", () => {
+    // Restore is a write and writes go through the agent. cab built
+    // /curation-restore 2026-09-04; before that this threw rather than
+    // offering a button that could not work.
+    const calls: string[] = [];
+    vi.spyOn(api, "post").mockImplementation(((path: string) => {
+      calls.push(path);
+      return Promise.resolve({} as never);
+    }) as never);
+
+    void restoreSnapshot(2706, 2116);
+    expect(calls[0]).toContain("/curation-restore/2706/2116");
+    expect(calls[0]).not.toContain("/rest/v2/");
   });
 
-  it("names the route that is missing, so the error is actionable", () => {
-    expect(() => restoreSnapshot()).toThrow(/curation-restore/);
+  it("🛑 omits `force` unless it is explicitly asked for", () => {
+    // Consent after reviewing consequences, never a default. cab
+    // asserts the same on their side; this is the client half.
+    const calls: string[] = [];
+    vi.spyOn(api, "post").mockImplementation(((path: string) => {
+      calls.push(path);
+      return Promise.resolve({} as never);
+    }) as never);
+
+    void restoreSnapshot(2706, 2116);
+    expect(calls[0]).not.toContain("force");
+
+    void restoreSnapshot(2706, 2116, { force: true });
+    expect(calls[1]).toContain("force=true");
+  });
+
+  it("previews through the SAME relay — the dry run is not a special case", () => {
+    const calls: string[] = [];
+    vi.spyOn(api, "post").mockImplementation(((path: string) => {
+      calls.push(path);
+      return Promise.resolve({} as never);
+    }) as never);
+
+    void previewRestore(2706, 2116);
+    expect(calls[0]).toContain("/curation-restore/2706/2116");
+    expect(calls[0]).toContain("dryRun=true");
   });
 });
