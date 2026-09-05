@@ -1478,21 +1478,61 @@ export interface Gene {
   description?: string | null;
 }
 
+/** A physical location as ``/genes/{gene}/locations`` actually returns
+ *  it (verified against gemma2 2026-09-04, TP53 → chr17). The wire
+ *  gives a START plus a LENGTH — there is no `nucleotideEnd`, and no
+ *  `nucleotideStart` either:
+ *
+ *      { id, nucleotide, nucleotideLength, strand, bin, chromosome, taxon }
+ */
 export interface GeneLocation {
   chromosome?: string | null;
   strand?: string | null;
-  nucleotideStart?: number | null;
-  nucleotideEnd?: number | null;
+  /** Start coordinate on `chromosome`. */
+  nucleotide?: number | null;
+  /** Span from `nucleotide`; the end is start + length. */
+  nucleotideLength?: number | null;
   taxon?: Taxon | null;
 }
 
+/** Start/end of a location, derived from the start-plus-length the wire
+ *  actually sends. Returns nulls rather than guessing when either half
+ *  is missing, so a caller renders "?" instead of `NaN`. */
+export function geneLocationRange(loc: GeneLocation): {
+  start: number | null;
+  end: number | null;
+} {
+  const start = loc.nucleotide ?? null;
+  const end =
+    start != null && loc.nucleotideLength != null
+      ? start + loc.nucleotideLength
+      : null;
+  return { start, end };
+}
+
+/** A GO annotation as ``/genes/{gene}/goTerms`` actually returns it
+ *  (verified against gemma2 2026-09-04, TP53 → 678 rows). The wire
+ *  carries the ontology-term VO, NOT a GO-specific one:
+ *
+ *      { goId, term, label, uri, localName, comment, obsolete }
+ *
+ *  Two things it does NOT carry, though the legacy gene page groups by
+ *  the first: **`aspect`** (BP/MF/CC) and **`definition`**. Don't add
+ *  fields here speculatively — an absent field types as `undefined`
+ *  and silently collapses whatever UI reads it. */
 export interface GoTerm {
-  termUri?: string | null;
-  term?: string | null;
+  /** CURIE, e.g. ``GO:0006259`` — the id QuickGO links by. */
   goId?: string | null;
-  aspect?: string | null;
-  definition?: string | null;
-  evidence?: string | null;
+  /** Term label. `term` and `label` carry the same string. */
+  term?: string | null;
+  label?: string | null;
+  /** Full PURL, e.g. ``http://purl.obolibrary.org/obo/GO_0006259``. */
+  uri?: string | null;
+  /** Local name of the URI, e.g. ``GO_0006259``. */
+  localName?: string | null;
+  /** Often the empty string rather than absent. */
+  comment?: string | null;
+  obsolete?: boolean | null;
 }
 
 export async function getGene(
@@ -1587,6 +1627,75 @@ export async function getGeneGoTerms(
 ): Promise<GoTerm[]> {
   const r = await apiGet<PaginatedResponse<GoTerm>>(
     `${BASE}/genes/${geneId}/goTerms`,
+    { signal },
+  );
+  return r.data ?? [];
+}
+
+/** Homologues of a gene across taxa, from ``/genes/{gene}/homologues``
+ *  (Gemma's homologene-backed service; the legacy gene page shows this
+ *  on its Overview tab). Rows are plain {@link Gene}s — the homologue
+ *  in each other taxon — so each one links straight to its own gene
+ *  page by NCBI id.
+ *
+ *  ⚠️ **Populated on some deployments, empty on others.** Measured
+ *  2026-09-04: staging-gemma returns TP53's two homologues (mouse
+ *  Trp53 22059, rat Tp53 24842), while gemma2 answers 200 with
+ *  ``{"data":[]}`` for every gene tried (7157, 2099, 22059, 4609,
+ *  1234, ENSG00000141510) — as does frink:8080. The legacy v1 gene
+ *  page shows the same two homologues, so the data exists; gemma2's
+ *  homologene load is what's missing. Callers must render a real empty
+ *  state rather than assuming rows.
+ *
+ *  Takes the same identifier flavours as ``/genes/{gene}``: NCBI id,
+ *  Ensembl id, or official symbol — but a bare symbol 400s when it
+ *  matches more than one taxon, so pass an NCBI id. */
+/** ``/genes/{gene}/overview`` — the gene plus the two derived numbers
+ *  the legacy gene page's "Functions" row is built from. Unlike every
+ *  other gene sub-resource this returns a single OBJECT under `data`,
+ *  not an array.
+ *
+ *  `multifunctionalityRank` is the one field here that isn't already on
+ *  the plain ``/genes/{gene}`` payload, and it's the reason to call
+ *  this at all. */
+export interface GeneOverview extends Gene {
+  /** Rank in [0, 1]; higher = annotated to more distinct GO groups.
+   *  TP53 is 0.9993201359728054, which the legacy page rounds to
+   *  "1.00". Absent on a gene with no multifunctionality score. */
+  multifunctionalityRank?: number | null;
+  /** Datasets this gene is assayed in. Not currently rendered. */
+  associatedExperimentCount?: number | null;
+}
+
+export async function getGeneOverview(
+  geneId: number | string,
+  signal?: AbortSignal,
+): Promise<GeneOverview | null> {
+  // `data` is the object itself — `?.[0]` on it yields undefined.
+  const r = await apiGet<{ data?: GeneOverview | null }>(
+    `${BASE}/genes/${geneId}/overview`,
+    { signal },
+  );
+  return r.data ?? null;
+}
+
+/** Multifunctionality as the legacy gene page prints it — two decimals,
+ *  so TP53's 0.99932… reads "1.00". Null in, null out: a gene without a
+ *  score must render nothing rather than "0.00", which would claim the
+ *  opposite of "unknown". */
+export function formatMultifunctionalityRank(
+  rank: number | null | undefined,
+): string | null {
+  if (rank == null || !Number.isFinite(rank)) return null;
+  return rank.toFixed(2);
+}
+
+export async function getGeneHomologues(
+  geneId: number | string,
+  signal?: AbortSignal,
+): Promise<Gene[]> {
+  const r = await apiGet<PaginatedResponse<Gene>>(
+    `${BASE}/genes/${geneId}/homologues`,
     { signal },
   );
   return r.data ?? [];

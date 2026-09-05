@@ -1,5 +1,12 @@
 // Per-gene page — /gene/ncbi/$ncbiId
-// Endpoints: /rest/v2/genes/{ncbiId} · /locations · /goTerms
+// Endpoints: /rest/v2/genes/{ncbiId} · /locations · /homologues · /goTerms · /overview
+//
+// Every sub-resource is keyed by the NCBI id, NOT gene.id. Gemma's
+// internal id looks like an id and is right there on the payload, but
+// /genes/{gene} resolves a bare number as an NCBI gene id — TP53's
+// internal 162841 404s with "recognised to be 'ncbiGeneId'", while 7157
+// answers. Pass `gene.ncbiId` (falling back to the route param), never
+// `gene.id`.
 //
 // The page is keyed by NCBI gene id (not symbol): symbols collide across
 // taxa, so the URL carries an unambiguous NCBI id. Symbol/name resolution
@@ -9,14 +16,18 @@
 // Differential expression section is on hold pending the heavy gene-page
 // rework — placeholder for now (see GENE_PAGE_REWORK_RECCE.md once it lands).
 
-import { useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   getGene,
   getGeneLocations,
   getGeneGoTerms,
+  getGeneHomologues,
+  getGeneOverview,
+  geneLocationRange,
+  formatMultifunctionalityRank,
 } from "@/api/endpoints";
-import type { Gene, GeneLocation, GoTerm } from "@/api/endpoints";
+import type { Gene, GeneLocation } from "@/api/endpoints";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { PageMask } from "@gemma/ui";
 
@@ -50,14 +61,19 @@ export function GenePage() {
   }
 
   const gene = geneQ.data;
+  // The sub-resource key. `gene.ncbiId` is the payload's own answer;
+  // the route param is the same id and covers a row that somehow omits
+  // it (the route only ever carries an NCBI id).
+  const geneKey = gene.ncbiId ?? ncbiId;
 
   return (
     <div className="h-full overflow-y-auto bg-gemma-bg">
       <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
         <Breadcrumbs gene={gene} />
         <GeneHero gene={gene} />
-        <LocationsSection geneId={gene.id} />
-        <GoTermsSection geneId={gene.id} />
+        <LocationsSection geneKey={geneKey} />
+        <HomologuesSection geneKey={geneKey} gene={gene} />
+        <FunctionSection geneKey={geneKey} />
         <DiffExComingSoonSection />
       </div>
     </div>
@@ -143,10 +159,10 @@ function ExternalLink({ href, label }: { href: string; label: string }) {
   );
 }
 
-function LocationsSection({ geneId }: { geneId: number }) {
+function LocationsSection({ geneKey }: { geneKey: number | string }) {
   const locQ = useQuery({
-    queryKey: ["gene", geneId, "locations"],
-    queryFn: ({ signal }) => getGeneLocations(geneId, signal),
+    queryKey: ["gene", geneKey, "locations"],
+    queryFn: ({ signal }) => getGeneLocations(geneKey, signal),
     staleTime: Infinity,
   });
 
@@ -174,8 +190,10 @@ function LocationsSection({ geneId }: { geneId: number }) {
 function LocationChip({ loc }: { loc: GeneLocation }) {
   if (!loc.chromosome) return null;
   const taxon = loc.taxon?.commonName ?? loc.taxon?.scientificName ?? "";
-  const start = loc.nucleotideStart?.toLocaleString() ?? "?";
-  const end = loc.nucleotideEnd?.toLocaleString() ?? "?";
+  // start + length, not start + end — see GeneLocation.
+  const range = geneLocationRange(loc);
+  const start = range.start?.toLocaleString() ?? "?";
+  const end = range.end?.toLocaleString() ?? "?";
   const strand = loc.strand ?? "?";
   return (
     <span className="text-[11px] font-mono px-2 py-1 rounded bg-slate-50 border border-slate-200 text-slate-800">
@@ -186,78 +204,177 @@ function LocationChip({ loc }: { loc: GeneLocation }) {
   );
 }
 
-const GO_ASPECT_LABELS: Record<string, string> = {
-  biological_process: "Biological Process",
-  molecular_function: "Molecular Function",
-  cellular_component: "Cellular Component",
-  BP: "Biological Process",
-  MF: "Molecular Function",
-  CC: "Cellular Component",
-};
+// ─── Homologues — /genes/{ncbiId}/homologues ─────────────────────────────────
+//
+// The homologene-backed view of the same gene in other taxa, mirroring
+// the legacy gene page's "Homologues" row.
+//
+// The section stays visible on an empty result instead of unmounting,
+// because empty is deployment-dependent rather than gene-dependent:
+// staging-gemma serves TP53's mouse and rat homologues while gemma2
+// returns `{"data":[]}` for every gene (2026-09-04). A hide-when-empty
+// section would silently vanish across a whole backend and read as an
+// unbuilt feature; the empty copy names the gene so it reads as an
+// unloaded dataset instead.
 
-function GoTermsSection({ geneId }: { geneId: number }) {
-  const goQ = useQuery({
-    queryKey: ["gene", geneId, "goTerms"],
-    queryFn: ({ signal }) => getGeneGoTerms(geneId, signal),
+function HomologuesSection({
+  geneKey,
+  gene,
+}: {
+  geneKey: number | string;
+  gene: Gene;
+}) {
+  const homQ = useQuery({
+    queryKey: ["gene", geneKey, "homologues"],
+    queryFn: ({ signal }) => getGeneHomologues(geneKey, signal),
     staleTime: Infinity,
   });
 
-  if (goQ.isLoading) {
+  const homologues = homQ.data ?? [];
+  const symbol = gene.officialSymbol ?? `NCBI ${geneKey}`;
+
+  return (
+    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-3">
+      <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
+        Homologues{homologues.length > 0 ? ` (${homologues.length})` : ""}
+      </div>
+
+      {homQ.isLoading ? (
+        <div className="text-xs text-gemma-subtle italic">Loading…</div>
+      ) : homQ.isError ? (
+        <div className="text-xs text-rose-700">
+          Couldn't load homologues — {(homQ.error as Error)?.message ?? "request failed"}.
+        </div>
+      ) : homologues.length === 0 ? (
+        <div className="text-sm text-gemma-subtle italic">
+          No homologues recorded for {symbol}.
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {homologues.map((h) => (
+            <HomologueChip key={h.ncbiId ?? h.id} homologue={h} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HomologueChip({ homologue }: { homologue: Gene }) {
+  const taxon =
+    homologue.taxon?.commonName ?? homologue.taxon?.scientificName ?? "";
+  const symbol = homologue.officialSymbol ?? `#${homologue.id}`;
+  const title = [homologue.officialName, taxon ? `(${taxon})` : null]
+    .filter(Boolean)
+    .join(" ");
+
+  const body = (
+    <>
+      {taxon ? (
+        <span className="text-gemma-subtle mr-1.5 italic">{taxon}</span>
+      ) : null}
+      <span className="font-mono font-semibold">{symbol}</span>
+    </>
+  );
+
+  // Without an NCBI id there is no gene page to point at — the route is
+  // keyed by that id and nothing else resolves it.
+  if (homologue.ncbiId == null) {
     return (
-      <section className="bg-white border border-gemma-grid rounded-md p-4 text-xs text-gemma-subtle italic">
-        Loading GO terms…
-      </section>
+      <span
+        title={title || undefined}
+        className="text-[11px] px-2 py-1 rounded bg-slate-50 border border-slate-200 text-slate-800"
+      >
+        {body}
+      </span>
     );
   }
 
-  const terms = goQ.data ?? [];
-  if (terms.length === 0) return null;
+  return (
+    <Link
+      to="/gene/ncbi/$ncbiId"
+      params={{ ncbiId: String(homologue.ncbiId) }}
+      title={title || "Open this gene's page"}
+      className="text-[11px] px-2 py-1 rounded bg-emerald-50 border border-emerald-200 text-emerald-900 hover:border-emerald-400 transition-colors"
+    >
+      {body}
+    </Link>
+  );
+}
 
-  const grouped = new Map<string, GoTerm[]>();
-  for (const t of terms) {
-    const asp = t.aspect ?? "other";
-    if (!grouped.has(asp)) grouped.set(asp, []);
-    grouped.get(asp)!.push(t);
-  }
+// ─── Function — /genes/{ncbiId}/goTerms (counted) + /overview ────────────────
+//
+// A COUNT, not a term list. Mirrors the "Functions" row on the legacy
+// gene page (gemma.msl.ubc.ca/gene/showGene.html?id=162841), which
+// reads "224 GO Terms; Overall multifunctionality 1.00" — one line,
+// no chips.
+//
+// ⚠️ The count here will NOT match the legacy page's. Every REST
+// deployment returns 678 GO terms for TP53 (measured 2026-09-04 on
+// gemma2, on staging-gemma, and on the v1 host's own /rest/v2), while
+// the legacy page prints 224 for the same gene — the page counts a
+// narrower set than the endpoint serves (the endpoint looks to include
+// the propagated parent terms). This renders what the endpoint
+// returns; the gap is a question for the backend, not something to
+// paper over client-side by inventing a filter.
+//
+// Two queries because neither endpoint alone answers the row:
+// /overview carries `multifunctionalityRank` but no GO count, and
+// /goTerms carries the terms but no rank. There is no goTerms/count
+// endpoint, so the count costs a full 678-row fetch.
 
-  const aspectOrder = ["BP", "MF", "CC", "biological_process", "molecular_function", "cellular_component"];
-  const sortedGroups = [...grouped.entries()].sort(([a], [b]) => {
-    const ai = aspectOrder.indexOf(a);
-    const bi = aspectOrder.indexOf(b);
-    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+function FunctionSection({ geneKey }: { geneKey: number | string }) {
+  const goQ = useQuery({
+    queryKey: ["gene", geneKey, "goTerms"],
+    queryFn: ({ signal }) => getGeneGoTerms(geneKey, signal),
+    staleTime: Infinity,
   });
 
+  const overviewQ = useQuery({
+    queryKey: ["gene", geneKey, "overview"],
+    queryFn: ({ signal }) => getGeneOverview(geneKey, signal),
+    staleTime: Infinity,
+  });
+
+  const goCount = goQ.data?.length ?? null;
+  const rank = overviewQ.data?.multifunctionalityRank;
+  const rankText = formatMultifunctionalityRank(rank);
+
   return (
-    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-4">
+    <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-2">
       <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
-        GO annotations ({terms.length})
+        Function
       </div>
-      <div className="space-y-3">
-        {sortedGroups.map(([asp, aspTerms]) => (
-          <div key={asp}>
-            <div className="text-[10px] uppercase tracking-wide text-gemma-subtle mb-1.5">
-              {GO_ASPECT_LABELS[asp] ?? asp}
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {aspTerms.map((t) => (
-                <a
-                  key={t.termUri ?? t.goId ?? t.term}
-                  href={t.termUri ? `https://www.ebi.ac.uk/QuickGO/term/${t.goId}` : undefined}
-                  target={t.goId ? "_blank" : undefined}
-                  rel="noreferrer"
-                  title={t.definition ?? t.termUri ?? undefined}
-                  className="text-[11px] px-1.5 py-0.5 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-800 hover:border-indigo-400 transition-colors"
-                >
-                  {t.goId ? (
-                    <span className="font-mono text-[10px] text-indigo-500 mr-1">{t.goId}</span>
-                  ) : null}
-                  {t.term ?? t.termUri ?? "?"}
-                </a>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+
+      {goQ.isLoading || overviewQ.isLoading ? (
+        <div className="text-xs text-gemma-subtle italic">Loading…</div>
+      ) : (
+        <div className="text-sm text-gemma-ink">
+          {goCount != null ? (
+            <span>
+              <span className="font-semibold">{goCount.toLocaleString()}</span>{" "}
+              GO {goCount === 1 ? "term" : "terms"}
+            </span>
+          ) : (
+            <span className="text-gemma-subtle italic">GO terms unavailable</span>
+          )}
+          {rankText != null ? (
+            <>
+              <span className="text-gemma-subtle">; </span>
+              <span
+                // The displayed value is rounded to two decimals like
+                // the legacy page, so "1.00" is not necessarily 1 —
+                // TP53 is 0.9993. Keep the exact figure reachable.
+                title={`Multifunctionality rank ${rank}. Ranked in [0, 1]; higher means the gene is annotated to more distinct GO groups.`}
+                className="underline decoration-dotted decoration-gemma-grid underline-offset-2"
+              >
+                overall multifunctionality{" "}
+                <span className="font-semibold">{rankText}</span>
+              </span>
+            </>
+          ) : null}
+        </div>
+      )}
     </section>
   );
 }
