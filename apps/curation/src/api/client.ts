@@ -80,6 +80,22 @@ export function bearerToken(): string {
  * it. `/annotations/search` began returning `400 Invalid search query:
  * cell OR` on 2026-08-25 (gemma2 `8b76ee195c`), which is the first
  * Gemma error worth showing a curator verbatim.
+ *
+ * 🛑 **A THIRD shape: the agent relaying Gemma.** `/curation-*` routes
+ * forward to Gemma and pass its failure back as
+ * `{detail: {error, upstreamMessage, upstream}}` — a FastAPI `detail`
+ * whose value is an OBJECT, so the branch below stringified the lot and
+ * the curator got a JSON blob where a sentence belonged.
+ *
+ * `upstreamMessage` is Gemma's own sentence, and it is the one worth
+ * reading: "design references unknown sample short name
+ * 'GSE7866_bioMaterial_2' for this dataset" tells a curator what to do,
+ * where `400 Bad Request` does not. Added by cab 2026-09-05 after
+ * `_passthrough` was found slicing `resp.text[:300]` — Gemma's envelope
+ * spends ~180 characters on `apiVersion` and `buildInfo` before `error`
+ * begins, so the cut landed mid-sentence and left unterminated JSON
+ * that nothing downstream could parse. That is the whole story of
+ * `save rejected: 400 Bad Request —` with nothing after the dash.
  */
 async function readErrorBody(
   r: Response,
@@ -88,7 +104,15 @@ async function readErrorBody(
     const body = await r.clone().json();
     if (body && typeof body === "object" && "detail" in body) {
       const d = (body as { detail: unknown }).detail;
-      return { detail: typeof d === "string" ? d : JSON.stringify(d), body };
+      if (typeof d === "string") return { detail: d, body };
+      // The relay's passthrough: prefer Gemma's sentence over the
+      // wrapper. `upstream` (the raw envelope) stays on `body` for
+      // anything that needs to key off a structured field.
+      if (d && typeof d === "object" && "upstreamMessage" in d) {
+        const m = (d as { upstreamMessage: unknown }).upstreamMessage;
+        if (typeof m === "string" && m) return { detail: m, body };
+      }
+      return { detail: JSON.stringify(d), body };
     }
     if (body && typeof body === "object" && "error" in body) {
       const e = (body as { error: unknown }).error;
@@ -202,6 +226,54 @@ export function snakeify(value: unknown): unknown {
   return out;
 }
 
+const ME_PATH = "/rest/v2/me";
+
+function isMePath(path: string): boolean {
+  return path.split("?")[0].endsWith(ME_PATH);
+}
+
+function announceSessionExpired(): void {
+  window.dispatchEvent(new CustomEvent("gca:session-expired"));
+}
+
+/**
+ * In-flight `/me` probe, shared across a burst of 403s.
+ *
+ * A page whose panels all fail at once asks `/me` ONCE, not once per
+ * panel. That keeps the `useMe` lockdown intact — it exists to stop
+ * `/me` firing on every window transition, not to forbid asking after
+ * something actually failed.
+ */
+let sessionProbe: Promise<boolean> | null = null;
+
+/** True only when the server says nobody is signed in. */
+async function probeSignedOut(): Promise<boolean> {
+  if (sessionProbe) return sessionProbe;
+  sessionProbe = (async () => {
+    try {
+      const token = bearerToken();
+      const r = await fetch(ME_PATH, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
+      });
+      // 🛑 Only an auth refusal counts. local_api has no `/me` and 404s;
+      // a 500 says nothing about the session. Signing the curator out
+      // over a flaky probe is worse than the dead-end error it replaces.
+      return r.status === 401 || r.status === 403;
+    } catch {
+      // Offline / aborted. Unknown is not "signed out".
+      return false;
+    } finally {
+      // Cleared next tick: concurrent 403s share one probe, while a
+      // later failure re-asks instead of trusting a stale answer.
+      setTimeout(() => {
+        sessionProbe = null;
+      }, 0);
+    }
+  })();
+  return sessionProbe;
+}
+
 async function request<T>(
   method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   path: string,
@@ -225,7 +297,8 @@ async function request<T>(
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!r.ok) {
-    // 🛑 A 401 means the SESSION went, not that this call was wrong.
+    // An auth refusal means the SESSION went, not that this call was
+    // wrong.
     //
     // `useMe` is deliberately locked down — 5-minute staleTime, no
     // refetch on focus / mount / reconnect — because re-asking on every
@@ -240,12 +313,30 @@ async function request<T>(
     // the query cache here: this module is below React and must not
     // import a client.
     //
-    // 🛑 401 ONLY, never 403. A 403 from Gemma is usually an ACL gap on
-    // a child entity — 1,920 FactorValues on prod have no OI row, and
-    // an admin is refused too. Signing a curator out over one would be
-    // wrong and would hide the real message.
-    if (r.status === 401 && typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("gca:session-expired"));
+    // 🛑 **Gemma never sends 401.** An anonymous caller gets
+    // `403 "Access is denied"` — measured 2026-09-05 against gemma2 on
+    // `/datasets/657/annotation-sets` and on `/me` itself. So a
+    // 401-only trigger cannot fire here at all, and the expiry above
+    // stayed invisible after it was supposedly addressed.
+    //
+    // 🛑 But "403 ⇒ signed out" is equally wrong: a 403 is usually an
+    // ACL gap on a child entity — 1,920 FactorValues on prod have no OI
+    // row, and an admin is refused too. Signing a curator out over one
+    // would hide the real message.
+    //
+    // `/me` separates them, because it answers for the SESSION rather
+    // than for any entity's ACL:
+    //
+    //     403 + /me 200 → ACL gap. Leave the caller's error alone.
+    //     403 + /me 403 → the session went. Announce it.
+    if (typeof window !== "undefined") {
+      if (r.status === 401) {
+        announceSessionExpired();
+      } else if (r.status === 403) {
+        // A 403 from `/me` IS the answer — probing again would recurse.
+        if (isMePath(path)) announceSessionExpired();
+        else void probeSignedOut().then((out) => out && announceSessionExpired());
+      }
     }
     const { detail, body: errorBody } = await readErrorBody(r);
     throw new ApiError(
