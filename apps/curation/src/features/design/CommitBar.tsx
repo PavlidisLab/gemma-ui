@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import type { CommitConflict } from "@/api/commitConflict";
 import type { DesignDiff } from "./diff";
@@ -66,9 +65,6 @@ export function CommitBar({
   // unblocked when every problem factor has ``checked = true``. Empty
   // reasons are allowed — the curator might override during a known-
   // intermediate state — but the placeholder copy nudges toward a note.
-  const [overrideState, setOverrideState] = useState<
-    Record<number, { checked: boolean; reason: string }>
-  >({});
   // 🛑 Remote mode blocks the commit, before the click.
   //
   // Commit's write path is the older whole-design PUT, and `/rest` is a
@@ -111,15 +107,6 @@ export function CommitBar({
   // dataset carries a reference per sub-experiment) and must not gate
   // the commit. The ValidatorBanner asks about the multi case in its
   // slate advisory channel instead.
-  const baselineProblem = validation
-    ? validation.factors.filter(
-        (f) => f.baseline_blocks_commit && !f.baseline_satisfied,
-      )
-    : [];
-  const hasBaselineProblem = baselineProblem.length > 0;
-  const allOverridden = baselineProblem.every(
-    (f) => overrideState[f.factor_id]?.checked,
-  );
   // Hard validation problems that block commit with no override — Gemma
   // rejects them (ungrounded category / off-preset predicate). Unlike the
   // baseline gate there's no legitimate "commit anyway"; the only fix is
@@ -187,10 +174,24 @@ export function CommitBar({
   // through the agent relay (`DesignDraftContext.commit`), which sends
   // Gemma's `CurationDocument` — so the mode changes which write runs,
   // not whether one may.
-  const blocked =
-    lockedOut ||
-    (hasBaselineProblem && !allOverridden) ||
-    hasHardProblem;
+  // 🛑 **A missing baseline is a NOTE, not a blocker** — Paul,
+  // 2026-09-04: *"most of the time the UI shouldn't be demanding a
+  // baseline, as you say individual … not defining a baseline is only a
+  // soft warning, not a blocker, because Gemma tries to figure it out
+  // anyway."* That is the same ruling `isBaseline: null` already
+  // encodes on the wire: null means INFER, and forcing a value kills
+  // the detection. The advisory lives in `ValidatorBanner` beside the
+  // multi-baseline and empty-FV notes.
+  //
+  // Removing the gate also removed the override that stood in for it,
+  // and with it a real bug: the tick sent `baselineRelevance` on
+  // `FactorCommit`, which had no such field, so the whole commit 400ed
+  // — including work that had nothing to do with baselines. Paul hit
+  // that deleting a factor value on GSE32473. gembro added the field
+  // the same evening, so that 400 is fixed independently; the gate is
+  // gone because a missing baseline should never have blocked, not for
+  // want of somewhere to put the override.
+  const blocked = lockedOut || hasHardProblem;
 
   const t = diff.totals;
   const parts: string[] = [];
@@ -282,18 +283,7 @@ export function CommitBar({
             <button
               type="button"
               className="text-[11px] px-2 py-0.5 rounded bg-blue-700 text-white hover:bg-blue-800 disabled:opacity-50"
-              onClick={() => {
-                const overrides: BaselineOverride[] = baselineProblem
-                  .filter((f) => overrideState[f.factor_id]?.checked)
-                  .map((f) => ({
-                    factorId: f.factor_id,
-                    factorLabel:
-                      draft?.factors.find((x) => x.id === f.factor_id)?.name ??
-                      `factor#${f.factor_id}`,
-                    reason: overrideState[f.factor_id]?.reason?.trim() ?? "",
-                  }));
-                onCommit(overrides);
-              }}
+              onClick={() => onCommit([])}
               disabled={saving || blocked}
               title={
                 remoteMode
@@ -335,71 +325,6 @@ export function CommitBar({
                 {takingOver ? "taking over…" : "Take over"}
               </button>
             ) : null}
-          </div>
-        ) : null}
-        {hasBaselineProblem ? (
-          <div className="px-3 pb-2 text-[11px] text-rose-900/90 space-y-1">
-            <div className="font-semibold">
-              Tick to override:
-            </div>
-            {baselineProblem.map((f) => {
-              // Treat empty-string names the same as missing — the
-              // ``??`` fallback only catches null/undefined and was
-              // letting blank-named factors render as a bare ":
-              // no baseline marked".
-              const rawName = (
-                draft?.factors.find((x) => x.id === f.factor_id)?.name ?? ""
-              ).trim();
-              const factorLabel =
-                rawName || `(unnamed factor#${f.factor_id})`;
-              // Only the zero case reaches this list now — a multi-
-              // baseline factor is legal and never gated.
-              const issue = "no baseline";
-              const state = overrideState[f.factor_id] ?? {
-                checked: false,
-                reason: "",
-              };
-              return (
-                <div
-                  key={f.factor_id}
-                  className="flex items-center gap-2 flex-wrap"
-                >
-                  <label className="inline-flex items-center gap-1">
-                    <input
-                      type="checkbox"
-                      checked={state.checked}
-                      onChange={(e) =>
-                        setOverrideState((prev) => ({
-                          ...prev,
-                          [f.factor_id]: {
-                            checked: e.target.checked,
-                            reason: prev[f.factor_id]?.reason ?? "",
-                          },
-                        }))
-                      }
-                    />
-                    <span>{factorLabel}: {issue}</span>
-                  </label>
-                  {state.checked ? (
-                    <input
-                      type="text"
-                      value={state.reason}
-                      onChange={(e) =>
-                        setOverrideState((prev) => ({
-                          ...prev,
-                          [f.factor_id]: {
-                            checked: prev[f.factor_id]?.checked ?? true,
-                            reason: e.target.value,
-                          },
-                        }))
-                      }
-                      placeholder="reason (optional, stamped on curation_note)"
-                      className="text-[11px] border border-rose-300 rounded px-1.5 py-0.5 bg-white min-w-[24ch] flex-1"
-                    />
-                  ) : null}
-                </div>
-              );
-            })}
           </div>
         ) : null}
         {hasHardProblem ? (
@@ -453,7 +378,10 @@ export function CommitBar({
  * doesn't need the URL or the verb; show the status reason and
  * the parsed detail instead.
  */
-function humaniseSaveError(raw: string): string {
+/** Exported for test: the two-backend envelope handling below is
+ *  the part that silently loses a message, and a render test cannot
+ *  show which branch was taken. */
+export function humaniseSaveError(raw: string): string {
   // Try to find the trailing JSON blob.
   const i = raw.indexOf("{");
   if (i < 0) return raw;
@@ -464,6 +392,30 @@ function humaniseSaveError(raw: string): string {
     detail = JSON.parse(tail);
   } catch {
     return raw;
+  }
+  // 🛑 **Gemma's envelope is `{error: {code, message}}`, and this
+  // used to understand only FastAPI's.** Two backends answer through
+  // one client: the agent relay speaks FastAPI, Gemma speaks this.
+  // With no `detail` key the parser fell through to the status alone,
+  // so a 400 whose body read
+  //   Unrecognized field "baselineRelevance" … (8 known properties: …)
+  // reached the curator as "save rejected: 400 Bad Request" and
+  // nothing else. Paul hit exactly that deleting a factor value on
+  // GSE32473 (cab, 2026-09-04) — the most useful error in the whole
+  // exchange, invisible at the surface that produced it.
+  //
+  // `readErrorBody` in api/client.ts already reads both shapes; this
+  // re-parses the flattened string and has to know them both too.
+  // Checked first, because a Gemma body has no `detail` to find.
+  if (detail && typeof detail === "object" && "error" in detail) {
+    const e = (detail as { error: unknown }).error;
+    if (e && typeof e === "object" && "message" in e) {
+      const m = (e as { message: unknown }).message;
+      if (typeof m === "string" && m) {
+        const status0 = head.replace(/^[A-Z]+\s+\S+\s+failed:\s*/, "");
+        return `${status0} — ${m}`;
+      }
+    }
   }
   // FastAPI error shapes: `{detail: "..."}` (string) or
   // `{detail: [{loc, msg, type, ...}, ...]}` (validation).

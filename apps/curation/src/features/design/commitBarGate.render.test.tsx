@@ -105,94 +105,78 @@ function renderBar(v: DesignValidationState) {
   return { commit, onCommit };
 }
 
-describe("commit gate — baseline override", () => {
-  it("blocks while a baseline gate is unticked", () => {
-    const { commit } = renderBar(validation([factorState({})]));
-    expect((commit as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("a tick unblocks commit, and passes the override through", () => {
-    const { commit, onCommit } = renderBar(validation([factorState({})]));
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect((commit as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.click(commit);
-    expect(onCommit).toHaveBeenCalledTimes(1);
-    expect(onCommit.mock.calls[0][0]).toEqual([
-      { factorId: 7, factorLabel: "collection of material", reason: "" },
-    ]);
-  });
-
-  it("needs EVERY blocked factor ticked, not just one", () => {
-    const { commit } = renderBar(
-      validation([factorState({}), factorState({ factor_id: 9 })]),
-    );
-    fireEvent.click(screen.getAllByRole("checkbox")[0]);
-    expect((commit as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getAllByRole("checkbox")[1]);
-    expect((commit as HTMLButtonElement).disabled).toBe(false);
-  });
-
-  it("a tick does NOT unblock a hard problem — and the reason is on screen", () => {
-    // The curator's confusion in the report: ticking the override and
-    // nothing happens. If a hard problem is what's holding the commit,
-    // the bar has to say so rather than leave the tick looking broken.
-    const { commit } = renderBar(
-      validation([
-        factorState({
-          ungrounded_categories: [{ label: "collection of material" }],
-        } as Partial<FactorValidationState>),
-      ]),
-    );
-    fireEvent.click(screen.getByRole("checkbox"));
-    expect((commit as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/Fix to commit:/i)).toBeTruthy();
-    expect(screen.getByText(/category is free text/i)).toBeTruthy();
-  });
-
-  it("no gate at all → commit is live", () => {
-    const { commit } = renderBar(
-      validation([factorState({ baseline_count: 1 })]),
-    );
-    expect((commit as HTMLButtonElement).disabled).toBe(false);
-  });
-
+describe("commit gate — a missing baseline is a NOTE, not a gate", () => {
   /**
-   * 🛑 Marking a baseline is a nice-to-have, not a requirement.
+   * 🛑 **This file used to assert the opposite, and the reversal is
+   * Paul's.**
    *
-   * Gemma does not need an FV flagged to run a DEA against it: its own
-   * detector falls back to a level whose statements read as a control.
-   * A factor Gemma already resolves has a reference, so asking the
-   * curator to mark one is asking for work that changes nothing.
+   * 2026-08-19 he said of the tick: *"we have a sign off, you check a
+   * box, I think that's okay"*, and these tests pinned that — blocked
+   * while unticked, every blocked factor needing its own tick, the
+   * override passed through to `onCommit`.
    *
-   * Measured on 100 gemma2 datasets: of 136 factors this gate applies
-   * to, Gemma resolves 103 (76%). Gating on the raw MARKED count asked
-   * for all 136 in remote mode, where nothing is ever marked — Gemma
-   * has never set `isBaseline` for anyone. An override on everything
-   * trains people to tick without reading, which is worse than no gate.
+   * 2026-09-04 he reversed it: *"most of the time the UI shouldn't be
+   * demanding a baseline, as you say individual … not defining a
+   * baseline is only a soft warning, not a blocker, because Gemma tries
+   * to figure it out anyway."*
+   *
+   * Both quotes are kept because the second only makes sense against
+   * the first, and because a later reader finding the old behaviour in
+   * git should see it was removed on purpose rather than lost.
+   *
+   * The reversal also killed a real bug: the tick sent
+   * `baselineRelevance` on `FactorCommit`, a field Gemma has no slot
+   * for, so the whole commit 400ed — including edits with nothing to do
+   * with baselines. Paul hit that deleting a factor value on GSE32473.
    */
-  it("Gemma resolved it → nothing marked, and no gate", () => {
-    const { commit } = renderBar(
-      validation([
-        factorState({ baseline_count: 0, baseline_satisfied: true }),
-      ]),
-    );
+  it("does NOT block when no baseline is marked", () => {
+    const { commit } = renderBar(validation([factorState({})]));
     expect((commit as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("offers no tick to override, because there is nothing to override", () => {
+    renderBar(validation([factorState({})]));
     expect(screen.queryByRole("checkbox")).toBeNull();
   });
 
-  it("neither marked nor resolvable → still asks, with the sign-off", () => {
-    // The genuinely ambiguous case, which is where defining a baseline
-    // earns its keep. 16 of the 33 that reach here are `timepoint` —
-    // bare durations, "2 h" beside "6 h", where no control term applies.
+  it("commits with no overrides, whatever the baseline state", () => {
+    // 🛑 The empty array is the point: sending `baselineRelevance` is
+    // what 400ed the commit.
+    const { commit, onCommit } = renderBar(validation([factorState({})]));
+    fireEvent.click(commit);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit.mock.calls[0][0]).toEqual([]);
+  });
+
+  it("several factors with no baseline still do not block", () => {
+    const { commit } = renderBar(
+      validation([factorState({}), factorState({ factor_id: 9 })]),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("🛑 a HARD problem still blocks — this did not soften everything", () => {
+    const { commit } = renderBar(
+      validation([
+        factorState({
+          ungrounded_categories: [
+            { scope: "factor", label: "collection of material" },
+          ],
+        }),
+      ]),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("neither marked nor resolvable → still commits", () => {
+    // The genuinely ambiguous case — 16 of the 33 that reach here are
+    // `timepoint`, bare durations where no control term applies. Gemma
+    // infers, and `isBaseline: null` is what asks it to.
     const { commit } = renderBar(
       validation([
         factorState({ baseline_count: 0, baseline_satisfied: false }),
       ]),
     );
-    expect((commit as HTMLButtonElement).disabled).toBe(true);
-    // Tickable, not a hard block — Paul: "we have a sign off, you check
-    // a box, I think that's okay".
-    fireEvent.click(screen.getByRole("checkbox"));
     expect((commit as HTMLButtonElement).disabled).toBe(false);
   });
 });

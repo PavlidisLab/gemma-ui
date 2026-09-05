@@ -47,6 +47,21 @@ export function ValidatorBanner({
   const multiBaselineFactors = state.factors.filter(
     (s) => s.baseline_count > 1,
   );
+  // 🛑 **No baseline marked. A NOTE, never a gate** — Paul, 2026-09-04:
+  // *"most of the time the UI shouldn't be demanding a baseline, as you
+  // say individual … not defining a baseline is only a soft warning,
+  // not a blocker, because Gemma tries to figure it out anyway."*
+  //
+  // It used to block the commit behind a per-factor tick, and that tick
+  // sent `baselineRelevance` on `FactorCommit` — a field Gemma has no
+  // slot for — so the whole commit 400ed, including edits that had
+  // nothing to do with baselines. Demoted here rather than deleted: the
+  // curator should still SEE that a factor has no reference level, and
+  // on `Individual` or a block factor the honest answer is that none is
+  // wanted. `isBaseline: null` is what carries "infer it" on the wire.
+  const noBaselineFactors = state.factors.filter(
+    (s) => s.baseline_count === 0,
+  );
   // Factor values nothing is assigned to. Advisory for the same reason
   // as the three above — it has to stay visible on a design that is
   // otherwise clean, and a design CAN be clean with one: "every sample
@@ -89,6 +104,17 @@ export function ValidatorBanner({
               onSelectFactor={onSelectFactor}
               heading="more than one baseline"
               noteFor={(s) => multiBaselineNote(s, design)}
+            />
+          ) : null}
+          {noBaselineFactors.length > 0 ? (
+            <FactorNotes
+              factors={noBaselineFactors}
+              design={design}
+              onSelectFactor={onSelectFactor}
+              heading="no baseline marked"
+              noteFor={() =>
+                "Gemma infers one when none is marked; mark a value only if its own guess would be wrong."
+              }
             />
           ) : null}
           {emptyFvFactors.length > 0 ? (
