@@ -142,6 +142,29 @@ test.describe("Ticket management menu @critical", () => {
     await expect(page.getByText(/searching…/i)).toHaveCount(0);
   });
 
+  test("Add to my scratchpad is one click, and really adds", async ({ page }) => {
+    const store = await mockTickets(page, seed());
+    await page.reload();
+    await page.locator(MENU).first().waitFor({ state: "visible" });
+    await openMenu(page);
+    // No typing, no choosing — the whole point of the row.
+    await page.getByRole("button", { name: /add to my scratchpad/i }).click();
+    await expect
+      .poll(() => (store.get(7)?.targets ?? []).map((t) => t.target_id))
+      .toContain(EID);
+  });
+
+  test("🛑 the scratchpad is not offered twice", async ({ page }) => {
+    // Once the dedicated row is up, the same ticket under Recent or in
+    // a search hit would be a second button doing the identical thing.
+    await openMenu(page);
+    await expect(
+      page.getByRole("button", { name: /add to my scratchpad/i }),
+    ).toHaveCount(1);
+    await page.getByPlaceholder(/ticket number or title/i).fill("scratchpad");
+    await expect(page.getByText("Scratchpad: e2e-curator")).toHaveCount(0);
+  });
+
   test("New ticket from this experiment opens a modal with a type and the additions checkbox", async ({
     page,
   }) => {
@@ -150,6 +173,45 @@ test.describe("Ticket management menu @critical", () => {
     await expect(page.getByRole("dialog")).toBeVisible();
     await expect(page.getByText(/allow experiments to be added later/i)).toBeVisible();
     await expect(page.locator("select")).toBeVisible();
+  });
+});
+
+test.describe("An experiment already on the scratchpad @critical", () => {
+  // Seeded BEFORE the first navigation rather than re-mocked mid-test:
+  // a second `mockTickets` plus a reload races the first render under
+  // four workers, and the flake looks exactly like a real regression.
+  test.beforeEach(async ({ page }) => {
+    const withPad = seed();
+    withPad.find((t) => t.id === 7)!.targets = [
+      { target_type: "EXPRESSION_EXPERIMENT", target_id: EID, status: "NOT_DONE" },
+    ];
+    await mockExperiment(page, "exp-29184");
+    await mockTickets(page, withPad);
+    await page.addInitScript(() => window.localStorage.clear());
+    await page.setViewportSize({ width: 1600, height: 1400 });
+    await page.goto(TARGET);
+    await page.waitForSelector("#root > *", { state: "attached" });
+    await page.locator(MENU).first().waitFor({ state: "visible", timeout: 30000 });
+  });
+
+  test("🛑 gets a Remove, not another Add", async ({ page }) => {
+    // Removing IS the completion gesture on a scratchpad, so the two
+    // affordances must never both be adds.
+    await openMenu(page);
+    await expect(
+      page.getByRole("button", { name: /add to my scratchpad/i }),
+    ).toHaveCount(0);
+    await expect(page.getByText("Scratchpad: e2e-curator")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /remove from this ticket/i }),
+    ).toHaveCount(1);
+  });
+
+  test("and is marked as the curator's own", async ({ page }) => {
+    // The pill is how "it is already on MINE" gets answered without
+    // reading the title of every row.
+    await openMenu(page);
+    await expect(page.getByTitle(/your scratchpad/i)).toBeVisible();
   });
 });
 

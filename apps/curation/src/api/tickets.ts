@@ -856,6 +856,12 @@ export function useAddTicketTargets(ticketId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
       qc.invalidateQueries({ queryKey: ["tickets"] });
+      // 🛑 The scratchpad is cached under `["ticket", "scratchpad"]`,
+      // never under its own id, so the id-keyed line above misses it —
+      // and the dashboard renders that copy's `targets` as a card.
+      // Without this an add or remove from the ticket menu leaves the
+      // card showing the old dataset list for its full `staleTime`.
+      qc.invalidateQueries({ queryKey: ["ticket", "scratchpad"] });
     },
   });
 }
@@ -900,6 +906,12 @@ export function useRemoveTicketTarget(ticketId: number) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["ticket", ticketId] });
       qc.invalidateQueries({ queryKey: ["tickets"] });
+      // 🛑 The scratchpad is cached under `["ticket", "scratchpad"]`,
+      // never under its own id, so the id-keyed line above misses it —
+      // and the dashboard renders that copy's `targets` as a card.
+      // Without this an add or remove from the ticket menu leaves the
+      // card showing the old dataset list for its full `staleTime`.
+      qc.invalidateQueries({ queryKey: ["ticket", "scratchpad"] });
     },
   });
 }

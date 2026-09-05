@@ -5,13 +5,17 @@ import {
   experimentTicketsQueryOptions,
   ticketQueryOptions,
   useAddTicketTargets,
+  useMyScratchpad,
   useRemoveTicketTarget,
+  useScratchpadOwnerResolver,
   useTicketSearch,
+  type ScratchpadOwner,
   type Ticket,
   type TicketSearchHit,
 } from "@/api/tickets";
 import { cn } from "@/lib/cn";
 import { CreateTicketForExperimentModal } from "./CreateTicketForExperimentModal";
+import { ScratchpadOwnerPill } from "./ticketPills";
 import {
   forgetRecentTicketId,
   getRecentTicketIds,
@@ -33,11 +37,14 @@ import {
  *      from `GET /datasets/{id}/tickets`. This is the multiple-tickets
  *      answer, and it is one call rather than a scan. Click to go
  *      there; remove where the ticket allows it.
- *   2. **Recent** — the curator's MRU, minus anything already listed
- *      above. Click to ADD this experiment to that ticket. A scratchpad
- *      is by definition the ticket just used, so it sits at the top
- *      here and never needs a search box.
- *   3. **New ticket from this experiment…**
+ *   2. **Add to my scratchpad** — one click, no typing and no
+ *      choosing, for the ticket a curator reaches for most (Paul,
+ *      2026-09-04). Its own row rather than a recent, because the
+ *      scratchpad is only in the MRU once it has been visited, and the
+ *      first add is exactly the case that needs no ceremony.
+ *   3. **Recent** — the curator's MRU, minus anything already listed
+ *      above. Click to ADD this experiment to that ticket.
+ *   4. **New ticket from this experiment…**
  *
  * 🛑 **Adding does not change the curator's ticket context.** Adding is
  * bookkeeping; entering a ticket is navigation. Conflating them means a
@@ -80,6 +87,28 @@ export function TicketMenu({
   const memberTickets = membership.data ?? [];
   const memberIds = new Set(memberTickets.map((t) => t.id));
 
+  // 🛑 **No scratchpad is the ordinary answer, never an error.** The
+  // route 404s on a host that has not grown it and 422s against the
+  // local store, where `/tickets/scratchpad` is parsed as
+  // `/tickets/{id}`. Both land here as `undefined`: the row is absent
+  // and the rest of the menu is untouched.
+  const scratchpad = useMyScratchpad();
+  const pad = scratchpad.data ?? null;
+  // Taken once and applied per row — a hook inside the `map` below is
+  // not allowed. It marks the scratchpad in the membership list, which
+  // is where "it is already on there" gets answered.
+  const ownerOf = useScratchpadOwnerResolver();
+
+  // Offered only when the experiment is not on it already and the
+  // server will take it. Already-on-it is answered by the membership
+  // row above, which carries the Remove — and on a scratchpad removing
+  // IS the completion gesture, so the two must not both be adds.
+  const offerPad =
+    !!pad && !memberIds.has(pad.id) && pad.accepts_targets === true;
+  // Once that row is on screen, the same ticket under Recent or in a
+  // search hit is a second button doing the identical thing.
+  const hiddenIds = offerPad && pad ? new Set([...memberIds, pad.id]) : memberIds;
+
   // 🛑 Resolve every recent id against the server. A stored title goes
   // stale; a ticket that has been closed, deleted, or is no longer
   // visible to this curator must not be offered. Anything that fails to
@@ -101,7 +130,7 @@ export function TicketMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recentQueries.map((q) => q.isError).join(",")]);
 
-  const recents = visibleRecentTickets(recentIds, resolvedRecents, memberIds);
+  const recents = visibleRecentTickets(recentIds, resolvedRecents, hiddenIds);
 
   return (
     <div className="w-80 text-xs">
@@ -127,6 +156,7 @@ export function TicketMenu({
                 ticket={t}
                 experimentId={experimentId}
                 isCurrent={t.id === currentTicketId}
+                scratchpadOwner={ownerOf(t)}
                 busy={busyTicketId === t.id}
                 onOpen={() => {
                   pushRecentTicketId(t.id);
@@ -141,6 +171,20 @@ export function TicketMenu({
         </>
       )}
 
+      {offerPad && pad ? (
+        <ul className="border-t border-slate-100 dark:border-slate-800">
+          <AddRow
+            ticket={pad}
+            label="+ Add to my scratchpad"
+            experimentId={experimentId}
+            busy={busyTicketId === pad.id}
+            onBusy={setBusyTicketId}
+            onError={setError}
+            onDone={() => membership.refetch()}
+          />
+        </ul>
+      ) : null}
+
       <SectionLabel>Add to another ticket</SectionLabel>
       <div className="px-2 pb-1">
         <input
@@ -154,7 +198,7 @@ export function TicketMenu({
       <SearchResults
         query={query}
         experimentId={experimentId}
-        excludeIds={memberIds}
+        excludeIds={hiddenIds}
         busyTicketId={busyTicketId}
         onBusy={setBusyTicketId}
         onError={setError}
@@ -223,6 +267,7 @@ function MemberRow({
   ticket,
   experimentId,
   isCurrent,
+  scratchpadOwner,
   busy,
   onOpen,
   onBusy,
@@ -231,6 +276,9 @@ function MemberRow({
   ticket: Ticket;
   experimentId: number;
   isCurrent: boolean;
+  /** `null` for every ticket that is not a scratchpad, and whenever
+   *  ownership could not be established — both render nothing. */
+  scratchpadOwner: ScratchpadOwner | null;
   busy: boolean;
   onOpen: () => void;
   onBusy: (id: number | null) => void;
@@ -259,6 +307,11 @@ function MemberRow({
         <span className="block text-[10px] text-slate-500 dark:text-slate-400">
           #{ticket.id} · {ticket.state}
           {isCurrent ? " · you came from here" : ""}
+          {scratchpadOwner ? (
+            <span className="ml-1">
+              <ScratchpadOwnerPill owner={scratchpadOwner} />
+            </span>
+          ) : null}
         </span>
       </button>
       {canRemove ? (
@@ -306,10 +359,12 @@ function MemberRow({
   );
 }
 
-/** A recent ticket this experiment is NOT on — clicking adds it. */
+/** A ticket this experiment is NOT on — clicking adds it. Used for the
+ *  recents and, with a `label`, for the scratchpad row. */
 function AddRow({
   ticket,
   experimentId,
+  label,
   busy,
   onBusy,
   onError,
@@ -317,6 +372,13 @@ function AddRow({
 }: {
   ticket: Ticket;
   experimentId: number;
+  /** Shown instead of the title. The scratchpad row names the ACTION
+   *  ("Add to my scratchpad") rather than the ticket, because "which
+   *  ticket" is not the question a curator is answering there — its
+   *  title, "Scratchpad: admin", is the least useful thing on the row.
+   *  The id and state stay on the line below, and the title is in the
+   *  tooltip, so nothing is hidden. */
+  label?: string;
   busy: boolean;
   onBusy: (id: number | null) => void;
   onError: (msg: string | null) => void;
@@ -359,7 +421,7 @@ function AddRow({
         className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <span className="block truncate text-slate-800 dark:text-slate-100">
-          {busy ? "Adding…" : ticket.title}
+          {busy ? "Adding…" : (label ?? ticket.title)}
         </span>
         <span className="block text-[10px] text-slate-500 dark:text-slate-400">
           #{ticket.id} · {ticket.state}
@@ -378,7 +440,8 @@ function AddRow({
  *  loading state.
  *
  *  A hit already on the ticket is dropped: it is listed above under
- *  membership, where it carries a Remove rather than an Add. */
+ *  membership, where it carries a Remove rather than an Add. So is the
+ *  curator's own scratchpad while its one-click row is showing. */
 function SearchResults({
   query,
   experimentId,
