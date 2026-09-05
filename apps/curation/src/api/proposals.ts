@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { api, ApiError } from "./client";
+import { asAnnotationSetRows } from "./annotationSetReviews";
 import type {
   CuratorFeedback,
   Proposal,
@@ -55,22 +57,98 @@ export function useProposalsForExperiment(
   });
 }
 
+/** One row of Gemma's corpus-wide annotation-set list, thin shape.
+ *  Post-`snakeify`; only what the inbox renders is declared. */
+interface ProposalSetRow {
+  id: number;
+  dataset_id: number;
+  dataset_short_name?: string | null;
+  kind?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  created_by?: string | null;
+  agent_name?: string | null;
+  ran_at?: string | null;
+  factor_count?: number | null;
+  tag_count?: number | null;
+}
+
+/**
+ * One annotation-set row -> the `Proposal` the inbox renders.
+ *
+ * 🛑 **`factors` and `tags` are left UNDEFINED, not empty.** The list
+ * response carries counts, not the payload, and the difference between
+ * "no factors" and "we were not told" is the whole point — see
+ * `ShapeSummary`, which renders `(empty)` for the first and must not
+ * for the second.
+ */
+export function proposalSetToProposal(row: ProposalSetRow): Proposal {
+  return {
+    proposal_id: String(row.id),
+    experiment_id: row.dataset_id,
+    experiment_short_name: row.dataset_short_name ?? "",
+    submitted_at: row.ran_at ?? row.created_at ?? "",
+    submitted_by: row.created_by ?? row.agent_name ?? "",
+    status: (row.status ?? "pending") as ProposalStatus,
+    factor_count: row.factor_count ?? null,
+    tag_count: row.tag_count ?? null,
+  } as Proposal;
+}
+
 /**
  * Cross-experiment list of proposals (newest first). Backs the
  * ``Proposals`` inbox route. Default ``status`` is "pending" — the
  * curator inbox is meant to surface unreviewed agent output.
+ *
+ * 🛑 **Remote sends `kind=proposal` as well as `role=proposal`, and the
+ * second one is not optional.** `role` is the STORAGE role and `kind`
+ * is the audit-vs-proposal split; they are independent axes. Measured
+ * on gemma2 2026-09-04: six of the eight `role=proposal` sets are
+ * `kind=audit`, so filtering on `role` alone puts audit output in the
+ * proposals inbox three to one against the real rows. cab caught this
+ * before it shipped; gembro then added the `kind` parameter, which
+ * 400s on an unrecognized value rather than serving an unfiltered list
+ * to a caller that believes it filtered.
+ *
+ * ⚠️ **Built against gembro's contract, not against a live wire.** The
+ * fields below (`status`, `factorCount`, `tagCount`, `datasetShortName`)
+ * are committed and their migrations applied, but frink does not
+ * autodeploy and none of it was live when this was written. Verify
+ * against the real response before trusting it — a declared field being
+ * absent from Gemma is a thing that has happened here before.
  */
 export function useAllProposals(
   options: { status?: ProposalStatus; limit?: number } = {},
 ) {
   const status = options.status ?? "pending";
   const limit = options.limit ?? 100;
+  const remote = resolveGemmaMode().mode === "remote";
   return useQuery({
-    queryKey: ["proposals", "all", status, limit] as const,
-    queryFn: () =>
-      api.get<ProposalListResponse>(
-        `/curation/v1/curation-proposals?status_filter=${status}&limit=${limit}`,
-      ),
+    queryKey: ["proposals", "all", status, limit, remote] as const,
+    queryFn: async (): Promise<ProposalListResponse> => {
+      if (!remote) {
+        return await api.get<ProposalListResponse>(
+          `/curation/v1/curation-proposals?status_filter=${status}&limit=${limit}`,
+        );
+      }
+      const raw = await api.get<unknown>(
+        `/rest/v2/annotation-sets?role=proposal&kind=proposal` +
+          `&status=${encodeURIComponent(status)}&limit=${limit}`,
+      );
+      // 🛑 The collection route answers a PAGINATED envelope, not a
+      // bare array — `asAnnotationSetRows` is the guard that already
+      // knows both shapes. Reading `.data` by hand here is how the
+      // list silently reads empty.
+      const rows = asAnnotationSetRows(raw) as unknown as ProposalSetRow[];
+      const items = rows.map(proposalSetToProposal);
+      // `totalElements` is the server's count for THIS filter — gembro
+      // put the new predicates on the count query as well as the page,
+      // so it is pageable-to rather than a total for a different list.
+      const total =
+        (raw as { total_elements?: number } | null)?.total_elements ??
+        items.length;
+      return { items, total } as ProposalListResponse;
+    },
   });
 }
 

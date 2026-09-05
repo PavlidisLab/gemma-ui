@@ -14,11 +14,18 @@ import type {
   SubtaskDecision,
 } from "./justification";
 
+/** 🛑 **Open, not closed** — Paul, 2026-09-04: *"don't lock us into any
+ *  kind of enums."* gembro shipped `status` as a free string (non-blank,
+ *  ≤32 chars) and deleted the Java enum they were mid-file writing; a
+ *  fifth value is stored and returned rather than 400'd. These four are
+ *  the values in use, and `(string & {})` keeps the autocomplete without
+ *  making an unknown one unrenderable. */
 export type ProposalStatus =
   | "pending"
   | "accepted"
   | "rejected"
-  | "needs_changes";
+  | "needs_changes"
+  | (string & {});
 
 export interface OntologyTerm {
   label: string;
@@ -279,6 +286,18 @@ export interface Proposal {
   submitted_at: string;
   model: string | null;
   status: ProposalStatus;
+  /** Shape counts as Gemma's annotation-set row carries them
+   *  (`factorCount` / `tagCount`), for the remote inbox where the
+   *  payload is not on the list response.
+   *
+   *  🛑 **`null` means UNKNOWN, never zero** (gembro, 2026-09-04). They
+   *  are read best-effort off a payload Gemma serves verbatim and
+   *  unread, so an unrecognized shape yields null — and rendering that
+   *  as 0 says "this proposal changes nothing", which is the one wrong
+   *  answer that looks entirely plausible on a card. `undefined` on the
+   *  local shape, where `factors` / `tags` are in hand and counted. */
+  factor_count?: number | null;
+  tag_count?: number | null;
   tags: TagProposal[];
   factors: FactorProposal[];
   evidence: ProposalEvidence;
