@@ -183,6 +183,12 @@ export interface AuditFinding {
    *  ``coverage_zero``, ``ok``. */
   issue_code: string;
   rationale: string;
+  /** One-line form of `rationale`, written by the producer. Declared
+   *  agents-side (`AuditFinding.rationale_summary`) and on the wire;
+   *  mirrored here 2026-09-04 when the provenance join started reading
+   *  it for an event summary. Empty string on producers that don't
+   *  write one — callers fall back to `rationale`. */
+  rationale_summary?: string;
   citation: string;
   citation_url: string;
   suggested_fix: string;

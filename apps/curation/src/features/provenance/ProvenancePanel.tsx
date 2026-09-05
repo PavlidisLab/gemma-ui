@@ -52,20 +52,13 @@ export function ProvenancePanel({
     [draft?.publications],
   );
   const nothingToTrace = refs.length === 0;
-  // 🛑 The lookup is `POST /rest/v2/datasets/{id}/provenance/lookup`,
-  // a CURATION STORE route, and Gemma serves nothing matching
-  // `provenance` (live OpenAPI, gemma2 2026-08-31). So in remote mode
-  // the store-backed half of a run has no answer.
-  //
-  // That is NOT a reason to hide the control, which is what it used to
-  // do. A publication's provenance is derived from the `association`
-  // block Gemma itself ships — source, evidence, evidence code, who
-  // asserted it and when — and needs no service. Hiding the button hid
-  // that too, and told the curator provenance was unavailable while
-  // Gemma was holding some.
-  //
-  // `ProvenanceProvider` skips the doomed request in remote mode and
-  // reports `unavailable`, so a run still fills in every disc it can.
+  // 🛑 Not a capability difference any more — only a difference in
+  // WHERE the join happens. `POST /provenance/lookup` is a curation
+  // store route and Gemma serves nothing matching `provenance`, so in
+  // remote mode `ProvenanceProvider` reads the annotation sets Gemma
+  // does serve and runs the same join in the browser. Both modes
+  // answer factors, tags and papers; this flag only decides which
+  // sentence the tooltip tells.
   const storeBacked = useGemmaMode().mode === "local";
 
   const Wrapper = bare ? "div" : "section";
@@ -85,7 +78,7 @@ export function ProvenancePanel({
               ? "Nothing to trace — this experiment has no factors, tags or publications yet."
               : storeBacked
                 ? "Ask where each annotation on this experiment came from — factors, tags, and the linked papers. Hover a disc for the evidence behind it."
-                : "Show where the linked papers came from — Gemma carries that itself. Factor and tag provenance lives in the curation store, which this backend does not serve."
+                : "Ask where each annotation on this experiment came from — factors and tags from the agent reviews and curator rulings on this dataset, papers from Gemma's own link record. Hover a disc for the evidence behind it."
           }
         >
           {run.status === "loading"
@@ -107,6 +100,8 @@ export function ProvenancePanel({
               : "none carry a recorded source"}
           </span>
         ) : null}
+        {/* Local mode only now: a store predating the lookup route.
+            Remote has no such state — it joins what Gemma serves. */}
         {run.status === "unavailable" ? (
           <span className="text-[11px] text-slate-500 dark:text-slate-400">
             {run.traced > 0
@@ -116,8 +111,8 @@ export function ProvenancePanel({
         ) : null}
         {run.status === "error" ? (
           <span className="text-[11px] text-red-700 dark:text-red-300">
-            couldn&apos;t reach the service — nothing changed, this lookup is
-            read-only
+            couldn&apos;t read this experiment&apos;s history — nothing changed,
+            this lookup is read-only
           </span>
         ) : null}
       </div>

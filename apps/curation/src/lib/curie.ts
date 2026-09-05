@@ -300,3 +300,36 @@ export function shortenUri(uri: string | null | undefined): string {
   const tail = uri.split(/[/#]/).filter(Boolean).pop() ?? uri;
   return tail.length > 24 ? `…${tail.slice(-22)}` : tail;
 }
+
+/**
+ * Reduce a URI to a lowercase `prefix_localid` token, so the same term
+ * compares equal whichever of its three forms is in hand:
+ *
+ *   - full IRI `http://purl.obolibrary.org/obo/EFO_0000724` → `efo_0000724`
+ *   - CURIE `EFO:0000724` → `efo_0000724`
+ *   - OBO short form `EFO_0000724` → `efo_0000724`
+ *
+ * 🛑 **Not `shortenUri`.** That one is a DISPLAY shortener: it falls
+ * back to the last path segment and truncates long ones with a leading
+ * `…`, so two different terms can shorten to the same string and one
+ * term can shorten differently depending on its length. Identity needs
+ * the opposite guarantee, which is why this is a separate function
+ * rather than a second caller of that one.
+ *
+ * Returns `""` for anything with no digit in it — a label-shaped string
+ * like `timepoint` is not an identifier, and letting two of them match
+ * would join unrelated annotations. Callers must treat `""` as "no
+ * usable identity" and skip, never as a key.
+ *
+ * Ported from the agents side (`ontology/uri_norm.py::comparison_key`),
+ * which is canonical; keep the two in step.
+ */
+export function uriComparisonKey(uri: string | null | undefined): string {
+  if (!uri) return "";
+  let s = uri.trim().replace(/\/+$/, "");
+  if (!s) return "";
+  if (s.includes("/")) s = s.slice(s.lastIndexOf("/") + 1);
+  if (s.includes("#")) s = s.slice(s.lastIndexOf("#") + 1);
+  s = s.replace(/:/g, "_").toLowerCase();
+  return /\d/.test(s) ? s : "";
+}

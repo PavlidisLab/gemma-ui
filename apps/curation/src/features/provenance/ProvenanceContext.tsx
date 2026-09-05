@@ -13,12 +13,20 @@
  * Same shape as `AuditContext`: an index keyed by a handle, consumers
  * look themselves up and render nothing when absent.
  *
- * One run, two sources. Factors and tags are answered by the store,
- * which joins findings to dispositions. A publication link is not in
- * those tables at all — the assertion lives on the link itself, and it
- * is already on the page — so the caller resolves those and passes them
- * in. Downstream nothing can tell the difference, which is the point:
- * a curator asked one question and gets one answer per annotation.
+ * One run, three sources, and downstream nothing can tell them apart —
+ * which is the point: a curator asked one question and gets one answer
+ * per annotation.
+ *
+ *   - **local mode** — the store joins findings to dispositions and
+ *     answers factors and tags in one POST.
+ *   - **remote mode** — Gemma serves no provenance route, so the same
+ *     join runs here (`assembleTraces`) over the reviews Gemma does
+ *     serve. Both halves are on that wire: the findings and their
+ *     evidence in each annotation set's payload, the curator rulings in
+ *     the `dispositions` beside it.
+ *   - **either mode** — a publication link is in nobody's tables; the
+ *     assertion lives on the link itself and is already on the page, so
+ *     the caller resolves those and passes them in.
  */
 
 import { useGemmaMode } from "@/lib/gemmaMode";
@@ -37,6 +45,9 @@ import {
   type ProvenanceRef,
   type ProvenanceTrace,
 } from "@/api/provenance";
+import { fetchReviewsForExperiment } from "@/api/annotationSetReviews";
+
+import { assembleTraces } from "./assembleTraces";
 
 export type ProvenanceRunStatus =
   | "idle"
@@ -92,7 +103,8 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
   const [asked, setAsked] = useState(0);
   const [status, setStatus] = useState<ProvenanceRunStatus>("idle");
   const lookup = useProvenanceLookup();
-  // Only the curation store answers the lookup; see `populate`.
+  // Only the curation store answers the LOOKUP ROUTE; remote does the
+  // same join client-side. See `populate`.
   const storeBacked = useGemmaMode().mode === "local";
 
   const populate = useCallback(
@@ -103,22 +115,44 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
     ) => {
       setStatus("loading");
       setAsked(refs.length);
-      // 🛑 Gemma serves no provenance route — verified against the live
-      // OpenAPI on gemma2 2026-08-31, zero paths matching
+      // 🛑 Gemma serves no provenance route — re-checked against the
+      // live gemma2 OpenAPI 2026-09-04, still zero paths matching
       // `provenance`. `/rest` is a catch-all whose meaning changes with
-      // mode, so in remote mode this POST would go at Gemma and 404.
+      // mode, so the store's POST would go at Gemma and 404.
       //
-      // The DERIVED half needs no service at all: a publication's
-      // provenance is the `association` block Gemma ships on
-      // `/datasets/{id}/publications` — status / role / source /
-      // evidence / evidenceCode / assertedBy / assertedAt, populated on
-      // 27103 — which `publicationTraces` converts from the page. So
-      // remote skips the request and reports exactly what it has,
-      // rather than the panel hiding the whole feature because half of
-      // it is unavailable.
+      // It does not have to. The route's whole job is a JOIN over two
+      // things Gemma already serves on `/datasets/{id}/annotation-sets`
+      // — findings with their evidence and run provenance in the
+      // payload, curator rulings in the `dispositions` beside them — so
+      // remote reads those and runs the same join here. Remote means
+      // all remote (Paul, 2026-09-03); a surface that answers less
+      // there is the bug, not the mode.
+      //
+      // The DERIVED half needs no service at all in either mode: a
+      // publication's provenance is the `association` block Gemma ships
+      // on `/datasets/{id}/publications`, which `publicationTraces`
+      // converts from the page.
       if (!storeBacked) {
-        setByRef(new Map(derived ?? []));
-        setStatus("unavailable");
+        fetchReviewsForExperiment(experimentId).then(
+          (reports) => {
+            const next = new Map<string, ProvenanceTrace>(derived ?? []);
+            for (const [refId, trace] of assembleTraces(refs, reports)) {
+              next.set(refId, trace);
+            }
+            setByRef(next);
+            setStatus("ready");
+          },
+          () => {
+            // 🛑 A failed read is not "nothing recorded". The reviews
+            // route needs GROUP_CURATOR / GROUP_ADMIN / GROUP_AGENT and
+            // answers 403 without one; rendering that as an empty trace
+            // would tell a curator this experiment has no history when
+            // nobody was allowed to look. The publication traces still
+            // stand — they came off a wire this failure never touched.
+            setByRef(new Map(derived ?? []));
+            setStatus("error");
+          },
+        );
         return;
       }
       lookup.mutate(

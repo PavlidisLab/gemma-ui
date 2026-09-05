@@ -3,14 +3,18 @@
  *
  * Provenance in REMOTE mode.
  *
- * Gemma serves no `provenance` route — verified against the live
- * OpenAPI on gemma2 2026-08-31 — so the store-backed half of a run has
- * no answer there. The publication half does: Gemma ships the
- * `association` block on `/datasets/{id}/publications` and
- * `publicationTraces` converts it from the page.
+ * Gemma serves no `provenance` route, so remote runs the store's join
+ * in the browser instead: it reads the annotation sets Gemma DOES serve
+ * and folds their findings and dispositions onto the refs
+ * (`assembleTraces`). Publications are answered off Gemma's own
+ * `association` block in either mode.
  *
- * The panel used to hide the control entirely in remote mode, which
- * hid the half Gemma was holding.
+ * Two regressions this pins, in the order they happened. The panel used
+ * to HIDE the control in remote, which hid the half Gemma was holding.
+ * Then it offered the control and reported "the curation store … is not
+ * served by this backend" — true about the route, wrong about the
+ * capability, and it stopped a curator asking a question that had an
+ * answer.
  */
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -23,6 +27,47 @@ vi.mock("@/lib/gemmaMode", async (orig) => {
     ...actual,
     useGemmaMode: () => ({ ...actual.resolveGemmaMode(), mode: mode.current }),
     resolveGemmaMode: () => ({ ...actual.resolveGemmaMode(), mode: mode.current }),
+  };
+});
+
+const reviewCalls = vi.hoisted(() => ({ n: 0 }));
+vi.mock("@/api/annotationSetReviews", async (orig) => {
+  const actual = await orig<typeof import("@/api/annotationSetReviews")>();
+  return {
+    ...actual,
+    fetchReviewsForExperiment: async () => {
+      reviewCalls.n += 1;
+      return [
+        {
+          audit_id: "2564",
+          experiment_id: 27103,
+          experiment_short_name: "GSE197199",
+          kind: "audit",
+          audited_at: "2026-09-03T23:40:39.039870+00:00",
+          model: "claude-sonnet-5",
+          findings: [
+            {
+              target_id: "tag:cell-type/hepatic-stem-cell",
+              target_kind: "tag",
+              issue_code: "wrong_value",
+              rationale: "The profiled material is a cultured line.",
+              severity: "major",
+            },
+          ],
+          dispositions: [
+            {
+              target_id: "tag:cell-type/hepatic-stem-cell",
+              status: "accepted",
+              reviewer: "administrator",
+              reviewed_at: "2026-09-04T04:00:11.794+00:00",
+              notes: "yes, drop it",
+            },
+          ],
+        },
+      ] as unknown as Awaited<
+        ReturnType<typeof actual.fetchReviewsForExperiment>
+      >;
+    },
   };
 });
 
@@ -42,7 +87,13 @@ vi.mock("@/api/provenance", async (orig) => {
 const draft = vi.hoisted(() => ({
   current: {
     factors: [],
-    tags: [],
+    tags: [
+      {
+        id: 1,
+        category: { label: "cell type", uri: "http://www.ebi.ac.uk/efo/EFO_0000324" },
+        value: { label: "hepatic stem cell", uri: "http://purl.obolibrary.org/obo/CL_0002195" },
+      },
+    ],
     samples: [],
     publications: [
       {
@@ -89,6 +140,7 @@ describe("provenance in remote mode", () => {
   beforeEach(() => {
     cleanup();
     lookupCalls.n = 0;
+    reviewCalls.n = 0;
     mode.current = "remote";
   });
 
@@ -97,25 +149,23 @@ describe("provenance in remote mode", () => {
     expect(screen.getByRole("button", { name: /Populate provenance/ })).toBeTruthy();
   });
 
-  it("does not fire the doomed store request", async () => {
+  it("reads Gemma's reviews instead of the doomed store request", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /Populate provenance/ }));
-    await waitFor(() =>
-      expect(screen.getByText(/curation store/)).toBeTruthy(),
-    );
-    // Gemma has no such route; asking would 404 on every run.
+    await waitFor(() => expect(reviewCalls.n).toBe(1));
+    // Gemma has no provenance route; asking would 404 on every run.
     expect(lookupCalls.n).toBe(0);
   });
 
-  it("still resolves the publication's provenance from Gemma's own block", async () => {
+  it("🛑 answers the tag AND the paper — 2 with a source, no store excuse", async () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: /Populate provenance/ }));
-    // "1 with a source" — the derived half survived, and the sentence
-    // says which half did not.
+    // The tag comes from the join over Gemma's reviews, the paper from
+    // Gemma's own association block. Both halves, one sentence.
     await waitFor(() =>
-      expect(screen.getByText(/1 with a source/)).toBeTruthy(),
+      expect(screen.getByText(/2 with a source/)).toBeTruthy(),
     );
-    expect(screen.getByText(/curation store/)).toBeTruthy();
+    expect(screen.queryByText(/curation store/)).toBeNull();
   });
 
   it("local mode still asks the store", async () => {
