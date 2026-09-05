@@ -248,9 +248,11 @@ describe("termValidation — Gemma's category list outranks the index", () => {
     expect(run.counts).toEqual({ label_mismatch: 1 });
   });
 
-  // Only fills gaps. Over all 28 published categories the index agrees
-  // with the list on the 26 it carries, so overriding a verdict the
-  // index DID reach buys nothing and could only mask a real mismatch.
+  // Only fills gaps. Measured 2026-08-31 over the 28 categories
+  // published then: the index agrees with the list on the 26 it
+  // carries, so overriding a verdict the index DID reach buys nothing
+  // and could only mask a real mismatch. The ratio is the finding; the
+  // count is a snapshot of a list that grows between Gemma releases.
   it("never overrides a verdict the index actually reached", () => {
     const a = ref("Hek293F", HEK_S, "cell line");
     const withCat = [...CATEGORIES, { label: "HEK-293S", uri: HEK_S }];

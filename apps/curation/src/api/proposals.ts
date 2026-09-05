@@ -19,10 +19,16 @@ export function useProposalsForExperiment(
   status?: ProposalStatus,
 ) {
   return useQuery({
-    // ``-1`` is the "no experiment selected" sentinel used by inbox
-    // landing screens; skip the fetch entirely (parallels the
-    // ``audits.ts`` guard) so we don't 404 the sentinel id.
-    enabled: Boolean(experimentId),
+    // 🛑 ``-1`` is the "no experiment selected" sentinel — Overview
+    // passes ``draft?.experiment_id ?? -1`` while the draft loads — and
+    // ``Boolean(-1)`` is TRUE, so this guard never skipped it. Measured
+    // on the live app 2026-09-04: every experiment page in remote mode
+    // fired ``GET /curation/v1/datasets/-1/curation-proposals`` at the
+    // curation store before the real id arrived. The store answers 200
+    // with an empty list, which is why it went unnoticed for so long:
+    // the only symptom is a wasted round trip at the store, on a
+    // service being retired.
+    enabled: experimentId !== -1 && experimentId !== "-1" && Boolean(experimentId),
     queryKey: KEY.byExperiment(experimentId, status),
     queryFn: async () => {
       const q = status ? `?status_filter=${status}` : "";

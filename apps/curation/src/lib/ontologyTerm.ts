@@ -131,7 +131,8 @@ export function capitalizeCategory(
  *  category (Paul, 2026-08-16, reaffirmed 08-20) whose label in current
  *  EFO is `obsolete_disease`, and `GET /rest/v2/annotations/categories`
  *  publishes it under that spelling — measured on gemma2 2026-08-30,
- *  where it is 1 of the 28 categories and the only one carrying the
+ *  where it is 1 of the 28 categories published on 2026-09-04 (a
+ *  growing list) and the only one carrying the
  *  prefix. Without this a curator picks a category that reads
  *  `obsolete_disease`, which describes EFO's opinion of the term rather
  *  than Gemma's use of it. Gemma's own curation write path strips the

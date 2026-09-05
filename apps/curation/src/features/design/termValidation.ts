@@ -106,9 +106,14 @@ function normLabel(s: string | null | undefined): string {
  * rather than describing the phenomenon in prose.
  *
  * Only fills GAPS. A pair the index DID name keeps the index's
- * verdict — measured over all 28 published categories, the two
- * sources agree on the 26 the index carries, so overriding those
- * would buy nothing and could only mask a real mismatch.
+ * verdict — measured 2026-08-31 over the 28 categories published
+ * then, where the two sources agree on the 26 the index carries, so
+ * overriding those would buy nothing and could only mask a real
+ * mismatch. The count is a snapshot, not a constant: the list is
+ * `EFO.factor.categories.txt` in gemma-core and grows between
+ * releases (`age at diagnosis` is queued —
+ * `handoffs/AGE_CATEGORIES_2026_09_04.md`). Nothing here reads the
+ * number; the carve-out is whatever the route publishes at runtime.
  *
  * 🛑 `obsolete` is overridden here too, not just `unknown`.
  * `EFO_0000408` is deprecated in EFO AND Gemma's live disease

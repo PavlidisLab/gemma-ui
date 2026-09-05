@@ -32,8 +32,11 @@ const KEY = ["categories"] as const;
  *     Gemma *accepts*, which is the question a category picker asks.
  *     The rest of the app already reasons over that number:
  *     `stripObsoletePrefix` in `lib/ontologyTerm.ts` and
- *     `categoryVerdict` in `features/design/termValidation.ts` both say
- *     "all 28 published categories".
+ *     `categoryVerdict` in `features/design/termValidation.ts` both
+ *     cite the same measurement. 28 is what the route published on
+ *     2026-08-31 and again on 2026-09-04; it is a snapshot of a list
+ *     that grows between Gemma releases, and no code here depends on
+ *     the count.
  *   - **Different labels for the same URI.** `EFO_0000408` is in both
  *     lists, but the facet calls it `disease` and the published list
  *     calls it `obsolete_disease` — and the published spelling is the
