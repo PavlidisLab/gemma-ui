@@ -508,6 +508,17 @@ export default defineConfig(({ mode }) => {
           target: PROPOSER_URL,
           changeOrigin: true,
         },
+        // 🛑 Added 2026-09-05. Its absence read as "cab has not deployed
+        // the relay": every other /curation-* path is listed here
+        // explicitly, so an unlisted one is not proxied at all — Vite
+        // serves index.html and the POST comes back 404 from the SPA,
+        // which is indistinguishable from a missing route on the agent.
+        // I reported it as undeployed twice before probing :8082 direct
+        // and finding it answering 200. If you add a relay, add it here.
+        "/curation-restore": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         "/curation-sign": {
           target: PROPOSER_URL,
           changeOrigin: true,
