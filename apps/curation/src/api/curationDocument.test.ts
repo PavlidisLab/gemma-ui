@@ -354,6 +354,47 @@ describe("buildCurationDocument — the baseline flag is tri-state", () => {
     expect(emitted(doc)[0].isBaseline).toBe(false);
   });
 
+  it("🛑 says nothing when the stored flag COLLAPSED to false from a null", () => {
+    // The regression. `composeDesign` writes `is_baseline: false` for a
+    // null, so `prior.is_baseline !== undefined` was true for every
+    // value and forced the flag off on all of them. Measured on
+    // gemma2/657: a description-only edit went out as three updates,
+    // and Gemma refused the commit as deleting a DE analysis.
+    const doc = buildCurationDocument(design([fv(1, false)]), {
+      mode: "remote",
+      baseline: {
+        factors: [
+          {
+            id: 7,
+            gemma_factor_id: 7,
+            factor_values: [
+              { id: 1, is_baseline: false, is_baseline_explicit: false },
+            ],
+          },
+        ],
+      },
+    });
+    expect("isBaseline" in emitted(doc)[0]).toBe(false);
+  });
+
+  it("still writes false when the witness says the flag was explicit", () => {
+    const doc = buildCurationDocument(design([fv(1, false)]), {
+      mode: "remote",
+      baseline: {
+        factors: [
+          {
+            id: 7,
+            gemma_factor_id: 7,
+            factor_values: [
+              { id: 1, is_baseline: false, is_baseline_explicit: true },
+            ],
+          },
+        ],
+      },
+    });
+    expect(emitted(doc)[0].isBaseline).toBe(false);
+  });
+
   it("says nothing when there is no baseline design to compare against", () => {
     // A caller with no baseline cannot know whether the stored flag was
     // null, and a default written into that gap is the bug above.

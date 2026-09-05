@@ -349,6 +349,9 @@ export interface CommittableDesign {
       id: number;
       free_text_label?: string;
       is_baseline?: boolean;
+      /** Whether the baseline flag was EXPLICIT in what Gemma served —
+       *  see `FactorValue.is_baseline_explicit`. */
+      is_baseline_explicit?: boolean;
       biomaterial_short_names?: string[];
       statements?: Array<{
         gemma_id?: number | null;
@@ -460,12 +463,24 @@ export function buildCurationDocument(
 
   function baselineFlag(
     v: { id: number; is_baseline?: boolean },
-    prior: { is_baseline?: boolean } | undefined,
+    prior: { is_baseline?: boolean; is_baseline_explicit?: boolean } | undefined,
   ): { isBaseline?: boolean } {
     if (v.is_baseline) return { isBaseline: true };
     // Stored state already explicit → an explicit false is a real
     // un-setting the curator asked for, not a default.
-    if (prior && prior.is_baseline !== undefined) return { isBaseline: false };
+    //
+    // 🛑 `prior.is_baseline !== undefined` did NOT test this. `prior`
+    // comes through `composeDesign`, which collapses `?? false`, so the
+    // field is ALWAYS defined and the guard fired on every value —
+    // forcing `isBaseline: false` over Gemma's nulls, which is the
+    // exact write this block exists to prevent. `is_baseline_explicit`
+    // is the collapse-surviving witness.
+    // A stored `true` is explicit by construction — a null collapses to
+    // `false` on the way in, never to `true` — so it stands on its own
+    // for a producer that does not yet carry the witness.
+    if (prior && (prior.is_baseline_explicit || prior.is_baseline)) {
+      return { isBaseline: false };
+    }
     // No baseline in hand, or the stored flag was null: say nothing.
     return {};
   }

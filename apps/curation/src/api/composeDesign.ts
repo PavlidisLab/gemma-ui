@@ -619,6 +619,10 @@ function composeFactor(
       id: v.id,
       free_text_label: v.summary || v.value || "",
       is_baseline: ov.is_baseline ?? v.is_baseline ?? false,
+      // Absent stays distinguishable from false — see
+      // `FactorValue.is_baseline_explicit`. Only the commit builder
+      // reads it; every truthiness reader keeps the collapsed boolean.
+      is_baseline_explicit: (ov.is_baseline ?? v.is_baseline) != null,
       statements: composeFvStatements(v),
       // Overlay wins when populated — proposal payload typically
       // carries the canonical curator-blessed assignment. Fall back

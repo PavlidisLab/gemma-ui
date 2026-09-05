@@ -91,6 +91,30 @@ export interface FactorValue {
   id: number;
   free_text_label: string;
   is_baseline: boolean;
+  /**
+   * Whether the SOURCE carried an explicit baseline flag.
+   *
+   * 🛑 `is_baseline` is a collapsed boolean but Gemma's flag is
+   * TRI-STATE — `null` means "infer from the terms", and writing
+   * `false` over a null turns inference OFF permanently, changing
+   * which group DE treats as the reference. `composeDesign` collapses
+   * `?? false` on the way in, so by the time the commit builder sees a
+   * value it cannot tell a real `false` from an absent flag, and
+   * emitted `isBaseline: false` over every null.
+   *
+   * Measured on gemma2/657, 2026-09-05: a description-only edit
+   * preflighted as `updated: 1`, and the document the UI actually sent
+   * as `updated: 3` — the two extra being this flag forced onto both
+   * values. Gemma then refused the commit as deleting a
+   * differential-expression analysis, correctly, for a change the
+   * curator never made.
+   *
+   * Carried beside the boolean rather than widening it to
+   * `boolean | null`: 109 non-test sites read `is_baseline` for
+   * truthiness and are right to, and only the commit builder needs to
+   * distinguish absent from false.
+   */
+  is_baseline_explicit?: boolean;
   statements: Statement[];
   biomaterial_short_names: string[];
   /** Canonical scalar reading for a continuous-factor FV — mirrors
