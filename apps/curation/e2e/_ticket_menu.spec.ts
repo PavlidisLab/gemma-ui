@@ -66,9 +66,24 @@ async function openMenu(page: import("@playwright/test").Page) {
 }
 
 test.describe("Ticket management menu @critical", () => {
+  /**
+   * The store `beforeEach` registered, so a test that asserts on what a
+   * click DID can reach it without re-mocking.
+   *
+   * 🛑 Two tests used to call `mockTickets` again and `page.reload()`
+   * purely to get this handle, and both flaked — `locator.fill` and
+   * `locator.click` timing out on a detached element, moving between
+   * the two across runs and passing in isolation. The reload raced the
+   * page `beforeEach` had already loaded: the menu was clicked against
+   * a remounting tree, so it never opened and the placeholder never
+   * appeared. The routes registered here already own the same store the
+   * UI mutates, so there was nothing to re-register.
+   */
+  let store: Awaited<ReturnType<typeof mockTickets>>;
+
   test.beforeEach(async ({ page }) => {
     await mockExperiment(page, "exp-29184");
-    await mockTickets(page, seed());
+    store = await mockTickets(page, seed());
     await page.addInitScript(() => window.localStorage.clear());
     await page.setViewportSize({ width: 1600, height: 1400 });
     await page.goto(TARGET);
@@ -102,9 +117,6 @@ test.describe("Ticket management menu @critical", () => {
   test("typing a title finds a ticket never opened, and adding it really adds", async ({
     page,
   }) => {
-    const store = await mockTickets(page, seed());
-    await page.reload();
-    await page.locator(MENU).first().waitFor({ state: "visible" });
     await openMenu(page);
     await page.getByPlaceholder(/ticket number or title/i).fill("batch info");
     const hit = page.getByText("Batch info needed for the rat set");
@@ -143,9 +155,6 @@ test.describe("Ticket management menu @critical", () => {
   });
 
   test("Add to my scratchpad is one click, and really adds", async ({ page }) => {
-    const store = await mockTickets(page, seed());
-    await page.reload();
-    await page.locator(MENU).first().waitFor({ state: "visible" });
     await openMenu(page);
     // No typing, no choosing — the whole point of the row.
     await page.getByRole("button", { name: /add to my scratchpad/i }).click();
