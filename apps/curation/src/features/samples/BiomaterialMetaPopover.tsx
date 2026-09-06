@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { Biomaterial } from "@/features/experiment/types";
+import type { BioAssay, Biomaterial } from "@/features/experiment/types";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { Term } from "@/components/ui/Term";
 import {
@@ -46,6 +46,34 @@ import { useDesignDraft } from "@/features/design/DesignDraftContext";
 const POPOVER_W = 384; // matches the old w-96
 const POPOVER_MAX_H = 480; // header + body's max-h-96 + padding
 const ANCHOR_OFFSET = 4; // matches the old mt-1 spacing
+
+/**
+ * What the ASSAY says about the library, as display chips.
+ *
+ * 🛑 These sit BESIDE the biomaterial's `molecular entity`
+ * characteristics and never stand in for them. 11,409 biomaterials on
+ * prod carry two or three molecule values while `extracted_molecule`
+ * carries one — the backfill kept the most specific (`nuclear` >
+ * `polyA` > `total`, confirmed on 21 multi-valued assays across
+ * GSE30567.1/.3). Showing this instead of the characteristics would
+ * drop the losing term with nothing to recover it from:
+ * `library_selection` is never `PolyA`, only `cDNA` or null.
+ *
+ * ⇒ Do not add a "prefer extracted_molecule when present" branch. The
+ * value is what the assay records, not a statement about the material,
+ * so it is labelled by what it is and nothing is derived from it.
+ *
+ * Null on the ~687,000 assays with no molecule recorded, and absent
+ * from the local API's projection — hence chips only for what is
+ * actually there.
+ */
+function library(a: BioAssay): string[] {
+  const out: string[] = [];
+  if (a.extracted_molecule) out.push(`molecule: ${a.extracted_molecule}`);
+  if (a.library_selection) out.push(`selection: ${a.library_selection}`);
+  if (a.library_strategy) out.push(`strategy: ${a.library_strategy}`);
+  return out;
+}
 
 export function BiomaterialMetaPopover({
   bm,
@@ -281,6 +309,18 @@ export function BiomaterialMetaPopover({
                               <span className="text-slate-700 ml-1.5">
                                 {a.name}
                               </span>
+                            ) : null}
+                            {library(a).length > 0 ? (
+                              <div className="mt-0.5 flex flex-wrap gap-1">
+                                {library(a).map((chip) => (
+                                  <span
+                                    key={chip}
+                                    className="px-1 py-px rounded bg-slate-100 text-slate-600 text-[10px] leading-tight"
+                                  >
+                                    {chip}
+                                  </span>
+                                ))}
+                              </div>
                             ) : null}
                           </li>
                         );

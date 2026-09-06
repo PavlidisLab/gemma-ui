@@ -259,7 +259,14 @@ describe("the shapes that are not GSE324761", () => {
       { id: 77, sample: { id: 9, name: "BM", characteristics: [] } },
     ]);
     expect(rows[0].bio_assays).toEqual([
-      { bio_assay_id: 77, short_name: "", name: "" },
+      {
+        bio_assay_id: 77,
+        short_name: "",
+        name: "",
+        extracted_molecule: null,
+        library_selection: null,
+        library_strategy: null,
+      },
     ]);
   });
 
@@ -610,5 +617,62 @@ describe("toExperimentTags — composed statements", () => {
       },
     ]);
     expect(tag.statements).toBeUndefined();
+  });
+});
+
+/**
+ * Assay-level library facts (`BIO_ASSAY`, gembro 2026-09-05).
+ *
+ * 🛑 The rule these pin is that the field ADDS to the biomaterial's
+ * `molecular entity` characteristics and never replaces them. 11,409
+ * biomaterials on prod carry two or three molecule values while
+ * `extractedMolecule` carries one, so a "prefer the typed field"
+ * shortcut would silently drop the losing term.
+ */
+describe("bio_assays carry the library facts", () => {
+  const assay = (over: Record<string, unknown> = {}) => ({
+    id: 11,
+    name: "GSM1 title",
+    accession: { accession: "GSM1" },
+    extracted_molecule: "polyARNA",
+    library_selection: "cDNA",
+    library_strategy: "RNA_SEQ",
+    sample: {
+      id: 5,
+      name: "GSE1_bioMaterial_1",
+      characteristics: [
+        { category: "molecular entity", value: "polyA RNA extract" },
+        { category: "molecular entity", value: "total RNA" },
+      ],
+    },
+    ...over,
+  });
+
+  it("carries molecule, selection and strategy onto the assay row", () => {
+    const [bm] = toSampleBiomaterials([assay()] as never);
+    expect(bm.bio_assays[0].extracted_molecule).toBe("polyARNA");
+    expect(bm.bio_assays[0].library_selection).toBe("cDNA");
+    expect(bm.bio_assays[0].library_strategy).toBe("RNA_SEQ");
+  });
+
+  it("🛑 keeps BOTH characteristics when the assay summarises them as one", () => {
+    // The 11,409 case. `extractedMolecule` is `polyARNA`; the
+    // characteristics still say polyA AND total, and both must survive.
+    const [bm] = toSampleBiomaterials([assay()] as never);
+    const joined = bm.characteristics["molecular entity"] ?? "";
+    expect(joined).toContain("polyA RNA extract");
+    expect(joined).toContain("total RNA");
+  });
+
+  it("nulls the fields on an assay that records no molecule", () => {
+    const [bm] = toSampleBiomaterials([
+      assay({
+        extracted_molecule: null,
+        library_selection: null,
+        library_strategy: null,
+      }),
+    ] as never);
+    expect(bm.bio_assays[0].extracted_molecule).toBeNull();
+    expect(bm.bio_assays[0].library_selection).toBeNull();
   });
 });

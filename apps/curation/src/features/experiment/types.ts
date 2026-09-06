@@ -173,6 +173,28 @@ export interface BioAssay {
   /** Descriptive title — the value curators key off when scanning a
    *  cohort. */
   name: string;
+  /**
+   * What was extracted, and how the library was built — straight from
+   * `BIO_ASSAY`. Added by gembro 2026-09-05 to give the molecule a home
+   * that a per-assay fact can actually live in: a factor value binds
+   * only to a BioMaterial, so expressing a per-assay property as a
+   * factor forces duplicating the sample (GSE220901 stores 168 assays
+   * as 168 biomaterials, and the ADT/GEX pairing is unrecoverable).
+   *
+   * 🛑 **A SUMMARY, never a replacement.** 11,409 biomaterials carry
+   * two or three `molecular entity` characteristics while this holds
+   * one — the backfill kept the most specific (`nuclear` > `polyA` >
+   * `total`). Render it BESIDE the characteristics; a "prefer this when
+   * present" fallback would silently drop the losing term, and
+   * `library_selection` cannot recover it (never `PolyA`, only `cDNA`
+   * or null).
+   *
+   * Null on the ~687,000 assays with no molecule recorded, and absent
+   * entirely from the local API's projection.
+   */
+  extracted_molecule?: string | null;
+  library_selection?: string | null;
+  library_strategy?: string | null;
 }
 
 export interface Biomaterial {

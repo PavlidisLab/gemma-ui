@@ -127,6 +127,12 @@ interface LegacyBiomaterial {
     bio_assay_id?: number | null;
     short_name?: string;
     name?: string | null;
+    /** Assay-level library facts from `BIO_ASSAY`. 🛑 A SUMMARY of the
+     *  biomaterial's `molecular entity` characteristics, never a
+     *  replacement — see `designFromGemma.ts`. */
+    extracted_molecule?: string | null;
+    library_selection?: string | null;
+    library_strategy?: string | null;
   }>;
   source_biomaterial_id?: number | null;
   /** Raw per-sample GEO MINiML free-text (treatment/growth/extract
@@ -479,6 +485,9 @@ export function composeCurationDesign(
             bio_assay_id: a.bio_assay_id ?? null,
             short_name: a.short_name ?? "",
             name: a.name ?? "",
+            extracted_molecule: a.extracted_molecule ?? null,
+            library_selection: a.library_selection ?? null,
+            library_strategy: a.library_strategy ?? null,
           })),
         source_biomaterial_id: legacy?.source_biomaterial_id ?? null,
         geo_fields: legacy?.geo_fields,

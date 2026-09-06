@@ -73,6 +73,12 @@ interface WireBioAssay {
   id?: number | null;
   name?: string | null;
   accession?: { accession?: string | null } | null;
+  /** What was extracted and how the library was made. Added to
+   *  `BIO_ASSAY` by gembro 2026-09-05 and live on gemma2 the same
+   *  night; null on the ~687,000 assays with no molecule recorded. */
+  extracted_molecule?: string | null;
+  library_selection?: string | null;
+  library_strategy?: string | null;
   sample?: {
     id?: number | null;
     name?: string | null;
@@ -119,6 +125,26 @@ export interface SampleBiomaterial {
     bio_assay_id: number | null;
     short_name: string;
     name: string;
+    /**
+     * Assay-level library facts, straight from `BIO_ASSAY`.
+     *
+     * 🛑 **These ADD to the biomaterial's `molecular entity`
+     * characteristics; they never replace them.** For 11,409
+     * biomaterials the characteristics hold two or three molecule
+     * values and `extractedMolecule` holds ONE — the backfill picked
+     * the most specific (`nuclear` > `polyA` > `total`, confirmed on
+     * 21 multi-valued assays across GSE30567.1/.3). So the field is a
+     * SUMMARY of the characteristics, not a re-home of them, and
+     * rendering it instead of them would silently drop the losing
+     * term. `library_selection` does not recover it either — it is
+     * never `PolyA`, only `cDNA` or null.
+     *
+     * ⇒ Never write a "prefer extracted_molecule when present"
+     * fallback. Show both.
+     */
+    extracted_molecule: string | null;
+    library_selection: string | null;
+    library_strategy: string | null;
   }>;
 }
 
@@ -229,6 +255,9 @@ export function toSampleBiomaterials(
         bio_assay_id: a.id ?? null,
         short_name: accession ?? assayName,
         name: assayName,
+        extracted_molecule: a.extracted_molecule ?? null,
+        library_selection: a.library_selection ?? null,
+        library_strategy: a.library_strategy ?? null,
       });
     }
   }
