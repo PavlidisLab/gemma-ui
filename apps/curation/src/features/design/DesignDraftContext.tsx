@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { commitConflictOf, type CommitConflict } from "@/api/commitConflict";
+import { canonicaliseClauses } from "@/api/canonicaliseClauses";
 import {
   buildCurationDocument,
   commitCuration,
@@ -716,21 +717,33 @@ export function DesignDraftProvider({
           // keep-marker vs delete-and-recreate — is answerable only
           // against what Gemma last served. Without it the builder
           // refuses rather than guess.
-          const dryRun = buildCurationDocument(
+          const built = buildCurationDocument(
             draft,
             { mode: "remote", baseline: saved ?? undefined },
             removals,
           );
-          const report = await preflightCuration(experimentId, dryRun, reviewer);
+          // 🛑 Gemma refuses a faithful re-send of its OWN stored row:
+          // `CLO_0037209` is stored as "derived from cell" on GSE44608
+          // and resolves to "derives from cell", so the commit 400s on
+          // a clause the curator never opened. The whole design travels
+          // in one document, so one stale label blocks every edit to an
+          // affected experiment. Canonicalised here rather than in the
+          // builder because it needs a round trip, and the builder is
+          // pure. See `api/canonicalLabels.ts` for why clause terms are
+          // ours to repair and a curator's labels are not.
+          const canon = await canonicaliseClauses(built);
+          const report = await preflightCuration(experimentId, canon, reviewer);
           const baselineLastModified = report.newBaseline ?? undefined;
-          const doc = buildCurationDocument(
-            draft,
-            {
-              mode: "remote",
-              baselineLastModified,
-              baseline: saved ?? undefined,
-            },
-            removals,
+          const doc = await canonicaliseClauses(
+            buildCurationDocument(
+              draft,
+              {
+                mode: "remote",
+                baselineLastModified,
+                baseline: saved ?? undefined,
+              },
+              removals,
+            ),
           );
           await commitCuration(experimentId, doc, {
             baselineLastModified,
