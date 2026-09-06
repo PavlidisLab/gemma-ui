@@ -216,4 +216,55 @@ describe("snakeify — keys of data-keyed maps are literals, not names", () => {
       "overall_design",
     ]);
   });
+
+  /**
+   * 🛑 `supportingEvidence` is handed BACK to Gemma unchanged.
+   *
+   * The `design` section is full-record replacement and the field is
+   * guarded, so a statement's commit re-sends what its read handed
+   * over. Normalizing the blob's own keys on the way in means the way
+   * out writes `asserted_by` over Gemma's `assertedBy` — and the write
+   * reports `updated: 1` either way. `ObsoleteTermCorrectionService`
+   * writes machine-authored blobs into this column, so the camel keys
+   * are real.
+   */
+  describe("supporting_evidence is opaque", () => {
+    it("leaves the blob's own keys alone, at any depth", () => {
+      const out = snakeify({
+        gemmaId: 30030391,
+        supportingEvidence: [
+          {
+            quote: "EpiSC were derived from post-implantation epiblast",
+            assertedBy: "gemmaAgent",
+            assertedAt: "2026-09-05T00:00:00Z",
+            sourceRef: { pubMedId: 12345 },
+          },
+        ],
+      }) as Record<string, unknown>;
+      // The key itself still normalizes — it is a field name.
+      expect(Object.keys(out).sort()).toEqual([
+        "gemma_id",
+        "supporting_evidence",
+      ]);
+      expect(out.supporting_evidence).toEqual([
+        {
+          quote: "EpiSC were derived from post-implantation epiblast",
+          assertedBy: "gemmaAgent",
+          assertedAt: "2026-09-05T00:00:00Z",
+          sourceRef: { pubMedId: 12345 },
+        },
+      ]);
+    });
+
+    it("passes an already-snake blob through unchanged too", () => {
+      // The agent relay speaks snake_case; opaque means opaque in both
+      // directions, so its evidence arrives as it was sent.
+      const evidence = [{ quote: "q", source: "paper", source_url: "u" }];
+      const out = snakeify({ supporting_evidence: evidence }) as Record<
+        string,
+        unknown
+      >;
+      expect(out.supporting_evidence).toEqual(evidence);
+    });
+  });
 });

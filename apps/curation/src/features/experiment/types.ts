@@ -52,16 +52,46 @@ export interface Statement {
    *
    * 🛑 **Carried so the commit can send it BACK.** The `design` section
    * is full-record replacement (gembro, 2026-09-06): an omitted key
-   * clears the stored value. `supportingEvidence` is guarded — omitting
-   * it on a row that has one is a 400 — and `evidenceCode` beside it is
-   * not, so omitting THIS silently sets it null and the report still
-   * says `updated: 1`. Measured on 657 statement 30030391: sent without
-   * it, `IC` was gone.
+   * clears the stored value. Both this and `supportingEvidence` are
+   * guarded as of the 2026-09-06 11:05 PDT deploy (`9923b7c62d`, build
+   * `1b3671d406b7`): omitting either on a row that has one is a 400.
+   *
+   * Before that deploy this one cleared SILENTLY — sent without it on
+   * 657 statement 30030391, `IC` was gone, `200 updated: 1`, no
+   * warning. That is the measurement the carry was built for; it is
+   * history now, and the carry is what keeps the commit from being
+   * refused instead.
    *
    * Read here purely to be re-sent unchanged. Nothing in the UI edits
    * it, which is why there is no mutation helper for it.
    */
   evidence_code?: string | null;
+  /**
+   * Verbatim provenance on the statement — the `{quote, source,
+   * location}` items an agent grounded it on.
+   *
+   * 🛑 **Carried for the same reason as `evidence_code`, and it fails
+   * the other way.** Omitting this on a row that HAS evidence is a
+   * 400 (gembro's guard, `9923b7c62d`), so the commit is refused
+   * rather than silently blanked — which is why the code above needed
+   * a fix and this one needs only the carry.
+   *
+   * **368 rows carry evidence in production** (cab (eval), measured against
+   * `gemd` 2026-09-06), every one of them written by the agents'
+   * curator-evidence backfill and shaped
+   * `[{source, quote, context, location}]`. So the guard can fire on a real
+   * dataset today — this is not a carry against a future hazard. The
+   * "0 non-null" figure that circulated is
+   * 2026-08-31 and stale; do not re-cite it.
+   *
+   * **Absent, not null**, on the read: `/design` omits the key when
+   * there is no evidence and sends it when there is (measured on 657
+   * — statement 30030391 carries it, 30030392 carries only
+   * `evidenceCode`). Echoed unchanged and never reshaped, because a
+   * shape we failed to recognize would be dropped and read as
+   * absence.
+   */
+  supporting_evidence?: FindingEvidence[] | null;
 }
 
 /** How many (predicate, object) pairs one subject may carry.

@@ -364,10 +364,19 @@ interface WireAnnotation {
    *  declares it as "a JSON array of {quote, source, location} items
    *  the curation agents emitted", which is `FindingEvidence[]`.
    *
-   *  Null on every row today (12 of 12 on 27103, and 0 non-null across
-   *  ~7.4M `CHARACTERISTIC` rows on prod). `TagBar`'s `EvidenceTrigger`
-   *  has been wired and dark since 2026-06-18 waiting for exactly this
-   *  field, so carrying it is what lights it up rather than new UI.
+   *  Rare, not absent: **368 rows** of `CHARACTERISTIC` carry it on
+   *  prod (cab (eval), 2026-09-06), all written by the agents'
+   *  curator-evidence backfill. The "0 non-null" figure
+   *  figure this comment used to state is 2026-08-31 and was
+   *  overtaken. `TagBar`'s `EvidenceTrigger` has been wired and dark
+   *  since 2026-06-18 waiting for exactly this field, so carrying it
+   *  is what lights it up rather than new UI.
+   *
+   *  🛑 Read through `snakeify`'s `OPAQUE_SUBTREES` carve-out, so the
+   *  keys arrive in whatever casing Gemma stored. Only `quote` is
+   *  read below and it is casing-invariant; a camel field could not
+   *  be read here. That is the deliberate cost of echoing the blob
+   *  byte-exact on commit — see `Statement.supporting_evidence`.
    *
    *  🛑 **Why it is empty is NOT "the write path discards it"** — that
    *  was the first explanation and gembro retracted it on 2026-08-31

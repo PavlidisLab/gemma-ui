@@ -202,6 +202,28 @@ const DATA_KEYED_MAPS: ReadonlySet<string> = new Set([
   "geo_fields",
 ]);
 
+/** Keys whose value is an OPAQUE blob — the whole subtree passes
+ *  through byte-for-byte, at every depth.
+ *
+ *  Different failure from `DATA_KEYED_MAPS` above, which protects one
+ *  level of keys because those keys ARE data. Here the keys below are
+ *  field names, and rewriting them would still be wrong: we hand this
+ *  value straight back to Gemma on commit. `supportingEvidence` is a
+ *  JSON column Gemma re-serializes verbatim, and the `design` section
+ *  is full-record replacement, so a statement's commit re-sends what
+ *  its read handed over. Normalize on the way in and the way out
+ *  writes `asserted_by` over Gemma's `assertedBy` — corrupting stored
+ *  provenance while reporting `updated: 1`.
+ *
+ *  `ObsoleteTermCorrectionService` writes machine-authored blobs into
+ *  this same column, so camel keys inside it are real, not
+ *  hypothetical. The cost is that the UI cannot read a camel field out
+ *  of the blob; only `quote` is read today
+ *  (`designFromGemma.asFindingEvidence`) and it is one lowercase word,
+ *  unaffected either way. A render gap beats a write that mangles what
+ *  it was only meant to carry. */
+const OPAQUE_SUBTREES: ReadonlySet<string> = new Set(["supporting_evidence"]);
+
 /** Normalize a data-keyed map: keys pass through untouched, values
  *  still go through the normal transform. */
 function snakeifyDataMap(value: unknown): unknown {
@@ -221,7 +243,11 @@ export function snakeify(value: unknown): unknown {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
     const nk = snakifyKey(k);
-    out[nk] = DATA_KEYED_MAPS.has(nk) ? snakeifyDataMap(v) : snakeify(v);
+    out[nk] = OPAQUE_SUBTREES.has(nk)
+      ? v
+      : DATA_KEYED_MAPS.has(nk)
+        ? snakeifyDataMap(v)
+        : snakeify(v);
   }
   return out;
 }

@@ -58,6 +58,11 @@ interface G2Statement {
   object_uri?: string | null;
   /** Re-sent verbatim on commit — see `Statement.evidence_code`. */
   evidence_code?: string | null;
+  /** Absent, not null, when the row has none — see
+   *  `Statement.supporting_evidence`. Typed loose because it is
+   *  echoed, not read: narrowing it here would let an unrecognized
+   *  shape be dropped, and a dropped one commits as an omission. */
+  supporting_evidence?: unknown;
 }
 
 interface G2FactorValue {
@@ -818,6 +823,15 @@ function composeStatement(s: G2Statement): Statement {
     // full-record replacement and an omitted key CLEARS the stored
     // code. See `Statement.evidence_code`.
     evidence_code: s.evidence_code ?? null,
+    // Absent stays absent: the commit spreads this key only when it
+    // is here, so `undefined` and "no evidence" have to stay the same
+    // thing. See `Statement.supporting_evidence`.
+    ...(s.supporting_evidence === undefined
+      ? {}
+      : {
+          supporting_evidence:
+            s.supporting_evidence as Statement["supporting_evidence"],
+        }),
     category: {
       label: s.category ?? "",
       uri: s.category_uri ?? null,

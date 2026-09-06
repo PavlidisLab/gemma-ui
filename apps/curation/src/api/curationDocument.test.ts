@@ -78,10 +78,12 @@ const DESIGN: CommittableDesign = {
  * `evidenceCode` survives a commit.
  *
  * 🛑 The `design` section is full-record replacement (2026-09-06), so
- * an omitted key CLEARS the stored value. `supportingEvidence` is
- * guarded — omitting it on a row that has one is a 400 — and
- * `evidenceCode` beside it is NOT. Measured on gemma2/657 statement
- * 30030391: committed without it, `IC` was gone, `200 updated: 1`, no
+ * an omitted key CLEARS the stored value. Both this and
+ * `supportingEvidence` are guarded since the 2026-09-06 11:05 PDT
+ * deploy — omitting either on a row that has one is a 400.
+ *
+ * Before it, this one cleared SILENTLY: gemma2/657 statement
+ * 30030391, committed without it, `IC` was gone, `200 updated: 1`, no
  * warning. Nothing in the UI edits the code; it is carried from
  * `/design` purely so a commit cannot destroy it.
  */
@@ -122,6 +124,84 @@ describe("statement evidenceCode is re-sent, never dropped", () => {
     // Absent-with-nothing-stored is the one safe omission.
     const st = emitted(withCode(null));
     expect(st && "evidenceCode" in st).toBe(false);
+  });
+});
+
+/**
+ * `supportingEvidence` survives a commit — the guarded half.
+ *
+ * 🛑 Same full-record replacement, opposite failure: this field IS
+ * guarded (gembro `9923b7c62d`), so omitting it on a row that has
+ * evidence is a 400 and the curator's commit is REFUSED, on a
+ * statement they never touched. 368 production rows carry evidence
+ * (cab (eval), measured 2026-09-06), all written by the agents'
+ * curator-evidence backfill and shaped `[{source, quote, context, location}]`,
+ * so the guard fires on real datasets rather than hypothetical ones.
+ * The "0 non-null" figure is 2026-08-31 and stale.
+ *
+ * `/design` sends the key only when there is evidence (657: statement
+ * 30030391 carries it, 30030392 carries only `evidenceCode`), so
+ * absent must survive as absent — the commit's omission is correct
+ * precisely when the read had nothing.
+ */
+describe("statement supportingEvidence is re-sent, never dropped", () => {
+  const EVIDENCE = [
+    {
+      quote: "EpiSC were derived from post-implantation epiblast",
+      source: "Methods",
+      location: "p. 3",
+    },
+  ];
+  const withEvidence = (supporting_evidence?: unknown) => ({
+    factors: [
+      {
+        id: 7,
+        gemma_factor_id: 7,
+        factor_values: [
+          {
+            id: 1,
+            statements: [
+              {
+                gemma_id: 900,
+                subject: { label: "epiblast cell", uri: "CL_0000352" },
+                ...(supporting_evidence === undefined
+                  ? {}
+                  : { supporting_evidence }),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  const emitted = (design: ReturnType<typeof withEvidence>) =>
+    buildCurationDocument(design as never, { mode: "remote" }).design?.factors
+      ?.items?.[0].factorValues?.items?.[0].statements?.items?.[0];
+
+  it("carries the stored evidence back unchanged", () => {
+    expect(emitted(withEvidence(EVIDENCE))?.supportingEvidence).toEqual(
+      EVIDENCE,
+    );
+  });
+
+  it("does not reshape an item it does not recognize", () => {
+    // Echoed, not read. Dropping an unfamiliar shape would commit as
+    // an omission — the exact 400 this carry exists to avoid.
+    const odd = [{ quote: "kept", assertedBy: "gemmaAgent" }];
+    expect(emitted(withEvidence(odd))?.supportingEvidence).toEqual(odd);
+  });
+
+  it("emits no key when the read carried none", () => {
+    const st = emitted(withEvidence(undefined));
+    expect(st && "supportingEvidence" in st).toBe(false);
+  });
+
+  it("emits no key for null rather than inventing a clear", () => {
+    // `[]` and `null` are both no-ops on Gemma's side, never a clear
+    // (measured on 30030391), so neither is worth sending in place of
+    // an absence.
+    const st = emitted(withEvidence(null));
+    expect(st && "supportingEvidence" in st).toBe(false);
   });
 });
 
