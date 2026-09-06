@@ -406,21 +406,6 @@ function useNumericCount(path: string, key: string) {
   });
 }
 
-function useTotalElements(path: string, key: string) {
-  return useQuery({
-    queryKey: ["summary", key],
-    queryFn: async ({ signal }) => {
-      const r = await apiGet<{ totalElements?: number }>(
-        `${path}?limit=1`,
-        { signal },
-      );
-      return r.totalElements ?? null;
-    },
-    staleTime: 5 * 60_000,
-    retry: false,
-  });
-}
-
 export function useGemmaSummary(): GemmaSummary {
   // /stats/home — fast path. Best-effort: if it errors, the per-
   // endpoint fallbacks below cover every field except geneCount
@@ -440,9 +425,31 @@ export function useGemmaSummary(): GemmaSummary {
 
   // Per-endpoint fallbacks. Each fires independently of /stats/home
   // so the page fills in even when the snapshot 404s / 503s.
-  const datasetsCount = useTotalElements(`${BASE}/datasets`, "datasets-count");
-  const platformsCount = useTotalElements(
-    `${BASE}/platforms`,
+  // 🛑 Ask for a count, not a page of one.
+  //
+  // These read `totalElements` off `?limit=1`, which makes the server
+  // plan a SORTED page it then throws away. gembro found the cost on
+  // prod 2026-09-05: `Sort.NullMode.LAST` on `id` emits
+  // `order by case when ee1_0.ID is null then 1 else 0 end, ee1_0.ID`,
+  // and the CASE wrapper makes the sort non-indexable — so `limit 1`
+  // costs a full ACL-filtered scan plus a filesort of the whole
+  // corpus. They saw eight of these stacked, one issued every 40s,
+  // each ~5 minutes in `Sending data`.
+  //
+  // I could not prove ours is that caller — the shape matches
+  // (anonymous, datasets, limit 1) and nothing here polls at 40s — but
+  // the dedicated endpoints are what we actually want either way, and
+  // they cannot degenerate into sorting the corpus. Timings from
+  // outside vary too much to quote: `/datasets/count` answered in
+  // 0.085s and then 26s a minute later, which is consistent with the
+  // contention gembro describes rather than with either form being
+  // reliably faster.
+  const datasetsCount = useNumericCount(
+    `${BASE}/datasets/count`,
+    "datasets-count",
+  );
+  const platformsCount = useNumericCount(
+    `${BASE}/platforms/count`,
     "platforms-count",
   );
   const samplesCount = useNumericCount(
@@ -496,8 +503,8 @@ export function useGemmaSummary(): GemmaSummary {
     `${BASE}/datasets/annotations/count?excludeFreeText=true`,
     "annotations-all",
   );
-  const diffExResultSetsFallback = useTotalElements(
-    `${BASE}/resultSets`,
+  const diffExResultSetsFallback = useNumericCount(
+    `${BASE}/resultSets/count`,
     "result-sets",
   );
 
