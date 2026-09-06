@@ -64,11 +64,19 @@ import type {
  *
  *  - ``individual`` ships as a sample-id list (e.g. ``101, 102, 103,
  *    …``) that swamps the bar.
- *  - ``labelling`` / ``labeling`` is almost always ``biotin`` on
- *    legacy Affymetrix arrays — universal, uninformative, noise. (If
- *    a curator ever attaches it as a *direct* tag, that's an
- *    explicit choice and stays visible — only the inferred form is
- *    filtered.) */
+ *  - ``labelling`` / ``labeling`` is array/labelling chemistry — the
+ *    fluorophore or hapten the sample was tagged with for detection.
+ *    It describes the ASSAY, not the material. Counted on prod
+ *    2026-09-05 (cab): 102,443 rows over 79,452 biomaterials, 433
+ *    distinct values, led by Cy3 (61,687) and Cy5 (24,790). The 433
+ *    are overwhelmingly spelling variants of those two — ``Cy-3``,
+ *    ``Cyanine-3``, ``Cy3-CTP``, ``Cy3, Cy5`` — which is itself the
+ *    sign that nobody consumes them. (This comment used to say
+ *    "almost always ``biotin`` on legacy Affymetrix arrays"; biotin
+ *    was a separate 313,088 rows, deleted the same day, and was never
+ *    the bulk of this category.) (If a curator ever attaches it as a
+ *    *direct* tag, that's an explicit choice and stays visible — only
+ *    the inferred form is filtered.) */
 const INFERRED_HIDE_CATEGORIES = new Set<string>([
   "individual",
   "labelling",
