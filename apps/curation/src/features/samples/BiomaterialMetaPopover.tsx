@@ -51,13 +51,14 @@ const ANCHOR_OFFSET = 4; // matches the old mt-1 spacing
  * What the ASSAY says about the library, as display chips.
  *
  * 🛑 These sit BESIDE the biomaterial's `molecular entity`
- * characteristics and never stand in for them. 11,409 biomaterials on
- * prod carry two or three molecule values while `extracted_molecule`
- * carries one — the backfill kept the most specific (`nuclear` >
- * `polyA` > `total`, confirmed on 21 multi-valued assays across
- * GSE30567.1/.3). Showing this instead of the characteristics would
- * drop the losing term with nothing to recover it from:
- * `library_selection` is never `PolyA`, only `cDNA` or null.
+ * characteristics and never stand in for them. 254 assays on prod carry
+ * two or three molecule values while `extracted_molecule` carries one
+ * — the backfill kept the most specific (`nuclear` > `polyA` >
+ * `total`, confirmed on 21 multi-valued assays across GSE30567.1/.3) —
+ * and 140 of those are deliberately NULL, where the characteristic is
+ * the only record of the molecule at all. Showing this instead of the
+ * characteristics would drop the losing term with nothing to recover it
+ * from: `library_selection` is never `PolyA`, only `cDNA` or null.
  *
  * ⇒ Do not add a "prefer extracted_molecule when present" branch. The
  * value is what the assay records, not a statement about the material,

@@ -129,14 +129,17 @@ export interface SampleBiomaterial {
      * Assay-level library facts, straight from `BIO_ASSAY`.
      *
      * 🛑 **These ADD to the biomaterial's `molecular entity`
-     * characteristics; they never replace them.** For 11,409
-     * biomaterials the characteristics hold two or three molecule
-     * values and `extractedMolecule` holds ONE — the backfill picked
-     * the most specific (`nuclear` > `polyA` > `total`, confirmed on
-     * 21 multi-valued assays across GSE30567.1/.3). So the field is a
-     * SUMMARY of the characteristics, not a re-home of them, and
-     * rendering it instead of them would silently drop the losing
-     * term. `library_selection` does not recover it either — it is
+     * characteristics; they never replace them.** On 254 assays the
+     * characteristics hold two or three molecule values while
+     * `extractedMolecule` holds ONE — the backfill kept the most
+     * specific (`nuclear` > `polyA` > `total`, confirmed on 21
+     * multi-valued assays across GSE30567.1/.3). **140 of the 254 are
+     * deliberately NULL** (GSE20970, GSE29761, GSE69693: both channels
+     * carry a constant `sourceName`, so nothing stored says which is
+     * the reference) — there the characteristic is the ONLY record of
+     * the molecule. So the field is a SUMMARY, not a re-home, and
+     * rendering it instead of the characteristics would silently drop
+     * the losing term. `library_selection` does not recover it — it is
      * never `PolyA`, only `cDNA` or null.
      *
      * ⇒ Never write a "prefer extracted_molecule when present"

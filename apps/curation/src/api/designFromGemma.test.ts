@@ -624,10 +624,11 @@ describe("toExperimentTags — composed statements", () => {
  * Assay-level library facts (`BIO_ASSAY`, gembro 2026-09-05).
  *
  * 🛑 The rule these pin is that the field ADDS to the biomaterial's
- * `molecular entity` characteristics and never replaces them. 11,409
- * biomaterials on prod carry two or three molecule values while
- * `extractedMolecule` carries one, so a "prefer the typed field"
- * shortcut would silently drop the losing term.
+ * `molecular entity` characteristics and never replaces them. 254
+ * assays on prod carry two or three molecule values while
+ * `extractedMolecule` carries one — and on 140 of them it is NULL, so
+ * the characteristic is the only record there is. A "prefer the typed
+ * field" shortcut would silently drop the losing term.
  */
 describe("bio_assays carry the library facts", () => {
   const assay = (over: Record<string, unknown> = {}) => ({
@@ -656,7 +657,7 @@ describe("bio_assays carry the library facts", () => {
   });
 
   it("🛑 keeps BOTH characteristics when the assay summarises them as one", () => {
-    // The 11,409 case. `extractedMolecule` is `polyARNA`; the
+    // The multi-valued case. `extractedMolecule` is `polyARNA`; the
     // characteristics still say polyA AND total, and both must survive.
     const [bm] = toSampleBiomaterials([assay()] as never);
     const joined = bm.characteristics["molecular entity"] ?? "";

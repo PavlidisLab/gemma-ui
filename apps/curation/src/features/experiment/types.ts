@@ -181,11 +181,12 @@ export interface BioAssay {
    * factor forces duplicating the sample (GSE220901 stores 168 assays
    * as 168 biomaterials, and the ADT/GEX pairing is unrecoverable).
    *
-   * 🛑 **A SUMMARY, never a replacement.** 11,409 biomaterials carry
-   * two or three `molecular entity` characteristics while this holds
-   * one — the backfill kept the most specific (`nuclear` > `polyA` >
-   * `total`). Render it BESIDE the characteristics; a "prefer this when
-   * present" fallback would silently drop the losing term, and
+   * 🛑 **A SUMMARY, never a replacement.** 254 assays carry two or
+   * three `molecular entity` values while this holds one — the backfill
+   * kept the most specific (`nuclear` > `polyA` > `total`) — and 140 of
+   * those are deliberately NULL, where the characteristic is the only
+   * record at all. Render it BESIDE the characteristics; a "prefer this
+   * when present" fallback would silently drop the losing term, and
    * `library_selection` cannot recover it (never `PolyA`, only `cDNA`
    * or null).
    *
