@@ -74,6 +74,57 @@ const DESIGN: CommittableDesign = {
   ],
 };
 
+/**
+ * `evidenceCode` survives a commit.
+ *
+ * 🛑 The `design` section is full-record replacement (2026-09-06), so
+ * an omitted key CLEARS the stored value. `supportingEvidence` is
+ * guarded — omitting it on a row that has one is a 400 — and
+ * `evidenceCode` beside it is NOT. Measured on gemma2/657 statement
+ * 30030391: committed without it, `IC` was gone, `200 updated: 1`, no
+ * warning. Nothing in the UI edits the code; it is carried from
+ * `/design` purely so a commit cannot destroy it.
+ */
+describe("statement evidenceCode is re-sent, never dropped", () => {
+  const withCode = (evidence_code: string | null) => ({
+    factors: [
+      {
+        id: 7,
+        gemma_factor_id: 7,
+        factor_values: [
+          {
+            id: 1,
+            statements: [
+              {
+                gemma_id: 900,
+                evidence_code,
+                subject: { label: "epiblast cell", uri: "CL_0000352" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  const emitted = (design: ReturnType<typeof withCode>) =>
+    buildCurationDocument(design as never, { mode: "remote" }).design?.factors
+      ?.items?.[0].factorValues?.items?.[0].statements?.items?.[0];
+
+  it("carries the stored code back unchanged", () => {
+    expect(emitted(withCode("IC"))?.evidenceCode).toBe("IC");
+  });
+
+  it("carries a backfilled IIA the same way", () => {
+    expect(emitted(withCode("IIA"))?.evidenceCode).toBe("IIA");
+  });
+
+  it("emits no key when the row has no code", () => {
+    // Absent-with-nothing-stored is the one safe omission.
+    const st = emitted(withCode(null));
+    expect(st && "evidenceCode" in st).toBe(false);
+  });
+});
+
 describe("buildCurationDocument", () => {
   const doc = buildCurationDocument(DESIGN, REMOTE);
   const factors = doc.design?.factors?.items ?? [];

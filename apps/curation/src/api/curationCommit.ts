@@ -39,6 +39,8 @@ export interface StatementCommit extends CommitTarget {
   predicate?: OntologyTermRef;
   object?: OntologyTermRef;
   supportingEvidence?: unknown;
+  /** 🛑 Must be sent back or it is CLEARED — see the emit site. */
+  evidenceCode?: string;
 }
 
 /** A section of the document: the items to keep or change, and the
@@ -355,6 +357,8 @@ export interface CommittableDesign {
       biomaterial_short_names?: string[];
       statements?: Array<{
         gemma_id?: number | null;
+        /** Re-sent verbatim; omitting it CLEARS the stored code. */
+        evidence_code?: string | null;
         category?: { label?: string; uri?: string | null } | null;
         subject?: { label?: string; uri?: string | null } | null;
         predicate?: { label?: string; uri?: string | null } | null;
@@ -518,6 +522,16 @@ export function buildCurationDocument(
             ...(term(st.subject) ? { subject: term(st.subject) } : {}),
             ...(term(st.predicate) ? { predicate: term(st.predicate) } : {}),
             ...(term(st.object) ? { object: term(st.object) } : {}),
+            // 🛑 **Re-sent, not edited.** `design` is full-record
+            // replacement (2026-09-06), so an omitted key clears the
+            // stored value. `supportingEvidence` is guarded — omitting
+            // it on a row that has one is a 400 — and `evidenceCode` is
+            // NOT, so leaving it out silently nulls the code and the
+            // report still reads `updated: 1`. Measured on 657
+            // statement 30030391: committed without it, `IC` was gone,
+            // no warning. Nothing in the UI edits this; it is carried
+            // from `/design` purely so a commit does not destroy it.
+            ...(st.evidence_code ? { evidenceCode: st.evidence_code } : {}),
           })),
         },
       })),

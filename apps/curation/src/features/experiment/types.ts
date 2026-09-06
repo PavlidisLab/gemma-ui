@@ -47,6 +47,21 @@ export interface Statement {
   subject: OntologyTerm;
   predicate?: OntologyTerm | null;
   object?: OntologyTerm | null;
+  /**
+   * GO-style evidence code — `IC`, `IEA`, `IDA`, `TAS`, `IIA`.
+   *
+   * 🛑 **Carried so the commit can send it BACK.** The `design` section
+   * is full-record replacement (gembro, 2026-09-06): an omitted key
+   * clears the stored value. `supportingEvidence` is guarded — omitting
+   * it on a row that has one is a 400 — and `evidenceCode` beside it is
+   * not, so omitting THIS silently sets it null and the report still
+   * says `updated: 1`. Measured on 657 statement 30030391: sent without
+   * it, `IC` was gone.
+   *
+   * Read here purely to be re-sent unchanged. Nothing in the UI edits
+   * it, which is why there is no mutation helper for it.
+   */
+  evidence_code?: string | null;
 }
 
 /** How many (predicate, object) pairs one subject may carry.

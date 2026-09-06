@@ -56,6 +56,8 @@ interface G2Statement {
   predicate_uri?: string | null;
   object?: string | null;
   object_uri?: string | null;
+  /** Re-sent verbatim on commit — see `Statement.evidence_code`. */
+  evidence_code?: string | null;
 }
 
 interface G2FactorValue {
@@ -812,6 +814,10 @@ function composeStatement(s: G2Statement): Statement {
     // two separate statements on one subject are indistinguishable, and
     // only the first is over Gemma's ceiling.
     gemma_id: typeof s.id === "number" ? s.id : null,
+    // Carried so the commit can send it back unchanged: `design` is
+    // full-record replacement and an omitted key CLEARS the stored
+    // code. See `Statement.evidence_code`.
+    evidence_code: s.evidence_code ?? null,
     category: {
       label: s.category ?? "",
       uri: s.category_uri ?? null,
