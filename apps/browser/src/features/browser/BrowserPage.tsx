@@ -60,10 +60,23 @@ export function BrowserPage() {
   const [pageSize, setPageSize] = useState(25);
   // Seed sort from ``?sort=`` if present (e.g. the home page's
   // recent-activity "see all" lands with ``?sort=-lastUpdated``).
-  // Default falls back
-  // to the legacy "-id" so direct ``/browser`` navigation is
-  // unchanged. Initial-only — user column-sorts don't write back.
-  const [sort, setSort] = useState<string | undefined>(url.sort ?? "-id");
+  // Initial-only — user column-sorts don't write back.
+  //
+  // Default is most-recently-touched, which is what clicking the
+  // Updated column gives. It replaced ``-id``, and the reason is that
+  // ``-id`` sorted by a value the page never shows: the only date
+  // column is Updated, so a correctly ordered list read as random
+  // (May 15, May 6, Apr 20, Apr 14, Sep 1 down the first rows). This
+  // default also lights the column's own ``↓`` indicator, so the
+  // ordering is legible rather than implicit.
+  //
+  // ``-id`` was also a poor proxy for "recently added": splitting an
+  // old study mints new experiments with fresh ids, so the first
+  // twelve rows were all ``Split part N of:`` — curation activity on
+  // old studies, at the top of a list that looked like new arrivals.
+  const [sort, setSort] = useState<string | undefined>(
+    url.sort ?? "-lastUpdated",
+  );
   // ``?updatedSince=YYYY-MM-DD`` (the home page's "N updated this
   // week" stat) ANDs one extra clause onto the generated filter. Held
   // in state, not read live off the URL, so the chip's × can drop it
