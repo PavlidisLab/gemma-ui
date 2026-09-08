@@ -81,6 +81,17 @@ describe("curieToUrl", () => {
     ).toBe("http://www.ebi.ac.uk/efo/EFO_0022874");
   });
 
+  it("resolves a bare ECTO CURIE to the OBO purl, so the link-out is the term and not an OLS search", () => {
+    // The 14 ECTO exposure terms (radiation modality, temperature)
+    // became resolvable on gemma2 2026-09-07. Without the prefix entry
+    // they fell through to the unknown-prefix OLS *search* fallback.
+    expect(curieToUrl("ECTO:8000044")).toBe(
+      "http://purl.obolibrary.org/obo/ECTO_8000044",
+    );
+    expect(termRegistry("ECTO:8000044")).toBe("obo");
+    expect(isOlsHosted("ECTO:8000044")).toBe(true);
+  });
+
   it("rewrites a mis-namespaced obo-purl TGEMO full URL to Gemma's ont namespace (TGEMO is Gemma's own ontology, not in OBO)", () => {
     // predicates.json ships TGEMO predicate URIs under the OBO purl.
     expect(

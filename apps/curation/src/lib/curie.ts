@@ -39,6 +39,11 @@ const CURIE_TO_URL_PREFIX: Record<string, string> = {
   HP: "http://purl.obolibrary.org/obo/HP_",
   GO: "http://purl.obolibrary.org/obo/GO_",
   RO: "http://purl.obolibrary.org/obo/RO_",
+  // ECTO — exposure events (radiation modality, temperature). Not one
+  // of Gemma's loaded ontologies; the 14 terms in use are declared in
+  // TGEMO under their own ECTO IRIs, so they resolve as OBO purls and
+  // ``termRegistry`` classifies them ``obo`` off this entry alone.
+  ECTO: "http://purl.obolibrary.org/obo/ECTO_",
   BFO: "http://purl.obolibrary.org/obo/BFO_",
   TGEMO: "http://gemma.msl.ubc.ca/ont/TGEMO_",
   NCBITaxon: "http://purl.obolibrary.org/obo/NCBITaxon_",
