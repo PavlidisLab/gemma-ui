@@ -131,7 +131,7 @@ describe("statement evidenceCode is re-sent, never dropped", () => {
  * `supportingEvidence` survives a commit — the guarded half.
  *
  * 🛑 Same full-record replacement, opposite failure: this field IS
- * guarded (gembro `9923b7c62d`), so omitting it on a row that has
+ * guarded (gembro, `ce61a2f9cb` in Gemma), so omitting it on a row that has
  * evidence is a 400 and the curator's commit is REFUSED, on a
  * statement they never touched. 368 production rows carry evidence
  * (cab (eval), measured 2026-09-06), all written by the agents'
@@ -202,6 +202,131 @@ describe("statement supportingEvidence is re-sent, never dropped", () => {
     // an absence.
     const st = emitted(withEvidence(null));
     expect(st && "supportingEvidence" in st).toBe(false);
+  });
+});
+
+/**
+ * Template 9b — a free-text tag hooked to the ontology by its statement.
+ *
+ * 🛑 Paul, 2026-09-06: *"a bare free text tag should be flagged by the
+ * ui: add a predicate and object to give the free text context."* The
+ * hooked form is `cell line: WTC-11` + `derives from cell line cell` +
+ * a grounded parent line — value ungrounded on purpose, because the
+ * lab's own name for a line is not in any ontology and substituting a
+ * generic grounded term would assert the samples ARE the class.
+ *
+ * Two things have to travel for that to work at all: the statements,
+ * and `freeTextIntended`. Gemma's tag gate reads the tag's own
+ * `value.uri` and NOTHING else (`UNGROUNDED_NOT_DECLARED`,
+ * `DatasetsWebService:3938`, gembro 2026-09-06), so the grounded
+ * object does not satisfy it — the declaration has to be explicit.
+ */
+describe("a hooked free-text tag survives the commit", () => {
+  const HOOK = {
+    predicate: { label: "derives from cell line cell", uri: "http://…/CLO_0037210" },
+    object: {
+      label: "induced pluripotent stem cell line cell",
+      uri: "http://…/CLO_0037307",
+    },
+  };
+  const tag = (over: Record<string, unknown> = {}) => ({
+    id: -5,
+    category: { label: "cell line", uri: "http://…/EFO_0000322" },
+    value: { label: "WTC-11" },
+    statements: [{ subject: { label: "WTC-11" }, ...HOOK }],
+    ...over,
+  });
+  const emitted = (t: ReturnType<typeof tag>) =>
+    buildCurationDocument({ factors: [], tags: [t] } as never, {
+      mode: "remote",
+      baseline: { tags: [] },
+    }).tags?.items?.[0];
+
+  it("sends the statement that does the hooking", () => {
+    const st = emitted(tag())?.statements?.items?.[0];
+    expect(st?.predicate?.uri).toBe(HOOK.predicate.uri);
+    expect(st?.object?.uri).toBe(HOOK.object.uri);
+  });
+
+  it("declares the free text as intended, or Gemma refuses it", () => {
+    expect(emitted(tag())?.freeTextIntended).toBe(true);
+  });
+
+  it("🛑 does not declare it for a BARE free-text tag", () => {
+    // The flag is not a way past the gate — it records a decision the
+    // curator made by authoring the hook. With no hook there is no
+    // decision to record, and the validator flags the tag instead.
+    const bare = emitted(tag({ statements: [] }));
+    expect(bare && "freeTextIntended" in bare).toBe(false);
+  });
+
+  it("does not declare it for a grounded value either", () => {
+    const grounded = emitted(
+      tag({ value: { label: "HeLa", uri: "http://…/CLO_0003684" }, statements: [] }),
+    );
+    expect(grounded && "freeTextIntended" in grounded).toBe(false);
+  });
+
+  it("🛑 an edited clause is not mistaken for an unchanged tag", () => {
+    // A tag is add/delete only, so an unchanged one emits a bare
+    // keep-marker. Comparing category + value alone made this edit
+    // invisible and discarded it.
+    const prior = { ...tag(), id: 900 };
+    const edited = {
+      ...prior,
+      statements: [
+        {
+          subject: { label: "WTC-11" },
+          predicate: HOOK.predicate,
+          object: { label: "embryonic stem cell line cell", uri: "http://…/CLO_0037279" },
+        },
+      ],
+    };
+    const doc = buildCurationDocument(
+      { factors: [], tags: [edited] } as never,
+      { mode: "remote", baseline: { tags: [prior] } },
+    );
+    // Recreated under a clientRef, with the old id in deletedIds —
+    // never the `{gemmaId}` keep-marker.
+    expect(doc.tags?.items?.[0].clientRef).toBe("tag-900");
+    expect(doc.tags?.deletedIds).toContain(900);
+  });
+
+  it("🛑 a re-term carries the existing evidence rather than destroying it", () => {
+    // A tag is add/delete only, so an edit recreates it. A create that
+    // omits this drops provenance the curator never chose to remove —
+    // the same silent loss as an omitted key under full-record
+    // replacement. Paul, 2026-09-06: "the existing supporting evidence
+    // should survive."
+    const evidence = [
+      { source: "curator_ruling", quote: "the line is a WTC-11 subclone", context: "…" },
+    ];
+    const prior = { ...tag(), id: 902, supporting_evidence: evidence };
+    const doc = buildCurationDocument(
+      {
+        factors: [],
+        tags: [{ ...prior, value: { label: "WTC-11 clone 7" } }],
+      } as never,
+      { mode: "remote", baseline: { tags: [prior] } },
+    );
+    expect(doc.tags?.items?.[0].supportingEvidence).toEqual(evidence);
+    expect(doc.tags?.deletedIds).toContain(902);
+  });
+
+  it("invents no evidence for a tag that arrived without any", () => {
+    // We do not author this field — the agents do. A curator's own act
+    // is recorded as `IC` plus the audit event naming them.
+    const st = emitted(tag());
+    expect(st && "supportingEvidence" in st).toBe(false);
+  });
+
+  it("an untouched hooked tag is still a bare keep-marker", () => {
+    const prior = { ...tag(), id: 901 };
+    const doc = buildCurationDocument(
+      { factors: [], tags: [{ ...prior }] } as never,
+      { mode: "remote", baseline: { tags: [prior] } },
+    );
+    expect(doc.tags?.items?.[0]).toEqual({ gemmaId: 901 });
   });
 });
 

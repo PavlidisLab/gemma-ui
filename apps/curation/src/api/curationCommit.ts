@@ -71,6 +71,21 @@ export interface TagCommit extends CommitTarget {
   value?: OntologyTermRef;
   statements?: CommitSection<StatementCommit>;
   supportingEvidence?: unknown;
+  /** Declares that this tag's free-text value is DELIBERATE.
+   *
+   *  🛑 Gemma refuses a new tag whose `value.uri` is blank unless this
+   *  is true (`UNGROUNDED_NOT_DECLARED`, `DatasetsWebService:3938`),
+   *  and the gate reads the tag's own value only — a grounded
+   *  statement object does not satisfy it.
+   *
+   *  Set here ONLY for a tag the curator has hooked to the ontology
+   *  through a statement. That hook is the declaration: the curator
+   *  authored a `derives from …` clause rather than leaving the value
+   *  dangling. A bare free-text tag never reaches this builder — the
+   *  validator flags it and the commit gate holds it back — which is
+   *  why this cannot become the blanket default the field's own
+   *  javadoc warns against. */
+  freeTextIntended?: boolean;
 }
 
 export interface CurationDocument {
@@ -291,6 +306,49 @@ function term(t: { label?: string; uri?: string | null } | null | undefined):
 }
 
 /**
+ * One statement, as the wire wants it.
+ *
+ * Shared by factor values and by tags: template 9b hangs a
+ * `derives from …` clause off a free-text tag, so the two sections
+ * carry the same shape and a fork would drift the carries below apart.
+ *
+ * 🛑 **Re-sent, not edited.** `design` is full-record replacement
+ * (2026-09-06), so an omitted key clears the stored value. Both
+ * `evidenceCode` and `supportingEvidence` are guarded since the
+ * 2026-09-06 11:05 PDT deploy — omitting either on a row that has one
+ * is a 400. Before it, `evidenceCode` cleared SILENTLY: 657 statement
+ * 30030391, committed without it, `IC` gone, `updated: 1`, no warning.
+ * Nothing in the UI edits either; they are carried from `/design`
+ * purely so a commit does not destroy them.
+ *
+ * Evidence is sent only when the read carried it. `[]` and `null` are
+ * both no-ops on Gemma's side (measured on 30030391), never a clear,
+ * so inventing either in place of an absence buys nothing and asserts
+ * something we were not told.
+ */
+function statementItem(st: {
+  gemma_id?: number | null;
+  category?: { label?: string; uri?: string | null } | null;
+  subject?: { label?: string; uri?: string | null } | null;
+  predicate?: { label?: string; uri?: string | null } | null;
+  object?: { label?: string; uri?: string | null } | null;
+  evidence_code?: string | null;
+  supporting_evidence?: unknown;
+}): StatementCommit {
+  return {
+    ...commitTarget(st.gemma_id, "stmt"),
+    ...(term(st.category) ? { category: term(st.category) } : {}),
+    ...(term(st.subject) ? { subject: term(st.subject) } : {}),
+    ...(term(st.predicate) ? { predicate: term(st.predicate) } : {}),
+    ...(term(st.object) ? { object: term(st.object) } : {}),
+    ...(st.evidence_code ? { evidenceCode: st.evidence_code } : {}),
+    ...(st.supporting_evidence === undefined || st.supporting_evidence === null
+      ? {}
+      : { supportingEvidence: st.supporting_evidence }),
+  };
+}
+
+/**
  * What the curator deleted, as ids Gemma issued.
  *
  * Structural for the same reason as {@link CommittableDesign} — the
@@ -374,6 +432,21 @@ export interface CommittableDesign {
     inferred?: boolean;
     category?: { label?: string; uri?: string | null } | null;
     value?: { label?: string; uri?: string | null } | null;
+    /** Provenance already on the tag. Carried across a re-term — see
+     *  the emit site. */
+    supporting_evidence?: unknown;
+    /** The clause that hooks a free-text value to the ontology — see
+     *  `TagCommit.freeTextIntended`. Part of the tag's identity, so it
+     *  is compared as well as sent. */
+    statements?: Array<{
+      gemma_id?: number | null;
+      category?: { label?: string; uri?: string | null } | null;
+      subject?: { label?: string; uri?: string | null } | null;
+      predicate?: { label?: string; uri?: string | null } | null;
+      object?: { label?: string; uri?: string | null } | null;
+      evidence_code?: string | null;
+      supporting_evidence?: unknown;
+    }>;
   }>;
   should_split_on_factor_id?: number | null;
   should_split_rationale?: string;
@@ -519,40 +592,7 @@ export function buildCurationDocument(
             (removals?.statements ?? []).find((r) => r.valueId === v.id)
               ?.statementIds,
           ),
-          items: (v.statements ?? []).map((st) => ({
-            ...commitTarget(st.gemma_id, "stmt"),
-            ...(term(st.category) ? { category: term(st.category) } : {}),
-            ...(term(st.subject) ? { subject: term(st.subject) } : {}),
-            ...(term(st.predicate) ? { predicate: term(st.predicate) } : {}),
-            ...(term(st.object) ? { object: term(st.object) } : {}),
-            // 🛑 **Re-sent, not edited.** `design` is full-record
-            // replacement (2026-09-06), so an omitted key clears the
-            // stored value. Both this and `supportingEvidence` are
-            // guarded since the 2026-09-06 11:05 PDT deploy, so
-            // omitting either on a row that has one is a 400. Before
-            // it, THIS one cleared silently — 657 statement 30030391,
-            // committed without it, `IC` gone, `updated: 1`, no
-            // warning. Nothing in the UI edits this; it is carried
-            // from `/design` purely so a commit does not destroy it.
-            ...(st.evidence_code ? { evidenceCode: st.evidence_code } : {}),
-            // 🛑 **The other half of the same rule, and it fails
-            // LOUDLY.** `supportingEvidence` IS guarded: omitting it
-            // on a row that has evidence is a 400 naming the field,
-            // so this carry is what keeps a curator's commit from
-            // being refused on a statement they never touched. Live,
-            // not hypothetical: 368 production rows carry evidence
-            // (cab (eval), 2026-09-06), all written by the agents' backfill.
-            // The "0 non-null" figure is 2026-08-31 and stale.
-            //
-            // Sent only when the read carried it. `[]` and `null` are
-            // both no-ops on Gemma's side (measured on 30030391),
-            // never a clear, so inventing either in place of absence
-            // buys nothing and asserts something we were not told.
-            ...(st.supporting_evidence === undefined ||
-            st.supporting_evidence === null
-              ? {}
-              : { supportingEvidence: st.supporting_evidence }),
-          })),
+          items: (v.statements ?? []).map(statementItem),
         },
       })),
     },
@@ -600,13 +640,33 @@ export function buildCurationDocument(
     b: { label?: string; uri?: string | null } | null | undefined,
   ) => JSON.stringify(term(a) ?? null) === JSON.stringify(term(b) ?? null);
 
+  /** 🛑 A tag's statements are part of its IDENTITY, not decoration.
+   *
+   *  A tag is add/delete only, so "did this change" decides between a
+   *  keep-marker and a delete-plus-recreate. Comparing category and
+   *  value alone made an edited clause invisible: the curator changes
+   *  `derives from cell line cell` to a different parent line, the two
+   *  terms still match, and the edit is silently discarded as
+   *  unchanged. Compared on the wire shape so a difference that cannot
+   *  reach Gemma is not treated as one. */
+  const sameStatements = (
+    a: NonNullable<CommittableDesign["tags"]>[number]["statements"],
+    b: NonNullable<CommittableDesign["tags"]>[number]["statements"],
+  ) =>
+    JSON.stringify((a ?? []).map(statementItem)) ===
+    JSON.stringify((b ?? []).map(statementItem));
+
   const tags: TagCommit[] = [];
   const retermedIds: number[] = [];
   let unidentified = 0;
   for (const t of (design.tags ?? []).filter((x) => !x.inferred)) {
     const prior = typeof t.id === "number" ? baselineTags.get(t.id) : undefined;
     if (prior) {
-      if (sameTerm(prior.category, t.category) && sameTerm(prior.value, t.value)) {
+      if (
+        sameTerm(prior.category, t.category) &&
+        sameTerm(prior.value, t.value) &&
+        sameStatements(prior.statements, t.statements)
+      ) {
         // Keep-marker: the id and NOTHING else, or Gemma 400s.
         tags.push({ gemmaId: t.id });
         continue;
@@ -625,6 +685,19 @@ export function buildCurationDocument(
           `opts.baseline.`,
       );
     }
+    const statements = t.statements ?? [];
+    // 🛑 The hook is what makes a free-text value legitimate, so it has
+    // to travel. Template 9b (cab (eval), 2026-09-06): a tag whose
+    // value carries no URI while its statement object does —
+    // `cell line: WTC-11` + `derives from cell line cell` + a grounded
+    // parent line. Without the statements this section emitted only
+    // `{category, value}`, so the clause the whole shape exists for
+    // was dropped on the way to Gemma.
+    // The OBJECT, not the subject — the subject is the tag's own value
+    // said again. See `tagReachesOntology`, which decides the same
+    // question for the validator and must not drift from this.
+    const hookedToOntology =
+      !t.value?.uri && statements.some((s) => !!s.object?.uri);
     tags.push({
       // Named for the id it replaces where there is one, so the
       // report's `idMap` reads `tag-9018 → 9019` and the
@@ -633,6 +706,25 @@ export function buildCurationDocument(
         typeof t.id === "number" ? `tag-${t.id}` : `tag-new${(unidentified += 1)}`,
       ...(term(t.category) ? { category: term(t.category) } : {}),
       ...(term(t.value) ? { value: term(t.value) } : {}),
+      ...(statements.length ? { statements: { items: statements.map(statementItem) } } : {}),
+      // 🛑 **A re-term must not destroy provenance.** A tag is
+      // add/delete only, so an edit is a delete plus a fresh create —
+      // and a create that omits this drops evidence the curator never
+      // chose to remove. Paul, 2026-09-06: *"the existing supporting
+      // evidence should survive."*
+      //
+      // Not written by us: the agents author it, and a curator's own
+      // act is recorded as `IC` plus the audit event naming them, not
+      // as a quote. So this is a carry and never an authorship — the
+      // only thing that reaches it is what the read handed over.
+      ...(t.supporting_evidence === undefined || t.supporting_evidence === null
+        ? {}
+        : { supportingEvidence: t.supporting_evidence }),
+      // Declared only for a hooked tag — see `TagCommit.freeTextIntended`.
+      // A bare free-text tag deliberately gets nothing here and takes
+      // Gemma's refusal, which is the outcome the validator's
+      // `bare_free_text_tags` flag exists to prevent reaching.
+      ...(hookedToOntology ? { freeTextIntended: true } : {}),
     });
   }
   // A re-term's old id rides with the curator's own deletions: same

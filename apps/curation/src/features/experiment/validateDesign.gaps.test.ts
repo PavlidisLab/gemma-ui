@@ -824,3 +824,112 @@ describe("validateDesign — empty_factor_values", () => {
     expect(validateDesign(design).factors[0].empty_factor_values).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// bare_free_text_tags — free text is allowed, free text with no context is not
+// ---------------------------------------------------------------------------
+
+/**
+ * 🛑 Paul, 2026-09-06: *"a bare free text tag should be flagged by the
+ * ui: add a predicate and object to give the free text context."*
+ *
+ * The hooked form (template 9b, cab (eval)) is the shape the curator is
+ * meant to produce — `cell line: WTC-11` + `derives from cell line cell`
+ * + a grounded parent line. Its value is ungrounded on purpose: the
+ * lab's own name for a line is in no ontology, and substituting a
+ * generic grounded term would assert the samples ARE the class.
+ *
+ * It blocks rather than advises because Gemma refuses the bare ones
+ * outright — `UNGROUNDED_NOT_DECLARED` fails the WHOLE commit, so
+ * reporting "design valid" over one would be a promise the commit
+ * cannot keep.
+ */
+describe("bare_free_text_tags", () => {
+  const tag = (over: Record<string, unknown> = {}) => ({
+    id: 1,
+    category: { label: "cell line", uri: "http://…/EFO_0000322" },
+    value: { label: "WTC-11" },
+    ...over,
+  });
+  const flagged = (over: Record<string, unknown> = {}) =>
+    validateDesign(
+      emptyDesign({
+        factors: [categoricalFactor(7, "treatment")],
+        tags: [tag(over)],
+      } as Partial<Design>),
+    ).bare_free_text_tags;
+
+  it("flags a value with no URI and no statements", () => {
+    expect(flagged()).toEqual([
+      { id: 1, category: "cell line", value: "WTC-11" },
+    ]);
+  });
+
+  it("does NOT flag one hooked by a grounded statement object", () => {
+    expect(
+      flagged({
+        statements: [
+          {
+            category: null,
+            subject: { label: "WTC-11" },
+            predicate: { label: "derives from cell line cell", uri: "http://…/CLO_0037210" },
+            object: { label: "iPSC line cell", uri: "http://…/CLO_0037307" },
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("🛑 does not accept an UNGROUNDED statement as a hook", () => {
+    // A predicate and object with no URIs anywhere hook the value to
+    // nothing — that is still bare free text, said at more length.
+    expect(
+      flagged({
+        statements: [
+          {
+            category: null,
+            subject: { label: "WTC-11" },
+            predicate: { label: "derives from cell line cell" },
+            object: { label: "some line the paper names" },
+          },
+        ],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("🛑 a grounded SUBJECT is not a hook — the object is", () => {
+    // The subject is the tag's own value restated, so accepting it
+    // would let a tag vouch for itself. Paul via cab (eval): "tags can
+    // be free text ONLY if they have a grounded object."
+    expect(
+      flagged({
+        statements: [
+          {
+            category: null,
+            subject: { label: "WTC-11", uri: "http://…/CLO_0037307" },
+            predicate: { label: "derives from cell line cell" },
+            object: { label: "some line the paper names" },
+          },
+        ],
+      }),
+    ).toHaveLength(1);
+  });
+
+  it("does not flag a grounded value", () => {
+    expect(flagged({ value: { label: "HeLa", uri: "http://…/CLO_0003684" } })).toEqual([]);
+  });
+
+  it("does not flag an INFERRED tag — not a row the curator owns", () => {
+    expect(flagged({ inferred: true })).toEqual([]);
+  });
+
+  it("makes the design not-ok, so the banner cannot claim validity", () => {
+    const state = validateDesign(
+      emptyDesign({
+        factors: [categoricalFactor(7, "treatment")],
+        tags: [tag()],
+      } as Partial<Design>),
+    );
+    expect(state.ok).toBe(false);
+  });
+});

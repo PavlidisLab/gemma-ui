@@ -140,10 +140,16 @@ export function ValidatorBanner({
   if (state.factors.length === 0) {
     return (
       <div className="card border-slate-200 bg-slate-50/60">
-        <div className="px-3 py-2 text-xs text-slate-600">
-          <span className="font-semibold">No factors yet.</span>{" "}
-          Accept a proposal from the sidebar or add factors manually
-          on the Design tab.
+        <div className="px-3 py-2 text-xs text-slate-600 space-y-1">
+          <div>
+            <span className="font-semibold">No factors yet.</span>{" "}
+            Accept a proposal from the sidebar or add factors manually
+            on the Design tab.
+          </div>
+          {/* A bare free-text tag blocks the commit whether or not there
+              are factors, so the reason cannot live only in the amber
+              card below — that path returns before it. */}
+          <BareTagWarnings tags={state.bare_free_text_tags} />
         </div>
       </div>
     );
@@ -170,6 +176,8 @@ export function ValidatorBanner({
   return (
     <div className="card border-amber-200 bg-amber-50/40">
       <div className="px-3 py-2 text-xs text-amber-900 space-y-1">
+        <BareTagWarnings tags={state.bare_free_text_tags} />
+        {groups.length > 0 ? (
         <div>
           <div className="font-semibold mb-1">⚠ design has warnings</div>
           <ul className="space-y-0.5 list-disc list-inside">
@@ -210,6 +218,7 @@ export function ValidatorBanner({
             ))}
           </ul>
         </div>
+        ) : null}
         {softFactors.length > 0 ? (
           <FactorNotes
             factors={softFactors}
@@ -320,6 +329,41 @@ function FactorNotes({
  *  nothing marked but Gemma detects one (the common case — marking is
  *  optional), exactly one marked, and more than one marked (legal, for
  *  a dataset holding two experiments). */
+/** Tags whose value is free text hooked to nothing.
+ *
+ *  Free text IS allowed — Paul, 2026-09-06: *"a bare free text tag
+ *  should be flagged by the ui: add a predicate and object to give the
+ *  free text context."* So this names the remedy rather than reporting
+ *  a rule, and a tag that already carries a grounded statement object
+ *  never reaches here. Gemma refuses the bare ones outright
+ *  (`UNGROUNDED_NOT_DECLARED`), which is why it blocks rather than
+ *  merely advises. */
+function BareTagWarnings({
+  tags,
+}: {
+  tags: DesignValidationState["bare_free_text_tags"];
+}) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="text-amber-900">
+      <div className="font-semibold mb-1">⚠ free-text tag with no context</div>
+      <ul className="space-y-0.5 list-disc list-inside">
+        {tags.map((t) => (
+          <li key={t.id}>
+            <span className="font-medium">
+              {t.category ? `${t.category}: ` : ""}
+              {t.value}
+            </span>{" "}
+            — add a predicate and object to say what it derives from
+            (e.g. <em>derives from cell line cell</em> + the parent
+            line), or ground the value itself.
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function baselineSummary(s: DesignValidationState["factors"][number]): string {
   if (s.baseline_count === 0) {
     return s.gemma_auto_baseline.length > 0

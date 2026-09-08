@@ -69,7 +69,7 @@ const factorState = (
 
 const validation = (
   factors: FactorValidationState[],
-): DesignValidationState => ({ factors, ok: false });
+): DesignValidationState => ({ factors, bare_free_text_tags: [], ok: false });
 
 const DRAFT = {
   experiment_id: 1,

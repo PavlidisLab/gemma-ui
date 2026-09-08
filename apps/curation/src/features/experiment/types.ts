@@ -53,8 +53,13 @@ export interface Statement {
    * 🛑 **Carried so the commit can send it BACK.** The `design` section
    * is full-record replacement (gembro, 2026-09-06): an omitted key
    * clears the stored value. Both this and `supportingEvidence` are
-   * guarded as of the 2026-09-06 11:05 PDT deploy (`9923b7c62d`, build
-   * `1b3671d406b7`): omitting either on a row that has one is a 400.
+   * guarded as of the 2026-09-06 11:05 PDT deploy, build
+   * `1b3671d406b7`: omitting either on a row that has one is a 400.
+   * Two separate commits, verified in the Gemma repo — `9923b7c62d`
+   * (Gemma) guards THIS field, `ce61a2f9cb` (Gemma) guards
+   * `supportingEvidence`. Qualified by repo on purpose: this file
+   * cites hashes from three of them, and every bro commits as Paul,
+   * so neither the hash nor the author field says where to look.
    *
    * Before that deploy this one cleared SILENTLY — sent without it on
    * 657 statement 30030391, `IC` was gone, `200 updated: 1`, no
@@ -72,7 +77,7 @@ export interface Statement {
    *
    * 🛑 **Carried for the same reason as `evidence_code`, and it fails
    * the other way.** Omitting this on a row that HAS evidence is a
-   * 400 (gembro's guard, `9923b7c62d`), so the commit is refused
+   * 400 (gembro's guard, `ce61a2f9cb` in Gemma), so the commit is refused
    * rather than silently blanked — which is why the code above needed
    * a fix and this one needs only the carry.
    *
@@ -984,7 +989,47 @@ function categoryForbidsOntology(
 
 export interface DesignValidationState {
   factors: FactorValidationState[];
+  /** Experiment tags whose value carries no ontology URI **and** whose
+   *  statements hook it to nothing — bare free text.
+   *
+   *  🛑 Free text is allowed; free text with no context is what is
+   *  flagged. Paul, 2026-09-06: *"a bare free text tag should be
+   *  flagged by the ui: add a predicate and object to give the free
+   *  text context."* The remedy is the hooked form — `cell line: WTC-11`
+   *  + `derives from cell line cell` + a grounded parent line — so the
+   *  annotation reaches the ontology through its statement even though
+   *  its own value never will.
+   *
+   *  A tag with a grounded statement object is NOT here: that is the
+   *  shape the curator is meant to produce, not a defect.
+   *
+   *  Tags only. Gemma gates `tags` alone (`UNGROUNDED_NOT_DECLARED`,
+   *  gembro 2026-09-06); a free-text sample characteristic is the
+   *  submitter's own string and a factor value is ungated, so neither
+   *  is flagged here. */
+  bare_free_text_tags: { id: number; category: string; value: string }[];
   ok: boolean;
+}
+
+/** Does this tag reach the ontology — by its own value URI, or through
+ *  a statement whose OBJECT is grounded?
+ *
+ *  🛑 The object, specifically. Paul via cab (eval), 2026-09-06: *"tags
+ *  can be free text ONLY if they have a grounded object."* A statement's
+ *  subject is the tag's own value said again, so accepting a grounded
+ *  subject would let a tag vouch for itself; the object is the thing the
+ *  free text derives FROM, which is what hooks it to the ontology.
+ *  The agents' `tag_proposer.freetext_tag_is_keepable` enforces the same
+ *  rule on the same words — a looser test here would flag tags they drop
+ *  and pass tags they refuse.
+ *
+ *  Narrower than `TagBar`'s `tagIsResolved`, deliberately: that one asks
+ *  "is there a URI to render" and recovers them from FV / biomaterial
+ *  lookups. A URI recovered from a lookup is not a tag the CURATOR
+ *  grounded, and it is the curator's own tags this flags. */
+export function tagReachesOntology(t: Tag): boolean {
+  if (t.value?.uri) return true;
+  return (t.statements ?? []).some((s) => !!s.object?.uri);
 }
 
 // Predicate allow-list mirroring Confluence
@@ -1263,5 +1308,25 @@ export function validateDesign(design: Design): DesignValidationState {
         s.ungrounded_categories.length === 0 &&
         !s.factor_missing_description,
     );
-  return { factors: factorStates, ok };
+  // Inferred tags are excluded: a projection of a sample
+  // characteristic is not a row the curator owns, and Gemma's gate
+  // never sees one — see `feedback_inferred_rows_are_not_tags`.
+  const bareFreeTextTags = (design.tags ?? [])
+    .filter((t) => !t.inferred && !tagReachesOntology(t))
+    .map((t) => ({
+      id: t.id,
+      category: t.category?.label ?? "",
+      value: t.value?.label ?? "",
+    }));
+  // Part of `ok`, because Gemma REFUSES it — a bare free-text tag
+  // comes back `UNGROUNDED_NOT_DECLARED` and the whole commit fails.
+  // Reporting "✓ design valid" over a design that cannot be committed
+  // is the contradiction `overfull_statement_groups` was moved out of
+  // for the same reason. The curator sees the ask (add a predicate and
+  // object) instead of a 400 naming a field they never set.
+  return {
+    factors: factorStates,
+    bare_free_text_tags: bareFreeTextTags,
+    ok: ok && bareFreeTextTags.length === 0,
+  };
 }
