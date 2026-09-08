@@ -28,7 +28,7 @@ import { gemmaLockup } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge, Panel } from "../panels";
-import { MorePlotsModal } from "../MorePlotsModal";
+import { MorePlotsModal, GENOTYPE_CATEGORY_URI } from "../MorePlotsModal";
 import {
   useGemmaSummary,
   fmtCount,
@@ -162,21 +162,21 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         cols="md:col-span-2"
         footnote={datasetsFootnote}
         to="/browser"
-        hint="Public expression experiments in Gemma. The footnote shows the number of distinct external accessions behind the corpus — slightly smaller than the dataset count because Gemma sometimes splits one GEO submission into two experiments when the submission actually contains two distinct studies. Almost all are from GEO (the per-source breakdown isn't shown because it's ≈99.9% GEO)."
+        hint="Public expression experiments. Accessions number fewer because a submission holding two studies is split into two datasets."
       />
       <StatBlock
         label="Platforms"
         value={fmtCount(s.platforms, "full", homeLoading)}
         cols="md:col-span-2"
         to="/platforms"
-        hint="Distinct microarray + sequencing platforms (array designs) referenced by at least one dataset."
+        hint="Microarray and sequencing platforms referenced by at least one dataset."
       />
       <StatBlock
         label="Samples"
         value={fmtCount(s.samples, "full", homeLoading)}
         cols="md:col-span-2"
         footnote={samplesFootnote}
-        hint="Total biomaterials across all public experiments. Footnote splits samples by the technology that produced them (single-cell vs. bulk RNA-seq vs. microarray)."
+        hint="Biomaterials across all public experiments; the footnote splits them by technology."
       />
       <StatBlock
         label="DEA contrasts"
@@ -191,13 +191,13 @@ function StatsRow({ s }: { s: GemmaSummary }) {
             ? `${fmtCount(s.diffExResultSets, "compact")} result sets`
             : null
         }
-        hint="Differential-expression contrasts Gemma has computed across all public datasets. Each contrast is one pairwise comparison (e.g. 'diseased vs. control'); a single result set typically carries several contrasts (one per factor-value pair). Footnote shows the result-set count for orientation."
+        hint="Pairwise differential-expression comparisons (e.g. diseased vs. control). One result set usually carries several."
       />
       <StatBlock
         label="Ontology terms"
         value={fmtCount(s.ontologyTerms, "full", ontologyLoading)}
         cols="md:col-span-2"
-        hint="Distinct ontology-backed terms used to annotate the corpus. Free-text variants (un-resolved strings) are excluded."
+        hint="Distinct ontology-backed terms annotating the corpus; free text is excluded."
       />
     </div>
   );
@@ -216,7 +216,29 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
   const pathogens =
     s.treatmentSubcategories.find((t) => t.key === "pathogen")?.termCount ??
     null;
-  type Row = { label: string; value: number | null; hint: string };
+  // A row with a ``cat`` links into the browser with that category
+  // already ticked in the side panel (``?categoryUri=``, the same
+  // seeding the factor-value chart uses). These are entry points for
+  // a first-time visitor, not filters that reproduce the count beside
+  // them — the browser's own facet counts datasets, this table counts
+  // distinct terms, and Paul's call (2026-09-07) is that landing
+  // somewhere relevant beats landing nowhere.
+  //
+  // ``catOf`` joins by key to ``categoryDistribution``, which is the
+  // only place a category's URI travels — ``byAnnotationCategory``
+  // ships snake keys and counts, no URIs.
+  const categoryUriByKey = new Map(
+    s.categoryDistribution
+      .filter((r) => r.key && r.categoryUri)
+      .map((r) => [r.key as string, { uri: r.categoryUri as string, label: r.category }]),
+  );
+  const catOf = (key: string) => categoryUriByKey.get(key);
+  type Row = {
+    label: string;
+    value: number | null;
+    hint: string;
+    cat?: { uri: string; label: string };
+  };
   // Two ordered columns (the design review's grouping): anatomical / model-system
   // terms on the left, disease / exposure / perturbation terms on the
   // right.
@@ -224,45 +246,55 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
     [
       {
         label: "Tissues",
+        cat: catOf("organism_part"),
         value: c.tissues,
-        hint: "distinct organism-part terms (typically UBERON)",
+        hint: "distinct organism-part terms",
       },
       {
         label: "Cell types",
+        cat: catOf("cell_type"),
         value: c.cellTypes,
-        hint: "distinct cell-type terms (typically Cell Ontology / CL)",
+        hint: "distinct cell-type terms",
       },
       {
         label: "Cell lines",
+        cat: catOf("cell_line"),
         value: c.cellLines,
-        hint: "distinct cell-line ontology terms (CLO)",
+        hint: "distinct cell-line terms",
       },
       {
         label: "Strains",
+        cat: catOf("strain"),
         value: c.strains,
-        hint: "distinct strain ontology terms (common in mouse studies)",
+        hint: "distinct strain terms",
       },
     ],
     [
       {
         label: "Diseases",
+        cat: catOf("disease"),
         value: c.diseases,
-        hint: "distinct disease ontology terms used to annotate experiments",
+        hint: "distinct disease terms",
       },
       {
         label: "Pathogens",
         value: pathogens,
-        hint: "Distinct NCBITaxon pathogen annotations (viruses, bacteria, parasites) used in infection / immune-response studies — a sub-bucket of the broader Treatment category.",
+        hint: "distinct pathogen terms — a sub-bucket of Treatment",
       },
       {
         label: "Approved drugs",
         value: s.drugs,
-        hint: "Distinct CHEBI-anchored drug / chemical annotations. Narrower than the full Treatment category (which also includes pathogens, biologics, and other exposures).",
+        hint: "distinct drug / chemical terms — a sub-bucket of Treatment",
       },
       {
         label: "Perturbed genes",
         value: s.geneManipulated,
-        hint: "Distinct gene URIs annotated as perturbation targets across the corpus — knockouts, knockdowns, overexpression.",
+        hint: "distinct genes annotated as perturbation targets",
+        // Genotype is where Gemma files a perturbed gene, so it is the
+        // category to land in — but it carries no ``byAnnotationCategory``
+        // key, so the URI comes from the constant the perturbed-gene
+        // chart already uses rather than from the join above.
+        cat: { uri: GENOTYPE_CATEGORY_URI, label: "genotype" },
       },
     ],
   ];
@@ -282,7 +314,21 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
                 >
                   <td className="px-4 py-2 text-stone-800">
                     <span className="inline-flex items-center">
-                      {r.label}
+                      {r.cat ? (
+                        <Link
+                          to="/browser"
+                          search={{
+                            categoryUri: r.cat.uri,
+                            categoryLabel: r.cat.label,
+                          }}
+                          title={`Browse datasets annotated with a ${r.cat.label} term`}
+                          className="text-stone-800 hover:text-blue-700 hover:underline"
+                        >
+                          {r.label}
+                        </Link>
+                      ) : (
+                        r.label
+                      )}
                       <InfoBadge hint={r.hint} />
                     </span>
                   </td>

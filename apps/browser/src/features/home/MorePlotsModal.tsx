@@ -465,8 +465,9 @@ function TermLinks({ terms }: { terms: TreatmentTopTerm[] }) {
   );
 }
 
-/** Gemma annotates a perturbed gene under the genotype category. */
-const GENOTYPE_CATEGORY_URI = "http://www.ebi.ac.uk/efo/EFO_0000513";
+/** Gemma annotates a perturbed gene under the genotype category.
+ *  Also read by the home page's annotation-coverage table. */
+export const GENOTYPE_CATEGORY_URI = "http://www.ebi.ac.uk/efo/EFO_0000513";
 /** Term-URI prefix Gemma uses for NCBI genes. */
 const NCBI_GENE_URI_BASE = "http://purl.org/commons/record/ncbi_gene/";
 
