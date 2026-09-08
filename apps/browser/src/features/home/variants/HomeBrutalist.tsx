@@ -162,7 +162,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
         cols="md:col-span-2"
         footnote={datasetsFootnote}
         to="/browser"
-        hint="Public expression experiments. Accessions number fewer because a submission holding two studies is split into two datasets."
+        hint="Public expression experiments. Accessions number fewer because Gemma splits a GEO series by platform and by species — one accession can carry up to 20 datasets."
       />
       <StatBlock
         label="Platforms"
