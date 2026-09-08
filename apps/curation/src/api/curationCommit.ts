@@ -38,6 +38,16 @@ export interface StatementCommit extends CommitTarget {
   subject?: OntologyTermRef;
   predicate?: OntologyTermRef;
   object?: OntologyTermRef;
+  /** The second predicate-object pair, stated plainly. Live on gemma2
+   *  from `7cba4a75eb1d` (deployed 2026-09-08); before it the keys were
+   *  accepted, ignored and dropped with no warning.
+   *
+   *  🛑 **Never alongside the flattened spelling.** A compound
+   *  statement also reaches us as two `statements[]` rows sharing one
+   *  id, and sending both forms for one statement is a 400. We emit
+   *  these fields and one item per statement — see {@link statementItems}. */
+  secondPredicate?: OntologyTermRef;
+  secondObject?: OntologyTermRef;
   supportingEvidence?: unknown;
   /** 🛑 Must be sent back or it is CLEARED — see the emit site. */
   evidenceCode?: string;
@@ -326,7 +336,7 @@ function term(t: { label?: string; uri?: string | null } | null | undefined):
  * so inventing either in place of an absence buys nothing and asserts
  * something we were not told.
  */
-function statementItem(st: {
+interface StatementRow {
   gemma_id?: number | null;
   category?: { label?: string; uri?: string | null } | null;
   subject?: { label?: string; uri?: string | null } | null;
@@ -334,18 +344,79 @@ function statementItem(st: {
   object?: { label?: string; uri?: string | null } | null;
   evidence_code?: string | null;
   supporting_evidence?: unknown;
-}): StatementCommit {
-  return {
-    ...commitTarget(st.gemma_id, "stmt"),
-    ...(term(st.category) ? { category: term(st.category) } : {}),
-    ...(term(st.subject) ? { subject: term(st.subject) } : {}),
-    ...(term(st.predicate) ? { predicate: term(st.predicate) } : {}),
-    ...(term(st.object) ? { object: term(st.object) } : {}),
-    ...(st.evidence_code ? { evidenceCode: st.evidence_code } : {}),
-    ...(st.supporting_evidence === undefined || st.supporting_evidence === null
-      ? {}
-      : { supportingEvidence: st.supporting_evidence }),
-  };
+}
+
+/**
+ * The statements of one container, as the wire wants them.
+ *
+ * 🛑 **The draft holds one PAIR per row; Gemma holds one STATEMENT with
+ * up to two pairs.** Rows sharing a `gemma_id` are the pairs of one
+ * statement (`types.ts::Statement`), so this groups before it emits —
+ * one item per statement, second pair under `secondPredicate` /
+ * `secondObject`.
+ *
+ * Until `7cba4a75eb1d` (gemma2, 2026-09-08) those keys did not exist on
+ * the request type and we emitted the flattened form instead: the two
+ * rows as two items sharing one `gemmaId`, which
+ * `unflattenStatements` re-joins. That still works on the READ side and
+ * is still how a compound statement comes back. What it never reached
+ * is a statement being CREATED — regrouping keys on a non-null id, so
+ * two id-less halves stayed two single-clause statements. Hence the
+ * explicit fields, and hence only ONE spelling per statement: sending
+ * both is a 400.
+ *
+ * `scope` makes a new statement's `clientRef` unique. It used to be the
+ * constant `stmt-new` for every id-less row in the document, so two
+ * unrelated new statements collided on the one key the response's
+ * `idMap` reports creations under.
+ */
+function statementItems(
+  rows: readonly StatementRow[] | null | undefined,
+  scope: string,
+): StatementCommit[] {
+  const groups: StatementRow[][] = [];
+  const byId = new Map<number, StatementRow[]>();
+  for (const r of rows ?? []) {
+    const id = typeof r.gemma_id === "number" && r.gemma_id > 0 ? r.gemma_id : null;
+    if (id === null) {
+      // No id: its own statement. The draft cannot express a compound
+      // statement that does not exist yet — each uncommitted pair
+      // becomes one — so there is nothing here to group.
+      groups.push([r]);
+      continue;
+    }
+    const seen = byId.get(id);
+    if (seen) seen.push(r);
+    else {
+      const g = [r];
+      byId.set(id, g);
+      groups.push(g);
+    }
+  }
+  return groups.map((g, i) => {
+    const [first, second] = g;
+    return {
+      ...(typeof first.gemma_id === "number" && first.gemma_id > 0
+        ? { gemmaId: first.gemma_id }
+        : { clientRef: `stmt-${scope}-${i}` }),
+      ...(term(first.category) ? { category: term(first.category) } : {}),
+      ...(term(first.subject) ? { subject: term(first.subject) } : {}),
+      ...(term(first.predicate) ? { predicate: term(first.predicate) } : {}),
+      ...(term(first.object) ? { object: term(first.object) } : {}),
+      // A pair is both halves or neither — half a pair is a 400.
+      ...(second && term(second.predicate) && term(second.object)
+        ? {
+            secondPredicate: term(second.predicate),
+            secondObject: term(second.object),
+          }
+        : {}),
+      ...(first.evidence_code ? { evidenceCode: first.evidence_code } : {}),
+      ...(first.supporting_evidence === undefined ||
+      first.supporting_evidence === null
+        ? {}
+        : { supportingEvidence: first.supporting_evidence }),
+    };
+  });
 }
 
 /**
@@ -592,7 +663,7 @@ export function buildCurationDocument(
             (removals?.statements ?? []).find((r) => r.valueId === v.id)
               ?.statementIds,
           ),
-          items: (v.statements ?? []).map(statementItem),
+          items: statementItems(v.statements, `fv${v.id}`),
         },
       })),
     },
@@ -653,8 +724,11 @@ export function buildCurationDocument(
     a: NonNullable<CommittableDesign["tags"]>[number]["statements"],
     b: NonNullable<CommittableDesign["tags"]>[number]["statements"],
   ) =>
-    JSON.stringify((a ?? []).map(statementItem)) ===
-    JSON.stringify((b ?? []).map(statementItem));
+    // One scope for both sides: this asks whether the CONTENT differs,
+    // and a `clientRef` that encoded position would answer a different
+    // question.
+    JSON.stringify(statementItems(a, "cmp")) ===
+    JSON.stringify(statementItems(b, "cmp"));
 
   const tags: TagCommit[] = [];
   const retermedIds: number[] = [];
@@ -706,7 +780,16 @@ export function buildCurationDocument(
         typeof t.id === "number" ? `tag-${t.id}` : `tag-new${(unidentified += 1)}`,
       ...(term(t.category) ? { category: term(t.category) } : {}),
       ...(term(t.value) ? { value: term(t.value) } : {}),
-      ...(statements.length ? { statements: { items: statements.map(statementItem) } } : {}),
+      ...(statements.length
+        ? {
+            statements: {
+              items: statementItems(
+                statements,
+                `tag${typeof t.id === "number" ? t.id : `new${unidentified}`}`,
+              ),
+            },
+          }
+        : {}),
       // 🛑 **A re-term must not destroy provenance.** A tag is
       // add/delete only, so an edit is a delete plus a fresh create —
       // and a create that omits this drops evidence the curator never
