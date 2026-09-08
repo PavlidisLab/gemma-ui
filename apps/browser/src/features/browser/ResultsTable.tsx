@@ -88,7 +88,18 @@ export function ResultsTable(props: Props) {
 
   return (
     <div className="flex-1 min-h-0 overflow-auto">
-      <table className="w-full text-sm table-fixed">
+      {/* Rows survive a refetch (``keepPreviousData``), so a filter
+          change leaves the previous results on screen. Fade them
+          while the new page is in flight — with ``aria-busy`` for the
+          same message to a screen reader — so the list reads as
+          stale rather than as the answer. The progress lane above the
+          table carries the other half of the signal. */}
+      <table
+        aria-busy={loading && datasets.length > 0}
+        className={`w-full text-sm table-fixed transition-opacity ${
+          loading && datasets.length > 0 ? "opacity-50" : ""
+        }`}
+      >
         <colgroup>
           <col className="w-5" />
           <col className="w-[9.5rem]" />

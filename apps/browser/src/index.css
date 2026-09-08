@@ -90,6 +90,47 @@ html {
   .chip {
     @apply inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-xs whitespace-nowrap leading-snug max-w-full;
   }
+
+  /* Indeterminate progress bar across the top of the results pane.
+     Third instance of the same bug as ``.btn`` and ``.chip`` above:
+     ``BrowserPage`` already renders the element and already toggles
+     ``busy`` off the four browse queries' ``isFetching``, but the
+     class matched no CSS, so it was a zero-height invisible div.
+     Ticking a filter box refetched with the previous rows still on
+     screen and nothing anywhere saying a request was in flight.
+
+     The lane keeps its height in both states so nothing shifts when
+     a fetch starts. */
+  .progress-lane {
+    @apply h-0.5 w-full shrink-0 overflow-hidden;
+  }
+  .progress-lane.busy {
+    @apply bg-stone-200 dark:bg-stone-800;
+  }
+  .progress-lane.busy::after {
+    content: "";
+    @apply block h-full w-1/3 bg-gemma-accent;
+    animation: progress-lane-slide 1.1s ease-in-out infinite;
+  }
+}
+
+@keyframes progress-lane-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(300%); }
+}
+
+/* Reduced motion still needs to say "busy" — hold the bar still and
+   pulse its opacity instead of sliding it. */
+@media (prefers-reduced-motion: reduce) {
+  .progress-lane.busy::after {
+    @apply w-full;
+    animation: progress-lane-pulse 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes progress-lane-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
 }
 
 
