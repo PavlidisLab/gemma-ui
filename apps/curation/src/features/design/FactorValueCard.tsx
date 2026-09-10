@@ -1015,9 +1015,30 @@ function CompactStatementGroup({
   statements: FactorValue["statements"];
 }) {
   const head = statements[0];
+  const cat = head.category;
   const subj = head.subject;
+  const hasCat = !!cat?.label?.trim();
   return (
     <div className="flex flex-wrap items-baseline gap-x-1.5 text-[12px]">
+      {/* Category chip leads the row, the same way ``CompactStatementRow``
+          leads its own — a group is still one statement to read, and the
+          branch between the two is group SIZE, not anything about the
+          category. Omitting it here dropped the chip from every group of
+          two. Found on GSE188674 fv 381303, where the category is on
+          the wire on BOTH halves —
+          `AbstractFactorValueValueObjectSerializer` emits it
+          unconditionally on the first-pair and second-pair calls. A
+          statement rendering with no category reads as one whose category
+          is missing, which is a curator's cue to go fix correct data. */}
+      {hasCat ? (
+        <Term
+          uri={cat?.uri ?? null}
+          asLink={false}
+          className="!whitespace-normal break-words"
+        >
+          {cat!.label!}
+        </Term>
+      ) : null}
       <Term
         uri={subj?.uri ?? null}
         asLink={false}
