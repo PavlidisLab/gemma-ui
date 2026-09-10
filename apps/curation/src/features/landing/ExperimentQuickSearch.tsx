@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -100,16 +100,38 @@ export function ExperimentQuickSearch({
   // wrong answer given confidently and the one that arrives first.
   const pending = catalogueLoading || (search.isFetching && !search.data);
 
+  /** An Enter pressed before the catalogue arrived, held rather than
+   *  dropped.
+   *
+   *  🛑 The guard below used to `return` outright, so an Enter typed
+   *  while the count still read "…" did NOTHING and the curator had to
+   *  press it again once it read "1". The guard is right — an empty
+   *  match list on a cold cache is "not loaded", not "no hits", and
+   *  acting on it bounces a real single hit to the browse page — but
+   *  silently discarding the keystroke is not: an Enter that does
+   *  nothing is indistinguishable from one the box never received.
+   *
+   *  Holds the QUERY, not a flag: if the curator keeps typing while it
+   *  waits, they have moved on and the stale intent is dropped rather
+   *  than firing on a string they no longer mean. */
+  const [queuedQuery, setQueuedQuery] = useState<string | null>(null);
+
   async function runSearch(e: React.FormEvent) {
     e.preventDefault();
-    const q = query.trim();
+    await submit(query.trim());
+  }
+
+  async function submit(q: string) {
     if (!q) {
       navigate("#/all-experiments");
       return;
     }
     // Guarded here as well as on the button because Enter submits a
     // form past a disabled one.
-    if (pending) return;
+    if (pending) {
+      setQueuedQuery(q);
+      return;
+    }
     // Many (or zero) hits → hand off to the browse table with the
     // filter pre-applied; the curator disambiguates there.
     if (matches.length !== 1) {
@@ -146,11 +168,24 @@ export function ExperimentQuickSearch({
     }
   }
 
+  // Fire the held Enter the moment there is something to match against.
+  // Only when the box still holds what was submitted — see `queuedQuery`.
+  useEffect(() => {
+    if (queuedQuery === null || pending) return;
+    setQueuedQuery(null);
+    if (queuedQuery === query.trim()) void submit(queuedQuery);
+    // `submit` reads the current `matches`, which is what has just
+    // arrived; re-running on every render would re-fire the same intent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queuedQuery, pending]);
+
   /** The match readout, as words. One source for the visible strip and
    *  the compact variant's tooltip so they cannot disagree. */
   const readout: string | null = !query.trim()
     ? null
-    : pending
+    : queuedQuery !== null
+      ? "searching, then opening…"
+      : pending
       ? "searching…"
       : catalogueFailed || search.isError
         ? "couldn't reach the catalogue"
