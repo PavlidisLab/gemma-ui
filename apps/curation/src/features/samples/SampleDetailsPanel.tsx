@@ -454,20 +454,52 @@ function SampleTable({
   // biomaterial column doesn't already show. Common bulk pattern:
   // one assay per biomaterial, sharing the same short_name (GSM…).
   // In that case the column is a redundant duplicate — hide it.
-  // Two non-trivial cases keep the column visible:
+  // Three non-trivial cases keep the column visible:
   //   (a) any assay's short_name differs from its biomaterial's, or
   //   (b) some biomaterial has multiple assays (multi-lane / multi-
-  //       platform runs).
+  //       platform runs), or
+  //   (c) 🛑 any assay carries a NAME the biomaterial columns do not.
+  //
+  // (c) was missing, and it hid the one string a curator actually
+  // needs. `BIO_ASSAY.NAME` is the submitter's GEO title
+  // ("15405X9 T+C2 1 (4-OHT+Cer)"); the biomaterial's own name is a
+  // Gemma-assigned ordinal, and GEO has no biomaterial concept to
+  // supply anything better. Testing short_name alone meant that on
+  // every dataset where Gemma minted the biomaterial name with a pipe
+  // (`GSE2018_bioMaterial_7|GSM36429`, so `parseShortName` leaves BM
+  // and assay sharing one GSM) the whole column was suppressed and
+  // the titles with it.
+  //
+  // 🛑 The ordinals do not follow GEO order, so they cannot even be
+  // read as a sequence: on GSE188674 `Biomat_5` is sample X9 and
+  // `Biomat_11` is X3.
   const hasBioAssays = useMemo(
     () =>
       design.biomaterials.some((b) => {
         const assays = b.bio_assays ?? [];
         if (assays.length > 1) return true;
+        if (assays.some((a) => (a.name ?? "").trim() && a.name !== b.name)) {
+          return true;
+        }
         if (assays.length === 1 && assays[0].short_name !== b.short_name) {
           return true;
         }
         return false;
       }),
+    [design.biomaterials],
+  );
+
+  // The biomaterial's `name` column, only when it says something its
+  // `short name` neighbour does not. `parseShortName` splits Gemma's
+  // piped name and returns the WHOLE string when there is no pipe, so
+  // a `GSE188674_Biomat_6` biomaterial renders the identical value in
+  // both columns — two of the three identifier columns saying the same
+  // uninformative thing.
+  const hasDistinctBmName = useMemo(
+    () =>
+      design.biomaterials.some(
+        (b) => (b.name ?? "").trim() && b.name !== b.short_name,
+      ),
     [design.biomaterials],
   );
 
@@ -636,7 +668,8 @@ function SampleTable({
   // curator a clean default the next day.
   // ---------------------------------------------------------------------
   const defaultMovableKeys: string[] = useMemo(() => {
-    const out: string[] = ["name"];
+    const out: string[] = [];
+    if (hasDistinctBmName) out.push("name");
     if (hasBioAssays) out.push("bio_assay");
     for (const { factor } of orderedFactors) {
       out.push(`factor:${factor.id}`);
@@ -645,7 +678,7 @@ function SampleTable({
       out.push(`char:${k}`);
     }
     return out;
-  }, [hasBioAssays, orderedFactors, visibleCharKeys]);
+  }, [hasBioAssays, hasDistinctBmName, orderedFactors, visibleCharKeys]);
 
   const [savedColOrder, setSavedColOrder] = useSessionState<string[]>(
     `samples.colOrder.${design.experiment_id}`,
@@ -1719,12 +1752,17 @@ function SampleTable({
                           className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"
                           title={repr.name}
                         >
-                          {/* Read-only: the sample name is the
-                              upstream record's own title (the GSM
-                              title for a GEO import), so it is
-                              provenance, not a curation surface.
-                              Curation happens in the characteristic
-                              and factor cells. */}
+                          {/* Read-only: provenance, not a curation
+                              surface. Curation happens in the
+                              characteristic and factor cells.
+
+                              🛑 This is `BIO_MATERIAL.NAME`, which is
+                              Gemma's own ordinal — NOT the submitter's
+                              title. The GEO title lives on
+                              `BIO_ASSAY.NAME`, in the bio_assay column.
+                              The column above only renders at all when
+                              this says something `short name` does
+                              not. */}
                           {repr.name ? (
                             <span>{repr.name}</span>
                           ) : (
