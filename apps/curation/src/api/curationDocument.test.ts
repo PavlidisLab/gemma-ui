@@ -351,7 +351,11 @@ describe("buildCurationDocument", () => {
     expect(factors[1].gemmaId).toBeUndefined();
   });
 
-  it("🛑 splits factor values on the SIGN of the id", () => {
+  it("falls back to the SIGN of the id with no baseline design", () => {
+    // `BASELINE` carries tags only, which is the case where the
+    // builder has nothing to look an id up in. Where a baseline design
+    // IS passed — every commit from the app — membership decides, and
+    // `curationDocumentIdentity.test.ts` is where that lives.
     const vs = factors[0].factorValues?.items ?? [];
     expect(vs[0].gemmaId).toBe(77276);
     expect(vs[0].clientRef).toBeUndefined();

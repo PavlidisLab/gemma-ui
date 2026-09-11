@@ -125,10 +125,31 @@ export interface CommitSectionChange {
   unchanged?: number;
 }
 
+/**
+ * What a commit / preflight / restore answers with, AS IT REACHES US.
+ *
+ * 🐍 **Snake, where the request above is camel — and that asymmetry is
+ * real, not an oversight.** A request body is handed to `fetch`
+ * verbatim, so `CurationDocument` is spelled the way Gemma's OpenAPI
+ * declares it. Every RESPONSE goes through `snakeify` in `api/client.ts`
+ * on its way out of `api.post`, so Gemma's `newBaseline` /
+ * `deletedIdentities` / `auditEventIds` arrive here as `new_baseline` /
+ * `deleted_identities` / `audit_event_ids`, and the section names under
+ * `changes` come with them. That is the project's one normalization
+ * chokepoint doing its job; this type says what it produces rather than
+ * re-spelling the fields a second time.
+ *
+ * This type declared camelCase until 2026-09-10, so every one of these
+ * fields read `undefined` at runtime: the stale-baseline 409 guard never
+ * got a token to thread (`DesignDraftContext`), `deletedIdentities`
+ * never rendered, and `changes.curationDetails` never matched. The
+ * render tests passed throughout because their fixtures were written in
+ * the declared spelling rather than the served one.
+ */
 export interface CommitReport {
   applied: boolean;
-  idMap: Record<string, number>;
-  /** Section name -> tally. `design`, `tags`, `curationDetails`, … */
+  id_map: Record<string, number>;
+  /** Section name -> tally. `design`, `tags`, `curation_details`, … */
   changes: Record<string, CommitSectionChange>;
   /** 🛑 **The "content, not identity" warning, made concrete.** Old id
    *  -> new id for every entity that could not be restored in place and
@@ -138,17 +159,17 @@ export interface CommitReport {
    *  these three not at all. */
   reidentified?: Record<string, number>;
   /** Ids that go away. */
-  deletedIdentities?: number[];
+  deleted_identities?: number[];
   /** Set when the operation could not be carried out. */
   error?: string | null;
-  auditEventIds: number[];
+  audit_event_ids: number[];
   canonicalizations: unknown[];
-  commitAnnotationSetId: number | null;
+  commit_annotation_set_id: number | null;
   /** Feed to the NEXT commit as `baselineLastModified` — that is what
    *  lets a curator edit and commit repeatedly without re-reading. */
-  newBaseline?: string | null;
+  new_baseline?: string | null;
   /** The undo: the annotation set captured before this commit. */
-  snapshotAnnotationSetId?: number | null;
+  snapshot_annotation_set_id?: number | null;
 }
 
 function qs(params: Record<string, string | boolean | undefined>): string {
@@ -281,16 +302,27 @@ export const LOCAL_DESIGN_NOT_COMMITTABLE =
 /**
  * Does this row already exist in Gemma, and under what id?
  *
- * 🛑 **In remote mode the discriminator is the SIGN of the id**, and
- * that is not a convention anyone declared — it falls out of
- * `composeCurationDesign`. Rows seeded from Gemma keep Gemma's id
- * verbatim (`id: ef.id`, `id: v.id`); rows that exist only in an agent
- * PROPOSAL are materialised negative — `-(fi + 1)` for a factor,
- * `-((fi + 1) * 1000 + (vi + 1))` for a value.
+ * 🛑 **The witness is MEMBERSHIP IN THE BASELINE, not the sign of the
+ * id.** An id goes out as `gemmaId` only when the design Gemma last
+ * served carries it; everything else gets a `clientRef` and is created.
  *
- * Measured on gemma2 design 1658: factors 8715 / 11727 / 11728 / 23079,
- * values 64275 … 77279 — all positive, five-digit, so they cannot
- * collide with the negatives.
+ * The sign cannot answer this. Rows seeded from Gemma keep Gemma's id
+ * verbatim (`composeCurationDesign`: `id: ef.id`, `id: v.id`) and rows
+ * that exist only in an agent PROPOSAL are materialised negative —
+ * `-(fi + 1)` for a factor, `-((fi + 1) * 1000 + (vi + 1))` for a value
+ * — but the EDITOR mints its own ids as `max(existing) + 1`
+ * (`features/design/mutations.ts::nextFvId` / `nextFactorId`), and
+ * those are positive. On gemma2 design 1658 (factors 8715 / 11727 /
+ * 11728 / 23079, values 64275 … 77279) "add factor value" mints 77280,
+ * so the sign test named a brand-new value as `{gemmaId: 77280}` — an
+ * in-place UPDATE of whatever dataset holds FactorValue 77280, not a
+ * create. The tags block has always decided this by baseline
+ * membership; the design section now does too, off the same baseline.
+ *
+ * ⚠️ **With no baseline design in hand the sign is all there is.** A
+ * caller that passes no `baseline.factors` keeps the old test, because
+ * the alternative — reading every factor as new — would duplicate the
+ * entire design. The commit path always passes the saved design.
  *
  * 🛑 **The sign test is meaningless in LOCAL mode**, where the store's
  * ids are small locals AND positive: `1, 2, 3` would go out as
@@ -298,10 +330,16 @@ export const LOCAL_DESIGN_NOT_COMMITTABLE =
  * outright rather than trying to be clever per row. See
  * `reference_factor_value_identity_two_conventions`.
  */
-function commitTarget(id: number | null | undefined, kind: string): CommitTarget {
-  if (typeof id === "number" && id > 0) return { gemmaId: id };
+function commitTarget(
+  id: number | null | undefined,
+  kind: string,
+  issuedByGemma: boolean,
+): CommitTarget {
+  if (issuedByGemma && typeof id === "number") return { gemmaId: id };
   // Stable within one document, which is all `clientRef` has to be —
   // the response's `idMap` keys off it to report what was created.
+  // Editor-minted ids are unique across the whole design
+  // (`nextFvId` / `nextFactorId` scan every factor), so is this.
   return { clientRef: `${kind}-${id ?? "new"}` };
 }
 
@@ -555,11 +593,14 @@ export function buildCurationDocument(
   opts: {
     mode: "local" | "remote";
     baselineLastModified?: string;
-    /** The design as Gemma last served it. The ONLY witness for two
+    /** The design as Gemma last served it. The ONLY witness for three
      *  things the draft cannot answer on its own: whether a tag already
-     *  exists and whether its content changed (see the tags block), and
+     *  exists and whether its content changed (see the tags block),
      *  whether a factor value's baseline flag was ever SET (see
-     *  `baselineFlag`). Required once any tag carries an id. */
+     *  `baselineFlag`), and whether a factor / factor value carries an
+     *  id Gemma issued or one the editor minted (see `commitTarget` —
+     *  both are positive). Required once any tag carries an id; without
+     *  `factors` the identity question falls back to the sign. */
     baseline?: Pick<CommittableDesign, "tags" | "factors">;
   },
   removals?: CommittableRemovals,
@@ -611,6 +652,17 @@ export function buildCurationDocument(
   for (const f of opts.baseline?.factors ?? []) {
     for (const v of f.factor_values ?? []) priorValues.set(v.id, v);
   }
+  // The ids Gemma issued, read off the same baseline. `priorValues` is
+  // the factor-value half of the answer; this is the factor half.
+  const baselineFactorIds = new Set<number>();
+  for (const f of opts.baseline?.factors ?? []) {
+    baselineFactorIds.add(f.gemma_factor_id ?? f.id);
+  }
+  // Absent `factors` — not empty — means the caller handed over no
+  // baseline design, and there is nothing to ask. See `commitTarget`.
+  const haveBaselineDesign = Array.isArray(opts.baseline?.factors);
+  const issuedByGemma = (id: number | null | undefined, inBaseline: boolean) =>
+    haveBaselineDesign ? inBaseline : typeof id === "number" && id > 0;
 
   function baselineFlag(
     v: { id: number; is_baseline?: boolean },
@@ -636,38 +688,47 @@ export function buildCurationDocument(
     return {};
   }
 
-  const factors: FactorCommit[] = (design.factors ?? []).map((f) => ({
-    // A factor has a second, better witness than the sign: Gemma's own
-    // `gemmaFactorId`, populated on every imported experiment. Prefer
-    // it, fall back to the sign of `id`.
-    ...commitTarget(f.gemma_factor_id ?? f.id, "factor"),
-    ...(f.name ? { name: f.name } : {}),
-    ...(f.description ? { description: f.description } : {}),
-    ...(f.type ? { type: f.type } : {}),
-    ...(term(f.category) ? { category: term(f.category) } : {}),
-    factorValues: {
-      ...deletion(
-        (removals?.factorValues ?? []).find(
-          (r) => r.factorId === (f.gemma_factor_id ?? f.id),
-        )?.valueIds,
+  const factors: FactorCommit[] = (design.factors ?? []).map((f) => {
+    // Gemma's own `gemmaFactorId` where the experiment was imported;
+    // `id` is what the editor holds the factor by, and equals it there.
+    const factorId = f.gemma_factor_id ?? f.id;
+    return {
+      ...commitTarget(
+        factorId,
+        "factor",
+        issuedByGemma(factorId, baselineFactorIds.has(factorId)),
       ),
-      items: (f.factor_values ?? []).map((v) => ({
-        ...commitTarget(v.id, "fv"),
-        ...(v.free_text_label ? { freeTextLabel: v.free_text_label } : {}),
-        ...baselineFlag(v, priorValues.get(v.id)),
-        ...(v.biomaterial_short_names?.length
-          ? { biomaterialShortNames: v.biomaterial_short_names }
-          : {}),
-        statements: {
-          ...deletion(
-            (removals?.statements ?? []).find((r) => r.valueId === v.id)
-              ?.statementIds,
+      ...(f.name ? { name: f.name } : {}),
+      ...(f.description ? { description: f.description } : {}),
+      ...(f.type ? { type: f.type } : {}),
+      ...(term(f.category) ? { category: term(f.category) } : {}),
+      factorValues: {
+        ...deletion(
+          (removals?.factorValues ?? []).find((r) => r.factorId === factorId)
+            ?.valueIds,
+        ),
+        items: (f.factor_values ?? []).map((v) => ({
+          ...commitTarget(
+            v.id,
+            "fv",
+            issuedByGemma(v.id, priorValues.has(v.id)),
           ),
-          items: statementItems(v.statements, `fv${v.id}`),
-        },
-      })),
-    },
-  }));
+          ...(v.free_text_label ? { freeTextLabel: v.free_text_label } : {}),
+          ...baselineFlag(v, priorValues.get(v.id)),
+          ...(v.biomaterial_short_names?.length
+            ? { biomaterialShortNames: v.biomaterial_short_names }
+            : {}),
+          statements: {
+            ...deletion(
+              (removals?.statements ?? []).find((r) => r.valueId === v.id)
+                ?.statementIds,
+            ),
+            items: statementItems(v.statements, `fv${v.id}`),
+          },
+        })),
+      },
+    };
+  });
   // 🛑 **A tag is not updatable, and the id's sign is not the witness.**
   //
   // Gemma's own `PUT /datasets/{id}/curation` says it: in `tags` and
@@ -861,7 +922,7 @@ export interface CurationSnapshot {
  * these rather than on a buffer of our own.
  *
  * Every commit also hands back the handle to the one taken before it —
- * `CommitReport.snapshotAnnotationSetId` — so an "undo that last
+ * `CommitReport.snapshot_annotation_set_id` — so an "undo that last
  * commit" affordance needs no lookup at all.
  */
 export function snapshotsPath(experimentId: number | string): string {

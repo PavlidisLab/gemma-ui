@@ -140,6 +140,14 @@ export default defineConfig(({ mode }) => {
         // Order matters — Vite matches in declaration order, so the
         // ontology + diagnostics routing exceptions must come BEFORE
         // the generic ``/rest`` catch-all below.
+        //
+        // 🛑 A regex key is tested against ``req.url``, QUERY STRING
+        // INCLUDED. So an entry anchored with a bare ``$`` stops
+        // matching the moment its caller adds a parameter, and the call
+        // falls silently through to the ``/rest`` catch-all — the store
+        // in local mode, which answers 404 for every Gemma-only route
+        // here. Every anchored key below therefore ends
+        // ``(\?.*)?$``. Pinned by ``src/api/viteProxyRoutes.test.ts``.
         // The ontology routing exceptions go to whatever ontology-
         // capable Gemma host you set ``GEMMA_ONTOLOGY_URL`` to; only
         // registered when that var is set (see the warning above).
@@ -231,7 +239,7 @@ export default defineConfig(({ mode }) => {
         // authenticate against the real Gemma session. The bearer
         // token returned by /login is stored in localStorage by the
         // curation client and rides on every subsequent request.
-        "^/rest/v2/(login|logout|me)$": {
+        "^/rest/v2/(login|logout|me)(\\?.*)?$": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
           cookieDomainRewrite: "",
@@ -284,7 +292,7 @@ export default defineConfig(({ mode }) => {
         // here in BOTH modes because the local working set is where the
         // data is (176 of the store's 189 experiment ids return a
         // document from gemma2, 10 are not in Gemma, 3 unharvested).
-        "^/rest/v2/datasets/\\d+/sourceMetadata$": {
+        "^/rest/v2/datasets/\\d+/sourceMetadata(\\?.*)?$": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
           cookieDomainRewrite: "",
@@ -318,7 +326,15 @@ export default defineConfig(({ mode }) => {
         // `subSets` below. 404 is an ordinary answer here (no
         // assignment recorded, or not a single-cell dataset) and the
         // hook reads the server's sentence off it.
-        "^/rest/v2/datasets/\\d+/cellTypeAssignment$": {
+        //
+        // 🛑 The `(\?.*)?` before the anchor is not optional. Vite
+        // matches these keys against `req.url`, which carries the query
+        // string, and this route's only caller sends
+        // `?exclude=cellTypeIds` — so a bare `$` matched nothing, the
+        // call fell through to the `/rest` catch-all (the store in
+        // local mode), 404'd, and the panel reported no cell-type
+        // assignment on a dataset that has one.
+        "^/rest/v2/datasets/\\d+/cellTypeAssignment(\\?.*)?$": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
           cookieDomainRewrite: "",
@@ -329,7 +345,7 @@ export default defineConfig(({ mode }) => {
             });
           },
         },
-        "^/rest/v2/datasets/\\d+/subSets$": {
+        "^/rest/v2/datasets/\\d+/subSets(\\?.*)?$": {
           target: GEMMA_REST_URL,
           changeOrigin: true,
           cookieDomainRewrite: "",

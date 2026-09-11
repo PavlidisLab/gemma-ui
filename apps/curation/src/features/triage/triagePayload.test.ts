@@ -35,6 +35,15 @@ const mkTicket = (
     payload_json: JSON.stringify({ candidates, decision }),
   }) as Ticket;
 
+/** The same ticket as Gemma serves it — `payload`, no `payload_json`.
+ *  Every reader here has to see the identical answer from both. */
+const asGemmaTicket = (t: Ticket): Ticket =>
+  ({
+    ...t,
+    payload_json: undefined,
+    payload: (t as { payload_json?: string }).payload_json,
+  }) as Ticket;
+
 describe("preboardingRowId", () => {
   it("pulls the row id out of a prefixed experiment id", () => {
     expect(preboardingRowId("preboarding:52")).toBe(52);
@@ -63,6 +72,14 @@ describe("findTargetForPreboarding", () => {
 
   it("maps a preboarding row back to its ticket target", () => {
     expect(findTargetForPreboarding(ticket, 52)?.target_id).toBe(2);
+  });
+
+  it("🛑 finds the target on a Gemma-served ticket too", () => {
+    // Reading `payload_json` directly returned null for every Gemma
+    // ticket, and the detail page renders the decision buttons off this
+    // target — so the page showed the question with nothing to answer
+    // it with.
+    expect(findTargetForPreboarding(asGemmaTicket(ticket), 52)?.target_id).toBe(2);
   });
 
   it("is null when the candidate isn't on this ticket", () => {
@@ -143,6 +160,14 @@ describe("preboardingSiblings", () => {
     expect(s.index).toBe(1);
     expect(s.prev).toBe(11);
     expect(s.next).toBe(77);
+  });
+
+  it("🛑 walks a Gemma-served ticket the same way", () => {
+    // The Shift+←/→ walker is driven off this list; reading
+    // `payload_json` directly emptied it on every Gemma ticket.
+    expect(preboardingSiblings(asGemmaTicket(ticket), 52)).toEqual(
+      preboardingSiblings(ticket, 52),
+    );
   });
 
   it("skips candidates with no detail page to land on", () => {

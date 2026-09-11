@@ -1695,7 +1695,8 @@ function TagInnerTerm({
   );
 }
 
-function EditableDirectGroupChip({
+/** Exported for test — see `groupedTagChipCurie.render.test.tsx`. */
+export function EditableDirectGroupChip({
   category,
   tags,
   addedTagIds,
@@ -1996,18 +1997,14 @@ function EditableDirectGroupChip({
                   // carry their own URI hover via ``TagInnerTerm``.
                   <TagStatementInline statements={tag.statements} />
                 ) : (
-                  <>
-                    <TagInnerTerm
-                      label={tag.value.label || "(blank)"}
-                      uri={tag.value.uri ?? null}
-                    />
-                    {tag.value.uri ? (
-                      <CurieLink
-                        uri={tag.value.uri}
-                        className="font-mono text-[10px] text-emerald-900/60 hover:text-emerald-900 hover:underline whitespace-nowrap cursor-pointer bg-transparent border-0 p-0"
-                      />
-                    ) : null}
-                  </>
+                  // ``TagInnerTerm`` renders the CURIE itself (it has
+                  // since 2026-09-01), so a second ``CurieLink`` beside
+                  // it printed the term id twice — `female PATO:0000383
+                  // PATO:0000383`.
+                  <TagInnerTerm
+                    label={tag.value.label || "(blank)"}
+                    uri={tag.value.uri ?? null}
+                  />
                 )}
                 <AuditDot
                   targetId={tagTarget(tag.category.label, tag.value.label)}

@@ -97,6 +97,37 @@ export function distinctCellTypes(
   return [...seen.values()];
 }
 
+/** The subsets whose cell types the summary counts.
+ *
+ *  🛑 **Count the LIVE cut only.** A dataset commonly carries a
+ *  superseded subset group holding the author's raw strings for the
+ *  same cell types (eid 79038: `opc` beside `oligodendrocyte precursor
+ *  cell`), so unioning every group reports 20 cell types where there
+ *  are 10. When the live cut cannot be picked, fall back to every group
+ *  rather than silently showing one — an over-count a curator can see
+ *  beats a half-list they cannot.
+ *
+ *  🛑 **The ungrouped subsets count too.** `summarizeSubsetGroups`
+ *  routes every `/subSets` row with an empty `sub_set_group_ids` into
+ *  its own `ungrouped` array, and 8 of the 100 single-cell datasets
+ *  measured 2026-09-03 carry no subset GROUP at all — on those,
+ *  `groups` is `[]`, so counting groups alone printed "No cell types on
+ *  this experiment" directly above `SubsetsCard` rendering "N subsets
+ *  in no group" WITH their cell-type chips. A row in no group is in no
+ *  superseded cut either, so it is always counted.
+ *
+ *  Exported for test. */
+export function countedSubsets(
+  summary: SubsetGroupsSummary | undefined,
+): DistinctSubset[] {
+  const groups = summary?.groups ?? [];
+  const live = groups.filter((g) => !g.superseded);
+  return [
+    ...(live.length > 0 ? live : groups).flatMap((g) => g.subsets),
+    ...(summary?.ungrouped ?? []),
+  ];
+}
+
 export function SingleCellPanel() {
   const { draft } = useDesignDraft();
   const tagCellTypes = useMemo(() => {
@@ -107,22 +138,11 @@ export function SingleCellPanel() {
   const subsets = useDatasetSubsetGroups(draft?.experiment_id);
   const assignment = useCellTypeAssignment(draft?.experiment_id);
 
-  // 🛑 **Count the LIVE cut only.** A dataset commonly carries a
-  // superseded subset group holding the author's raw strings for the
-  // same cell types (eid 79038: `opc` beside `oligodendrocyte precursor
-  // cell`), so unioning every group reports 20 cell types where there
-  // are 10. When the live cut cannot be picked, fall back to every
-  // group rather than silently showing one — an over-count a curator
-  // can see beats a half-list they cannot.
-  const countedSubsets = useMemo(() => {
-    const groups = subsets.data?.groups ?? [];
-    const live = groups.filter((g) => !g.superseded);
-    return (live.length > 0 ? live : groups).flatMap((g) => g.subsets);
-  }, [subsets.data]);
+  const counted = useMemo(() => countedSubsets(subsets.data), [subsets.data]);
 
   const cellTypes = useMemo(
-    () => distinctCellTypes(tagCellTypes, countedSubsets),
-    [tagCellTypes, countedSubsets],
+    () => distinctCellTypes(tagCellTypes, counted),
+    [tagCellTypes, counted],
   );
 
   // Never claim "none" while a fetch that could produce some is still

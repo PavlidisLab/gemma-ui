@@ -1,5 +1,5 @@
 /**
- * A screening ticket's ``payload_json``, parsed once.
+ * A screening ticket's payload blob, parsed once.
  *
  * Two surfaces read it — the triage table and the preboarding detail
  * page the table links into — and both need the same two things out of
@@ -9,7 +9,14 @@
  * specced something else.
  */
 import { snakeify } from "@/api/client";
+import { ticketPayload } from "@/api/ticketPayload";
 import type { Ticket, TicketTarget } from "@/api/tickets";
+
+/** Re-exported so the triage surfaces keep one import for everything
+ *  they read off a screening ticket. The definition lives in
+ *  `@/api/ticketPayload`, where `ticketBaselineSource` reads it too —
+ *  `api/` cannot import from `features/`. */
+export { ticketPayload };
 
 /** A self-describing display field the producing agent attaches to a
  *  candidate. TriageView's generic renderer turns these into native
@@ -71,23 +78,6 @@ export interface ParsedPayload {
   };
 }
 
-/** The ticket's payload string, from whichever side served the ticket.
- *
- *  The store spells it `payload_json`; Gemma spells it `payload`
- *  (`TicketValueObject.payload`, live 2026-09-03). Same JSON, two field
- *  names, so every reader goes through here rather than picking one and
- *  going blank against the other host.
- *
- *  🛑 The store's field wins when both are present. A ticket carrying
- *  both is a ticket mid-migration, and the store's copy is the one its
- *  own targets were keyed against. */
-export function ticketPayload(ticket: {
-  payload_json?: string;
-  payload?: string;
-}): string | undefined {
-  return ticket.payload_json ?? ticket.payload;
-}
-
 /**
  * Parse a payload string.
  *
@@ -135,10 +125,16 @@ export function decisionLabels(parsed: ParsedPayload): {
 /**
  * Find the ticket target that stands for a given preboarding row.
  *
- * The link runs through ``payload_json.candidates[<target_id>].preboarding_id``
- * — the same field the triage row builds its drill-in URL from. The
- * detail page only knows its own preboarding id and the ticket id from
- * the URL, so this walks the mapping back the other way.
+ * The link runs through the payload's
+ * ``candidates[<target_id>].preboarding_id`` — the same field the
+ * triage row builds its drill-in URL from. The detail page only knows
+ * its own preboarding id and the ticket id from the URL, so this walks
+ * the mapping back the other way.
+ *
+ * 🛑 Reads the payload through ``ticketPayload``, not ``payload_json``
+ * directly: on a Gemma-served ticket that field is undefined, and the
+ * page then renders the right question with no decision buttons under
+ * it.
  *
  * Returns null when the ticket has no such candidate: a preboarding row
  * can be opened from a set or the workflow page with no ticket at all,
@@ -149,7 +145,7 @@ export function findTargetForPreboarding(
   preboardingId: number | null,
 ): TicketTarget | null {
   if (!ticket || preboardingId == null) return null;
-  const parsed = parsePayload(ticket.payload_json);
+  const parsed = parsePayload(ticketPayload(ticket));
   for (const t of ticket.targets ?? []) {
     const meta = parsed.candidates[String(t.target_id)];
     if (meta?.preboarding_id != null && meta.preboarding_id === preboardingId) {
@@ -180,7 +176,7 @@ export function preboardingSiblings(
 ): { ids: number[]; index: number; prev: number | null; next: number | null } {
   const empty = { ids: [] as number[], index: -1, prev: null, next: null };
   if (!ticket) return empty;
-  const parsed = parsePayload(ticket.payload_json);
+  const parsed = parsePayload(ticketPayload(ticket));
   const ids: number[] = [];
   for (const t of ticket.targets ?? []) {
     const id = parsed.candidates[String(t.target_id)]?.preboarding_id;

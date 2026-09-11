@@ -14,6 +14,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
+import { ticketPayload } from "./ticketPayload";
 import type { Query } from "@tanstack/react-query";
 
 /** Which service owns the ticket queue in this mode.
@@ -471,18 +472,18 @@ export interface Ticket {
  *  Two accepted homes, because the agents side can land the field in
  *  either without a schema migration: the top-level
  *  ``baseline_source`` column, or ``baseline_source`` inside the
- *  free-form ``payload_json`` blob. Top level wins when both are
- *  present. A malformed blob is not an error here — it just means no
- *  pin, and the chip strip keeps its own defaults. */
+ *  free-form payload blob. Top level wins when both are present. The
+ *  blob is resolved through ``ticketPayload`` — the store and Gemma
+ *  spell that field differently. A malformed blob is not an error here
+ *  — it just means no pin, and the chip strip keeps its own
+ *  defaults. */
 export function ticketBaselineSource(
   ticket: Ticket | null | undefined,
 ): string | null {
   if (!ticket) return null;
   const top = (ticket.baseline_source || "").trim();
   if (top) return top;
-  // Store spells it `payload_json`, Gemma spells it `payload`. Reading
-  // one only would lose a pinned baseline against the other host.
-  const blob = ticket.payload_json ?? ticket.payload;
+  const blob = ticketPayload(ticket);
   if (!blob) return null;
   try {
     const obj: unknown = JSON.parse(blob);
@@ -672,15 +673,47 @@ const TYPES_GEMMA_LACKS = new Set<TicketType>(["SCREENING"]);
  *  exist in Gemma. */
 const TARGET_TYPES_GEMMA_LACKS = new Set<TicketTargetType>(["GEO_ACCESSION"]);
 
-/** Translate a create body into the shape Gemma's `CreateTicketRequest`
- *  reads. Pure, and exported so the mapping is pinned by a test rather
- *  than discovered by a 400.
+/** Translate ticket targets into the shape Gemma's ticket routes read.
  *
  *  🛑 The client sends request bodies VERBATIM — `client.ts` snakeifies
  *  responses only — so a store-shaped `target_type` reaches Jackson as
  *  an unknown property, `targetType` stays null, and the handler
  *  answers "Each target requires targetType and targetId". The keys
  *  have to be rewritten here; nothing downstream does it.
+ *
+ *  Both Gemma routes that take targets go through this one function —
+ *  `POST /tickets` and `POST /tickets/{id}/targets` — so a second
+ *  rewriter cannot fall behind the first.
+ *
+ *  `target_type` defaults to `EXPRESSION_EXPERIMENT`, which is also the
+ *  server-side default; sent explicitly so the request says what it
+ *  means. */
+export function gemmaTargets(
+  targets: Array<{
+    target_type?: TicketTargetType;
+    target_id: number;
+    status?: TicketTargetStatus;
+  }>,
+): Array<Record<string, unknown>> {
+  const bad = targets.find(
+    (t) => t.target_type && TARGET_TYPES_GEMMA_LACKS.has(t.target_type),
+  );
+  if (bad) {
+    throw new Error(
+      `Cannot target ${bad.target_type} in Gemma: that target type exists ` +
+        `only on the curation store.`,
+    );
+  }
+  return targets.map((t) => ({
+    targetType: t.target_type ?? "EXPRESSION_EXPERIMENT",
+    targetId: t.target_id,
+    ...(t.status ? { status: t.status } : {}),
+  }));
+}
+
+/** Translate a create body into the shape Gemma's `CreateTicketRequest`
+ *  reads. Pure, and exported so the mapping is pinned by a test rather
+ *  than discovered by a 400.
  *
  *  `assignee` is dropped rather than guessed: the store takes a
  *  username string, Gemma takes a numeric `assigneeId` and 400s on an
@@ -698,23 +731,10 @@ export function gemmaCreateBody(
     );
   }
   const type = TYPE_TRANSLATION[body.type] ?? body.type;
-  const bad = body.targets.find((t) =>
-    TARGET_TYPES_GEMMA_LACKS.has(t.target_type),
-  );
-  if (bad) {
-    throw new Error(
-      `Cannot create a ticket targeting ${bad.target_type} in Gemma: that ` +
-        `target type exists only on the curation store.`,
-    );
-  }
   const out: Record<string, unknown> = {
     type,
     title: body.title,
-    targets: body.targets.map((t) => ({
-      targetType: t.target_type,
-      targetId: t.target_id,
-      ...(t.status ? { status: t.status } : {}),
-    })),
+    targets: gemmaTargets(body.targets),
   };
   if (body.priority) out.priority = body.priority;
   if (body.mode) out.mode = body.mode;
@@ -840,17 +860,24 @@ export function useAddTicketTargets(ticketId: number) {
     mutationFn: async (
       targets: Array<{ target_type?: TicketTargetType; target_id: number }>,
     ) => {
-      // `targetType` is optional server-side and defaults to
-      // EXPRESSION_EXPERIMENT; sent explicitly anyway so the request
-      // says what it means.
+      // 🛑 The body is translated per mode, exactly like
+      // `useCreateTicket`: the store reads snake_case, Gemma reads
+      // camelCase, and `client.ts` snakeifies responses only — so a
+      // store-shaped `target_type` sent to Gemma leaves `targetType`
+      // null and the handler answers "Each target requires targetType
+      // and targetId".
+      const body =
+        resolveGemmaMode().mode === "remote"
+          ? { targets: gemmaTargets(targets) }
+          : {
+              targets: targets.map((t) => ({
+                target_type: t.target_type ?? "EXPRESSION_EXPERIMENT",
+                target_id: t.target_id,
+              })),
+            };
       return await api.post<AddTargetsResult>(
         `${ticketsBase()}/tickets/${ticketId}/targets`,
-        {
-          targets: targets.map((t) => ({
-            target_type: t.target_type ?? "EXPRESSION_EXPERIMENT",
-            target_id: t.target_id,
-          })),
-        },
+        body,
       );
     },
     onSuccess: () => {

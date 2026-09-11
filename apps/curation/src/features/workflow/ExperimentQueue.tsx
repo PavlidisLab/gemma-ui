@@ -1186,6 +1186,22 @@ export function ExperimentQueue({
                 // `deriveNextTask` — on ticket 6 (398 of 500 targets
                 // DONE) that re-badged every finished row with work it
                 // had already done.
+                //
+                // 🛑 That guard is still open for every OTHER ticket,
+                // and nothing here can close it: `POST /datasets/tickets`
+                // answers `TicketSearchHitValueObject` — id, title,
+                // state, type, targetCount, updatedAt — so there is no
+                // per-target status to carry, and `undefined !== "DONE"`
+                // reads as outstanding. On the GLOBAL queue (`ticket`
+                // undefined, so the filter above excludes nothing) a row
+                // whose target on some other open ticket is already DONE
+                // still draws a next-task chip. Do not paper it over
+                // with a guessed status — a "DONE" nobody measured is a
+                // claim about a curator's work. Closing it needs either
+                // the status on the wire (the DAO already joins
+                // `t.targets`, so it is one appended column) or a route
+                // for the glyph that is separate from the one
+                // `deriveNextTask` reads.
                 .filter((t: TicketSearchHit) => t.id !== ticket?.id)
                 .map(
                 (t: TicketSearchHit) =>

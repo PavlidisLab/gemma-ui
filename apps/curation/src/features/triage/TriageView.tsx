@@ -63,11 +63,12 @@ type Filter = "all" | "undecided" | "include" | "exclude" | "unsure";
 
 export function TriageView({ ticket }: { ticket: Ticket }) {
   // `ticketPayload` reads the store's `payload_json` or Gemma's own
-  // `payload` — same JSON, two field names.
-  const parsed = useMemo(() => parsePayload(ticketPayload(ticket)), [
-    ticket.payload_json,
-    ticket.payload,
-  ]);
+  // `payload` — same JSON, two field names. Depend on what it
+  // RESOLVED, not on the spellings it looked at: enumerating the
+  // fields here is a second place a third spelling would have to be
+  // added, and the helper exists so there is only one.
+  const payload = ticketPayload(ticket);
+  const parsed = useMemo(() => parsePayload(payload), [payload]);
   const [filter, setFilter] = useState<Filter>("undecided");
   const [search, setSearch] = useState("");
   const [facets, setFacets] = useState<Record<string, string>>({});

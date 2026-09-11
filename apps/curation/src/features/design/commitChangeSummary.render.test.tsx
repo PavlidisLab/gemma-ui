@@ -10,11 +10,23 @@
 import { describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 
+import { snakeify } from "@/api/client";
 import type { CommitReport } from "@/api/curationCommit";
 import { CommitChangeSummary } from "./CommitChangeSummary";
 
-function report(over: Partial<CommitReport> = {}): CommitReport {
-  return {
+/**
+ * Gemma's own report, put through the SAME transform every response
+ * takes on its way out of `api.post` — `snakeify` in `api/client.ts`.
+ *
+ * 🛑 Spelled by hand in the declared casing, this fixture passed every
+ * assertion below while the wire path rendered nothing: the served
+ * `deletedIdentities` and `changes.curationDetails` do not survive the
+ * boundary under those names, so the renderer read `undefined` and
+ * matched no section. Feeding the transform is what makes the fixture
+ * answerable about the real path.
+ */
+function report(over: Record<string, unknown> = {}): CommitReport {
+  return snakeify({
     applied: false,
     idMap: {},
     changes: {},
@@ -22,7 +34,7 @@ function report(over: Partial<CommitReport> = {}): CommitReport {
     canonicalizations: [],
     commitAnnotationSetId: null,
     ...over,
-  };
+  }) as CommitReport;
 }
 
 describe("the change tally", () => {
@@ -56,14 +68,64 @@ describe("the change tally", () => {
   it("🛑 renders a section it does not recognize rather than dropping it", () => {
     // A section silently omitted is a change nobody was shown. Gemma's
     // `changes` is an open map and gains sections without asking us.
+    // The key renders as it arrives, transform included.
     cleanup();
     render(
       <CommitChangeSummary
         report={report({ changes: { somethingNew: { created: 1 } } })}
       />,
     );
-    expect(screen.getByText("somethingNew")).toBeTruthy();
+    expect(screen.getByText("something_new")).toBeTruthy();
     expect(screen.getByText("1 added")).toBeTruthy();
+  });
+
+  it("🛑 labels the curation-details section Gemma actually sends", () => {
+    // Gemma names it `curationDetails` and it reaches the renderer as
+    // `curation_details`. Keyed on the served name, the section fell
+    // past `SECTION_ORDER` and rendered as a raw key at the tail.
+    cleanup();
+    render(
+      <CommitChangeSummary
+        report={report({ changes: { curationDetails: { updated: 1 } } })}
+      />,
+    );
+    expect(screen.getByText("Curation details")).toBeTruthy();
+    expect(screen.queryByText("curation_details")).toBeNull();
+  });
+});
+
+describe("🛑 the removal notice", () => {
+  it("says how many existing annotations go away", () => {
+    // `deletedIdentities` on the wire — read under that name it was
+    // always undefined and the notice never appeared.
+    cleanup();
+    render(
+      <CommitChangeSummary
+        report={report({
+          changes: { tags: { deleted: 2 } },
+          deletedIdentities: [9018, 9019],
+        })}
+      />,
+    );
+    expect(screen.getByText(/2 existing annotations are removed/i)).toBeTruthy();
+  });
+
+  it("reads singular for one, and is silent for none", () => {
+    cleanup();
+    render(
+      <CommitChangeSummary
+        report={report({
+          changes: { tags: { deleted: 1 } },
+          deletedIdentities: [9018],
+        })}
+      />,
+    );
+    expect(screen.getByText(/1 existing annotation is removed/i)).toBeTruthy();
+    cleanup();
+    render(
+      <CommitChangeSummary report={report({ changes: { tags: { deleted: 1 } } })} />,
+    );
+    expect(screen.queryByText(/is removed/i)).toBeNull();
   });
 });
 

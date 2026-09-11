@@ -232,6 +232,11 @@ export function SampleCorrelationCard({
   // constant I derived from DIAGNOSTICS_PANEL_BODY_PX was wrong in one
   // direction or the other: too big and the matrix was clipped, too
   // small and it sat in a quarter of the panel.
+  //
+  // The box below renders only in the final branch: on a cold
+  // diagnostics cache `isLoading` is true at mount and `PanelLoading`
+  // is what mounts. `useContainerSize` hands back a callback ref, so
+  // it picks the box up on whichever render it first appears on.
   const { ref: boxRef, height: boxH } = useContainerSize<HTMLDivElement>();
   // Only while the zoom is open, so the key is free the rest of the time.
   useEscapeKey(zoomed, () => setZoomed(false));

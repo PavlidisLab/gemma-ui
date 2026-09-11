@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { ticketPayload as triageTicketPayload } from "@/features/triage/triagePayload";
+import { ticketPayload } from "./ticketPayload";
 import { ticketBaselineSource, type Ticket } from "./tickets";
 
 /**
@@ -89,5 +91,67 @@ describe("ticketBaselineSource", () => {
   it("reads no pin with no ticket at all", () => {
     expect(ticketBaselineSource(null)).toBeNull();
     expect(ticketBaselineSource(undefined)).toBeNull();
+  });
+});
+
+/**
+ * The blob the pin can arrive in has two field names: the curation
+ * store serves `payload_json`, Gemma serves `payload`
+ * (`TicketValueObject.payload`, live 2026-09-03). Which one a ticket
+ * carries depends on which backend served it, so `ticketBaselineSource`
+ * resolves it through `ticketPayload` rather than naming a field — it
+ * used to inline `payload_json ?? payload`, a second copy of the rule
+ * beside the triage surfaces' copy.
+ */
+describe("ticketBaselineSource across both ticket shapes", () => {
+  const pin = JSON.stringify({ baseline_source: "polished:gold" });
+
+  it("reads the pin out of a store-served ticket's payload_json", () => {
+    expect(ticketBaselineSource(ticket({ payload_json: pin }))).toBe(
+      "polished:gold",
+    );
+  });
+
+  it("reads the pin out of a Gemma-served ticket's payload", () => {
+    expect(ticketBaselineSource(ticket({ payload: pin }))).toBe(
+      "polished:gold",
+    );
+  });
+
+  it("takes the store's field when a mid-migration ticket has both", () => {
+    expect(
+      ticketBaselineSource(
+        ticket({
+          payload_json: JSON.stringify({ baseline_source: "store" }),
+          payload: JSON.stringify({ baseline_source: "gemma" }),
+        }),
+      ),
+    ).toBe("store");
+  });
+
+  it("still prefers the top-level column over a Gemma payload", () => {
+    expect(
+      ticketBaselineSource(
+        ticket({ baseline_source: "live", payload: pin }),
+      ),
+    ).toBe("live");
+  });
+
+  it("reads no pin from a malformed Gemma payload", () => {
+    expect(ticketBaselineSource(ticket({ payload: "{not json" }))).toBeNull();
+    expect(ticketBaselineSource(ticket({ payload: "{}" }))).toBeNull();
+  });
+
+  it("resolves the blob through the same helper the triage surfaces use", () => {
+    // One definition, two import paths: `triagePayload` re-exports it
+    // because `api/` cannot import from `features/`. A second copy
+    // reappearing here is the failure this asserts against.
+    expect(triageTicketPayload).toBe(ticketPayload);
+    expect(ticketPayload({ payload_json: "store" })).toBe("store");
+    expect(ticketPayload({ payload: "gemma" })).toBe("gemma");
+    expect(ticketPayload({ payload_json: "store", payload: "gemma" })).toBe(
+      "store",
+    );
+    expect(ticketPayload({})).toBeUndefined();
   });
 });

@@ -155,6 +155,14 @@ export function adaptHeatmapWire(
       // Some builds serialize numbers as strings, and NaN as the STRING
       // "NaN" — see reference_gemma_serializes_nan_as_a_string. A null
       // is the NA colour; a wrong number is a lie.
+      //
+      // 🛑 The absent cases are checked FIRST, because `Number()`
+      // answers 0 — a finite, plausible expression value — for both of
+      // them: `Number(null)` is 0 and `Number("")` is 0. `typeof null`
+      // is "object", so a null cell reached the `Number(v)` branch and
+      // every missing value in the matrix drew as a real 0.
+      if (v === null || v === undefined) return null;
+      if (typeof v === "string" && v.trim() === "") return null;
       const n = typeof v === "number" ? v : Number(v);
       return Number.isFinite(n) ? n : null;
     }),

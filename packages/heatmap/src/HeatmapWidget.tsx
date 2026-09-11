@@ -59,9 +59,13 @@ export interface HeatmapWidgetProps {
   /** Initial row-standardize state. Default `true` — the lab-standard
    *  default for expression heatmaps. */
   defaultRowScale?: boolean;
-  /** Initial max cell height in px. Default `12`. */
+  /** Max cell height in px. Default `12`. Adopted whenever it changes
+   *  — so a caller that measures its box and computes this on a later
+   *  render still reaches the cells — until the user moves a cell
+   *  slider, after which their size holds. */
   defaultMaxHeight?: number;
-  /** Initial max cell width in px. Default `13`. */
+  /** Max cell width in px. Default `13`. Adopted on change under the
+   *  same rule as `defaultMaxHeight`. */
   defaultMaxWidth?: number;
   /** Initial fit mode. Default `'squeeze'`.
    *  - `'squeeze'`: cells shrink to fit the viewport (matrix never overflows;
@@ -316,8 +320,35 @@ export function HeatmapWidget({
   };
   const [clip, setClip] = useState(defaultClip);
   const [rowScale, setRowScale] = useState(defaultRowScale);
-  const [maxH, setMaxH] = useState(defaultMaxHeight);
-  const [maxW, setMaxW] = useState(defaultMaxWidth);
+  // 🛑 SYNC to the props, don't only seed from them. A caller that
+  // measures its own box computes the cell cap on a LATER render — the
+  // measurement is 0 on the first one — and a plain
+  // `useState(defaultMaxHeight)` keeps that pre-measurement value for
+  // the widget's life. `matrixMaxHeight` is read as a live prop, so the
+  // matrix height did follow the measurement while the cell caps stayed
+  // stale.
+  //
+  // The rule: adopt a changed prop until the user moves a cell slider;
+  // from then on the caps are theirs and the props are ignored. One
+  // flag rather than one per axis — the square-cell control drives both
+  // at once, and releasing only the untouched axis would change the
+  // cell aspect ratio without the user asking for it.
+  const [maxH, setMaxHRaw] = useState(defaultMaxHeight);
+  const [maxW, setMaxWRaw] = useState(defaultMaxWidth);
+  const userTouchedCellSizeRef = useRef(false);
+  useEffect(() => {
+    if (userTouchedCellSizeRef.current) return;
+    setMaxHRaw(defaultMaxHeight);
+    setMaxWRaw(defaultMaxWidth);
+  }, [defaultMaxHeight, defaultMaxWidth]);
+  const setMaxH = (v: number) => {
+    userTouchedCellSizeRef.current = true;
+    setMaxHRaw(v);
+  };
+  const setMaxW = (v: number) => {
+    userTouchedCellSizeRef.current = true;
+    setMaxWRaw(v);
+  };
   const [fitMode, setFitMode] = useState<FitMode>(defaultFitMode);
   const [controlsOpen, setControlsOpen] = useState(defaultControlsOpen);
   // v2: main-grouping factor selection. Lives on

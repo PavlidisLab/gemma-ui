@@ -268,6 +268,17 @@ export function isNoProposalsHere(e: unknown): boolean {
  * empty string: `parseAgentProposalPayload` would return `null` for it
  * and every consumer would render a proposal card with nothing in it.
  * That happens for `shape=meta`, which this hook does not request.
+ *
+ * 🛑 **`role` and `kind` are independent axes and both have to be
+ * checked.** `role` is the storage role; `kind` is the audit-vs-proposal
+ * split. Measured on gemma2 2026-09-04 (see `proposals.ts`): six of the
+ * eight `role=proposal` sets are `kind=audit`. The row's own `kind` is
+ * read here rather than asserted, so an audit set cannot arrive as the
+ * newest proposal — `SampleDetailsPanel` takes the newest by `ran_at`
+ * and reads per-cell confidence off it.
+ *
+ * A row with no `kind` at all predates the discriminator and is kept:
+ * the field being absent says nothing about the row.
  */
 export function annotationSetsToProposals(raw: unknown): AgentProposal[] {
   if (!Array.isArray(raw)) return [];
@@ -276,6 +287,8 @@ export function annotationSetsToProposals(raw: unknown): AgentProposal[] {
     if (!r || typeof r !== "object") continue;
     const payload = r.payload_json;
     if (typeof payload !== "string" || !payload) continue;
+    const kind = r.kind;
+    if (kind != null && kind !== "proposal") continue;
     out.push({
       proposal_id: Number(r.id),
       run_id: typeof r.run_id === "string" ? r.run_id : "",
@@ -317,7 +330,14 @@ export function useProposalsAutoShape(experimentId: number | string) {
       try {
         raw = remote
           ? await api.get<unknown>(
-              `/rest/v2/datasets/${experimentId}/annotation-sets?role=proposal&shape=full`,
+              `/rest/v2/datasets/${experimentId}/annotation-sets` +
+                // 🛑 `kind=proposal` as well as `role=proposal` — the
+                // local branch below sends it and so does the inbox
+                // (`proposals.ts::useAllProposals`), for the reason
+                // measured there: `role` is the storage role, `kind` is
+                // the audit-vs-proposal split, and most `role=proposal`
+                // sets on gemma2 are `kind=audit`.
+                `?role=proposal&kind=proposal&shape=full`,
             )
           : await api.get<unknown>(
               `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal`,

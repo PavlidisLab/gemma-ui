@@ -643,7 +643,19 @@ function composeFactor(
       // Absent stays distinguishable from false — see
       // `FactorValue.is_baseline_explicit`. Only the commit builder
       // reads it; every truthiness reader keeps the collapsed boolean.
-      is_baseline_explicit: (ov.is_baseline ?? v.is_baseline) != null,
+      //
+      // 🛑 **Gemma's own reading, never the overlay.** The question this
+      // answers is "did GEMMA serve an explicit flag", and it is the
+      // only witness `baselineFlag` (`api/curationCommit.ts`) has for
+      // deciding that an `isBaseline: false` is a real un-setting
+      // rather than the collapsed default. `ov` is the curation store's
+      // PROPOSAL overlay: an overlay entry carrying `is_baseline: false`
+      // for a value whose Gemma flag is null would make the witness
+      // true, and the commit would then force `false` over that null —
+      // baseline inference off, DE contrast direction flipped. That is
+      // the exact write the tri-state block in the commit builder
+      // exists to prevent.
+      is_baseline_explicit: v.is_baseline != null,
       statements: composeFvStatements(v),
       // Overlay wins when populated — proposal payload typically
       // carries the canonical curator-blessed assignment. Fall back

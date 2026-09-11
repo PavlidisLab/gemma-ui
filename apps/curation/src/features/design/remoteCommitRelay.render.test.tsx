@@ -211,7 +211,11 @@ async function renderAndCommit(mode: "local" | "remote") {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  preflightMock.mockResolvedValue({ newBaseline: "2026-09-01T21:00:00Z" });
+  // 🐍 `new_baseline`: every response leaves `api.post` through
+  // `snakeify`, so this is the spelling the commit path reads. Written
+  // camel, the fixture passed while the real preflight threaded
+  // nothing and Gemma's stale-baseline 409 had nothing to check.
+  preflightMock.mockResolvedValue({ new_baseline: "2026-09-01T21:00:00Z" });
   commitMock.mockResolvedValue({ applied: true });
   sendLogMock.mockResolvedValue(undefined);
   try {

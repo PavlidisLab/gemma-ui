@@ -22,13 +22,19 @@ import type { CommitReport, CommitSectionChange } from "@/api/curationCommit";
 
 /** Sections in the order a curator reads them, then anything else the
  *  server sent — an unrecognized section renders rather than vanishing,
- *  because a silently dropped section is a change nobody was shown. */
-const SECTION_ORDER = ["design", "tags", "curationDetails"] as const;
+ *  because a silently dropped section is a change nobody was shown.
+ *
+ *  🐍 Named as they ARRIVE: `snakeify` (`api/client.ts`) rewrites the
+ *  keys of the `changes` map along with everything else, so Gemma's
+ *  `curationDetails` section reaches this list as `curation_details`.
+ *  Spelled camel here it matched nothing and the section fell through
+ *  to the unlabelled tail. */
+const SECTION_ORDER = ["design", "tags", "curation_details"] as const;
 
 const SECTION_LABEL: Record<string, string> = {
   design: "Design",
   tags: "Tags",
-  curationDetails: "Curation details",
+  curation_details: "Curation details",
 };
 
 function orderedSections(
@@ -75,7 +81,7 @@ export function CommitChangeSummary({
     touches(c),
   );
   const reidentified = Object.entries(report.reidentified ?? {});
-  const deleted = report.deletedIdentities ?? [];
+  const deleted = report.deleted_identities ?? [];
 
   return (
     <div className={cn("text-xs space-y-2", className)}>

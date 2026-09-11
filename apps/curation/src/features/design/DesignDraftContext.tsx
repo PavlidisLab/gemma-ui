@@ -470,6 +470,11 @@ export function DesignDraftProvider({
   // refetch lands new server content — even if the user hasn't
   // touched anything.
   const prevSavedRef = useRef<Design | null>(null);
+  // Armed by the REMOTE commit path, consumed by the reconcile effect
+  // below: the next `/design` that lands is what Gemma now holds, and
+  // it replaces the draft whatever the pre-commit diff says. See the
+  // commit site for why the local path needs no equivalent.
+  const adoptNextServerDesignRef = useRef(false);
 
   // Initialize draft on first server load. On a fresh mount, prefer a
   // localStorage-cached draft IF its baseline hash matches the
@@ -521,11 +526,20 @@ export function DesignDraftProvider({
     // saved? If yes, sync to the new saved. If the curator had real
     // pending edits, leave the draft alone — they'll see the diff
     // bar and choose whether to discard.
+    //
+    // 🛑 A refetch that FOLLOWS this session's own remote commit is not
+    // a background refetch: the edits are already in it, and Gemma may
+    // have rewritten them on the way in (a canonicalised clause label,
+    // a real id for a row we sent as a create). The pre-commit
+    // comparison says "dirty" for exactly the edits that just landed,
+    // so it would refuse the sync forever — see the commit site.
+    const adoptServer = adoptNextServerDesignRef.current;
+    adoptNextServerDesignRef.current = false;
     const prevSaved = prevSavedRef.current;
     const wasClean = prevSaved
       ? !diffDesign(prevSaved, draft).isDirty
       : !diffDesign(saved, draft).isDirty;
-    if (wasClean) {
+    if (adoptServer || wasClean) {
       setDraft(saved);
     }
     prevSavedRef.current = saved;
@@ -557,6 +571,12 @@ export function DesignDraftProvider({
       // can read ``saving`` from the context to disable inputs and
       // surface the saving state to the curator.
       if (updater.isPending) return;
+      // A fresh edit outranks a post-commit checkpoint the refetch has
+      // not delivered yet. Without this the armed flag could outlive
+      // its own refetch — TanStack keeps the previous object when the
+      // refetched design is deeply equal, so the effect never fires —
+      // and the NEXT `/design` to land would discard this edit.
+      adoptNextServerDesignRef.current = false;
       // Earlier (2026-06-08) this branch silently dropped apply() when
       // ``providerReadOnly`` fired. That created the bug the reviewer reported
       // 2026-06-13: deleting a factor while viewing a non-editable
@@ -733,7 +753,12 @@ export function DesignDraftProvider({
           // ours to repair and a curator's labels are not.
           const canon = await canonicaliseClauses(built);
           const report = await preflightCuration(experimentId, canon, reviewer);
-          const baselineLastModified = report.newBaseline ?? undefined;
+          // 🐍 `new_baseline`, not `newBaseline`: every response passes
+          // through `snakeify` in `api/client.ts`. Read camel, this was
+          // always `undefined` and the commit went out with no baseline
+          // stamp at all — Gemma's stale-baseline 409 had nothing to
+          // compare against.
+          const baselineLastModified = report.new_baseline ?? undefined;
           const doc = await canonicaliseClauses(
             buildCurationDocument(
               draft,
@@ -750,15 +775,27 @@ export function DesignDraftProvider({
             onBehalfOf: reviewer,
           });
           // A 200 means EVERYTHING applied — there is no partial write
-          // to reconcile — so the draft is what Gemma now holds and is
-          // the honest checkpoint. `saved` refetches on the next
-          // invalidation and the ordinary background sync reconciles
-          // any canonicalization Gemma applied on the way in.
+          // to reconcile — so the draft is the checkpoint for now.
+          //
+          // 🛑 **But it is not what Gemma holds, and the refetch is.**
+          // The local path checkpoints on `server`, the design its own
+          // PUT answered with; the remote commit answers with a report,
+          // so the equivalent arrives one refetch later. Two things
+          // move in between: `canonicaliseClauses` rewrote clause
+          // labels in the DOCUMENT and not in the draft, and a row sent
+          // as a create comes back under the id Gemma minted rather
+          // than the editor's. Left uncollected, the draft diverges
+          // from `/design` by exactly those and the bar never clears —
+          // and the next Commit sends Gemma's id in `deletedIds`
+          // (`removalsFromDiff`) and recreates the row. So arm the
+          // adopt: the ordinary background sync refuses this one,
+          // because against the PRE-commit design the draft is dirty.
           //
           // 🛑 No `/polished` mirror and no store edit log on this
           // path. Both write the curation store, which is not where
           // this commit landed; mirroring there would leave a snapshot
           // of a design the store does not own.
+          adoptNextServerDesignRef.current = true;
           finalizeCheckpoint(draft);
           // The same views go stale either way — the design itself, the
           // audit events, and the audit / proposal cards whose text
