@@ -50,10 +50,19 @@ repo_root=$(pwd)
 # The escape `\u0000` is the same character at runtime and keeps the
 # file plain text, so the fix costs nothing.
 echo "[pre-commit] source stays greppable (no literal NUL bytes)"
+#
+# The scan reads the STAGED blob, not the file on disk. Under partial
+# staging the two differ, and both directions are wrong: a NUL staged
+# from a file since cleaned in the working tree passes the gate, and a
+# NUL left on disk outside the staged hunks refuses a commit that does
+# not contain it.
 nul_hits=""
 for f in $(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.js' '*.mjs' '*.json' '*.md' '*.css' '*.html'); do
-    [ -f "$f" ] || continue
-    if ! LC_ALL=C tr -d '\000' < "$f" | cmp -s - "$f"; then
+    # Compare byte counts rather than diffing against a temp copy: `sh`
+    # has no process substitution, and `git show` streams the blob once.
+    raw=$(git show ":$f" | wc -c)
+    stripped=$(git show ":$f" | LC_ALL=C tr -d '\000' | wc -c)
+    if [ "$raw" -ne "$stripped" ]; then
         nul_hits="$nul_hits $f"
     fi
 done
