@@ -563,3 +563,133 @@ export function summariseSplit(
     : `factor ${id}`;
   return `split on ${name}`;
 }
+
+// ─── The factor's own subset livery ──────────────────────────────
+
+/** What to say ON a factor about subsetting, from BOTH sources at once.
+ *
+ * Two things now claim to answer "should a DEA subset by this factor":
+ * `Design.subset_recommendations` (agent-seeded or curator-written,
+ * dispositioned accept/reject, keyed by `gemma_factor_id`) and Gemma's
+ * own `Factor.subset_relevance`. They are the same idea recorded in two
+ * places, so they fold to ONE mark here rather than each growing a chip
+ * — two badges saying the same thing in different words is how a
+ * curator stops trusting either.
+ *
+ * 🛑 **Silence is the default and it is not a negative.** A factor
+ * nobody has ruled on carries no value and gets no livery at all. That
+ * is most factors: the field is set only where somebody decided
+ * something. Rendering "not set" would turn an absence into a claim.
+ *
+ * Precedence, and the reason for it: a REJECTION is a curator act on
+ * this design and outranks standing advice, so it wins even over
+ * `recommended`. Otherwise a live recommendation wins over Gemma's
+ * hint, because it is the one carrying a disposition and a reason the
+ * curator can act on. Gemma's value speaks only when the design has
+ * nothing to say.
+ */
+export interface SubsetLivery {
+  /** Chip text. Short — it sits on a factor header. */
+  label: string;
+  /** `on` — a DEA should subset by this. `off` — ruled out. `unsure` —
+   *  somebody looked and could not decide. Drives colour, not copy. */
+  tone: "on" | "off" | "unsure";
+  /** The whole story, for a title attribute: what is claimed, by whom,
+   *  and why, when a reason was given. */
+  blurb: string;
+}
+
+/** The livery for one factor, or null when nothing is claimed.
+ *
+ * `usedFactorIds` are Gemma factor ids some differential-expression
+ * analysis actually SUBSET by (`api/subsetAnalyses.ts`). That is a
+ * fact about what happened, so it outranks every opinion here and says
+ * so in its own words — but it does not silence them: an analysis that
+ * already ran and a curator who has since rejected the axis are not in
+ * conflict, they are history and intent, and flattening one into the
+ * other would report a decision nobody made. */
+export function subsetLiveryFor(
+  factor: Factor,
+  design: Design | null | undefined,
+  usedFactorIds?: ReadonlySet<number> | null,
+): SubsetLivery | null {
+  const gid = factor.gemma_factor_id;
+  const used = typeof gid === "number" && !!usedFactorIds?.has(gid);
+  const rows = (design?.subset_recommendations ?? []).filter((r) => {
+    if (isSilent(r)) return false;
+    const resolved = resolveSubset(r, design);
+    return resolved.factor?.id === factor.id;
+  });
+  // What an analysis DID leads, because it is the only thing here that
+  // is not somebody's opinion. Any disagreeing advice rides in the
+  // hover rather than being dropped.
+  if (used) {
+    const disagrees = rows.some(isRejected)
+      ? "The curator has since rejected subsetting by it."
+      : (factor.subset_relevance ?? "").trim() === "not_applicable"
+        ? "Gemma now advises against subsetting by it."
+        : "";
+    return {
+      label: "subset in analysis",
+      tone: "on",
+      blurb: `A differential-expression analysis subset by this factor.${
+        disagrees ? ` ${disagrees}` : ""
+      }`,
+    };
+  }
+  // A rejection is a decision made here, about this design. It outranks
+  // advice from anywhere — including a `recommended` sitting beside it,
+  // which is exactly the state a rejection exists to overrule.
+  if (rows.some(isRejected)) {
+    return {
+      label: "subset: no",
+      tone: "off",
+      blurb:
+        "Subsetting by this factor was recommended and the curator rejected it.",
+    };
+  }
+  const live = rows.find((r) => isInEffect(r) && !resolveSubset(r, design).stale);
+  if (live) {
+    return {
+      label: "subset by this",
+      tone: "on",
+      blurb: `A differential-expression analysis should subset by this factor — ${sourceLabel(
+        live,
+      )}. Recorded on this design; reject it in Experiment-wide decisions.`,
+    };
+  }
+  const rel = (factor.subset_relevance ?? "").trim();
+  if (!rel) return null;
+  const why = (factor.subset_relevance_reason ?? "").trim();
+  const tail = why ? ` — ${why}` : "";
+  // Gemma's own advice. An unrecognized value renders as ITSELF rather
+  // than disappearing: the vocabulary is open by contract, and a fourth
+  // value (`covariate` is the expected one) can arrive without a Gemma
+  // release. Swallowing it would hide advice somebody wrote down.
+  if (rel === "recommended") {
+    return {
+      label: "subset by this",
+      tone: "on",
+      blurb: `Gemma advises a differential-expression analysis should subset by this factor${tail}`,
+    };
+  }
+  if (rel === "not_applicable") {
+    return {
+      label: "not a subset axis",
+      tone: "off",
+      blurb: `Gemma advises against subsetting by this factor${tail}`,
+    };
+  }
+  if (rel === "uncertain") {
+    return {
+      label: "subset: unsure",
+      tone: "unsure",
+      blurb: `Gemma records no decision on subsetting by this factor${tail}`,
+    };
+  }
+  return {
+    label: `subset: ${rel}`,
+    tone: "unsure",
+    blurb: `Gemma records "${rel}" for subsetting by this factor${tail}`,
+  };
+}

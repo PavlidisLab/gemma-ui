@@ -91,6 +91,11 @@ interface G2ExperimentalFactor {
   type?: string | null;
   category?: G2Term | null;
   values?: G2FactorValue[];
+  /** Gemma's subset advice, beside `baselineRelevance` on the same
+   *  item. Absent on every factor nobody has ruled on, which is most
+   *  of them — see `Factor.subset_relevance`. */
+  subset_relevance?: string | null;
+  subset_relevance_reason?: string | null;
 }
 
 interface G2BioMaterialAssignment {
@@ -659,6 +664,15 @@ function composeFactor(
     description: ef.description ?? "",
     type: (ef.type === "continuous" ? "continuous" : "categorical") as FactorType,
     factor_values,
+    // Carried through verbatim, absent staying absent: null is "nobody
+    // has ruled on this factor", which is a different claim from
+    // "do not subset by it" and must not collapse into one.
+    ...(ef.subset_relevance == null
+      ? {}
+      : { subset_relevance: ef.subset_relevance }),
+    ...(ef.subset_relevance_reason == null
+      ? {}
+      : { subset_relevance_reason: ef.subset_relevance_reason }),
   };
 }
 

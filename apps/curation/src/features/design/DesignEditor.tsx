@@ -54,6 +54,7 @@ import {
   tierTitle,
 } from "./subsetRecommendations";
 import { capitalizeCategory } from "@/lib/ontologyTerm";
+import { useSubsetAnalyses } from "@/api/subsetAnalyses";
 import type {
   Design, Factor, Statement, SubsetRecommendation,
 } from "@/features/experiment/types";
@@ -90,6 +91,22 @@ export function DesignEditor({
   const [selectedFactorId, setSelectedFactorId] = useSessionState<
     number | null
   >(`design.selectedFactor.${experimentId}`, null);
+
+  // What Gemma's analyses actually subset by, for the factor livery.
+  // Read-only, remote-only, and never a gate: on a failure or in local
+  // mode this is empty, which renders a factor UNMARKED rather than
+  // ruled out — the honest output for "we cannot show that it was
+  // used".
+  const subsetAnalyses = useSubsetAnalyses(experimentId);
+  const subsetUsedFactorIds = useMemo(
+    () =>
+      new Set(
+        (subsetAnalyses.data ?? [])
+          .map((a) => a.subsetFactorId)
+          .filter((id): id is number => typeof id === "number"),
+      ),
+    [subsetAnalyses.data],
+  );
 
   // Compact view — global toggle that hides editing chrome on each
   // FV card (delete / revert buttons, statement-template menu,
@@ -342,6 +359,8 @@ export function DesignEditor({
       />
       <FactorList
         factors={draft.factors}
+        design={draft}
+        subsetUsedFactorIds={subsetUsedFactorIds}
         selectedId={effectiveSelected}
         modifiedFactorIds={
           new Set(

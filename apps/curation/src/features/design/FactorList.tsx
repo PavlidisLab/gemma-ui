@@ -13,10 +13,12 @@ import { factorRefId } from "@/features/provenance/refs";
 import { factorTarget } from "@/features/audit/targetIds";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import type {
+  Design,
   Factor,
   FactorType,
   OntologyTerm,
 } from "@/features/experiment/types";
+import { subsetLiveryFor, type SubsetLivery } from "./subsetRecommendations";
 
 /**
  * Compact factors table at the top of the design tab.
@@ -30,6 +32,8 @@ import type {
  */
 export function FactorList({
   factors,
+  design,
+  subsetUsedFactorIds,
   selectedId,
   modifiedFactorIds,
   addedFactorIds,
@@ -42,6 +46,15 @@ export function FactorList({
   onRevertFactor,
 }: {
   factors: Factor[];
+  /** The draft this list is showing. Only the subset livery reads it —
+   *  a factor's subset advice can come from `subset_recommendations`
+   *  as well as from the factor itself, and both have to fold to one
+   *  mark. Optional so a caller with only factors in hand still
+   *  renders; the livery simply falls back to the factor's own field. */
+  design?: Design | null;
+  /** Gemma factor ids some analysis actually subset by. Absent in local
+   *  mode, where Gemma's analyses are not served at all. */
+  subsetUsedFactorIds?: ReadonlySet<number> | null;
   selectedId: number | null;
   /** Factor IDs whose name / category / description / type differ from
    *  the saved server state. Used only for the modified badge — the
@@ -272,6 +285,9 @@ export function FactorList({
                         after it for a factor with no recorded trace. */}
                     <ProvenanceDot refId={factorRefId(f.id)} />
                     <GemmaMatchDot factorLabel={f.category?.label || ""} />
+                    <SubsetChip
+                      livery={subsetLiveryFor(f, design, subsetUsedFactorIds)}
+                    />
                     {isAdded ? <NewBadge /> : null}
                     {modified ? <ModifiedBadge /> : null}
                   </div>
@@ -435,6 +451,35 @@ function ModifiedBadge() {
       title="factor fields differ from saved"
     >
       modified
+    </span>
+  );
+}
+
+/** The factor's subset livery, or nothing at all.
+ *
+ * 🛑 **Nothing is the normal state.** Most factors carry no subset
+ * advice, and a chip reading "not set" would turn that silence into a
+ * claim — see `subsetLiveryFor`. Tone drives colour only; the words
+ * come from the fold so this and the decisions pane cannot describe
+ * one recommendation two ways.
+ *
+ * Sky, not blue: blue is selection on this row and amber is
+ * uncommitted-addition, both of which mean something else here. */
+function SubsetChip({ livery }: { livery: SubsetLivery | null }) {
+  if (!livery) return null;
+  return (
+    <span
+      className={cn(
+        "text-[10px] uppercase tracking-wide font-semibold px-1.5 py-0.5 rounded border shrink-0",
+        livery.tone === "on"
+          ? "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200 dark:border-sky-700"
+          : livery.tone === "off"
+            ? "bg-slate-100 text-slate-600 border-slate-300 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-600"
+            : "bg-slate-50 text-slate-500 border-slate-200 border-dashed dark:bg-slate-900 dark:text-slate-400 dark:border-slate-700",
+      )}
+      title={livery.blurb}
+    >
+      {livery.label}
     </span>
   );
 }

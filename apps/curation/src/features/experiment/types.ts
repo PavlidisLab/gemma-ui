@@ -181,6 +181,32 @@ export type BaselineRelevance =
   | "not_applicable"
   | "uncertain";
 
+/** Whether a differential-expression analysis should SUBSET by this
+ *  factor.
+ *
+ *  🛑 **Advice, never a record of what happened.** What an analysis
+ *  actually subsetted by lives on the analysis
+ *  (`DifferentialExpressionAnalysis.subsetFactorValue`) and is not
+ *  settable through the curation route. The two are allowed to
+ *  disagree: a recommendation between curation and the next analysis
+ *  run is advice nobody has acted on yet, which is the normal state,
+ *  not a discrepancy to reconcile.
+ *
+ *  `recommended` rather than `required` on purpose — a baseline is
+ *  *required* for a contrast to exist at all, whereas subsetting is a
+ *  choice the analysis may decline.
+ *
+ *  **Open vocabulary.** Gemma stores and serves back a value it does
+ *  not recognize rather than refusing it, so this type carries the
+ *  documented set plus a string escape: an unfamiliar value must
+ *  render as itself, not vanish. `covariate` (do not subset, model it)
+ *  is expected next and needs no Gemma release. */
+export type SubsetRelevance =
+  | "recommended"
+  | "not_applicable"
+  | "uncertain"
+  | (string & {});
+
 export interface Factor {
   id: number;
   name: string;
@@ -195,6 +221,22 @@ export interface Factor {
    *  relevance proposals still work. */
   baseline_relevance?: BaselineRelevance;
   baseline_relevance_reason?: string;
+  /** Gemma's own subset advice for this factor, on the design wire as
+   *  `subsetRelevance` / `subsetRelevanceReason` beside
+   *  `baselineRelevance`.
+   *
+   *  🛑 **Null / absent is the ordinary case and means NOTHING is
+   *  claimed** — not "do not subset". Only a factor somebody has
+   *  actually ruled on carries a value, so a reader must render
+   *  absence as no statement rather than as a negative one. Same
+   *  convention as `baselineRelevance`: omitting the key on a commit
+   *  leaves whatever is recorded untouched, and the empty string is
+   *  the explicit clear.
+   *
+   *  See {@link SubsetRelevance} for why this is advice and not a
+   *  record of what an analysis did. */
+  subset_relevance?: SubsetRelevance | null;
+  subset_relevance_reason?: string | null;
   /** Gemma's own `ExperimentalFactor` id, where Gemma knows this
    *  factor. On the design wire already (`gemmaFactorId`) and
    *  populated for imported experiments; null on anything Gemma
