@@ -41,6 +41,7 @@ import type { AnnotationSearchResult } from "@/lib/types";
 import type { Dataset, QuantitationType } from "@/lib/types";
 import { useDebounced } from "@/lib/useDebounced";
 import { taxonPathParam } from "@/lib/gemmaConfig";
+import { curieToUrl } from "@/lib/curie";
 import { ProbeRowTooltip } from "./ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 
@@ -671,8 +672,22 @@ function GenePickerByGo({
             {pickedTerm.value}
           </div>
           {pickedTerm.valueUri ? (
+            // 🛑 Expanded, not used raw. A term URI is not always a
+            // PURL: 64,728 characteristics hold a bare CURIE
+            // (`CL:0000129`) from the cellxgene imports, and a bare
+            // CURIE in an `href` is not a URL — the browser resolves it
+            // against the current page and the link goes nowhere.
+            // `curieToUrl` falls back to an OLS search for a prefix it
+            // does not know, so an unrecognised shape still lands
+            // somewhere useful rather than breaking.
+            //
+            // ⚠️ LINKS ONLY. Do NOT normalise term URIs at ingestion:
+            // `lib/filter.ts` builds Gemma `filter=` clauses out of the
+            // same field, and Gemma stores those rows AS the bare
+            // CURIE — sending a PURL would match nothing on exactly the
+            // population this guard is for.
             <a
-              href={pickedTerm.valueUri}
+              href={curieToUrl(pickedTerm.valueUri) ?? pickedTerm.valueUri}
               target="_blank"
               rel="noreferrer"
               className="text-[10px] font-mono text-slate-400 hover:text-blue-700 hover:underline"

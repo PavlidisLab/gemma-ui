@@ -9,12 +9,12 @@ import { browseTermLink } from "@/lib/appLinks";
  * Three variants:
  *
  *  - **resolved** (URI present, default) — emerald chip with a CURIE
- *    tail, linking to a Gemma search for datasets carrying the term.
- *    It used to open the term's page on the ontology's own site, which
- *    ended the reader's visit on a third-party page to answer a
- *    question Gemma can answer better: what ELSE is annotated this way
- *    (Paul, 2026-09-01). The full URI stays in the tooltip, so the
- *    ontology id is still there to copy.
+ *    tail. With `asLink` it links to a Gemma search for datasets
+ *    carrying the term. It used to open the term's page on the
+ *    ontology's own site, which ended the reader's visit on a
+ *    third-party page to answer a question Gemma can answer better:
+ *    what ELSE is annotated this way (Paul, 2026-09-01). The full URI
+ *    stays in the tooltip, so the ontology id is still there to copy.
  *  - **free** (URI absent, default) — muted italic chip, no link.
  *    Signals the label hasn't been mapped to ontology.
  *  - **predicate** — slate chip; connective tissue between subject
@@ -27,11 +27,57 @@ import { browseTermLink } from "@/lib/appLinks";
  */
 export type TermVariant = "default" | "free" | "predicate";
 
+/** The variant a chip actually renders: a `default` term with no URI
+ *  degrades to `free`. A pinned `free` / `predicate` keeps its own
+ *  colour either way. */
+export function effectiveTermVariant(
+  variant: TermVariant,
+  uri?: string | null,
+): TermVariant {
+  return variant === "default" && !uri ? "free" : variant;
+}
+
+/**
+ * The browse link a chip renders, or null when it renders as plain
+ * text. The chip's single decision, exported so the rule can be tested
+ * without a DOM.
+ *
+ * Two gates, both deliberate:
+ *
+ *  - `asLink` is opt-in (see the prop). The default lives here rather
+ *    than in the component's destructuring so one place decides it and
+ *    a test can hold it.
+ *  - a `predicate` chip never links even when a caller opts in. The
+ *    filter looks in `allCharacteristics.valueUri`; a predicate URI
+ *    lives in its own column and is not there at all. Measured on
+ *    gemma2 2026-09-10: `TGEMO_00166` and `GENO_0000222` each answer
+ *    **0** datasets as a value.
+ */
+export function termChipBrowseLink(term: {
+  uri?: string | null;
+  variant?: TermVariant;
+  asLink?: boolean;
+  termLabel?: string;
+  categoryUri?: string | null;
+  categoryLabel?: string | null;
+}): ReturnType<typeof browseTermLink> {
+  if (!term.asLink) return null;
+  if (effectiveTermVariant(term.variant ?? "default", term.uri) !== "default") {
+    return null;
+  }
+  return browseTermLink({
+    uri: term.uri,
+    label: term.termLabel,
+    categoryUri: term.categoryUri,
+    categoryLabel: term.categoryLabel,
+  });
+}
+
 export function OntologyTermChip({
   children,
   uri,
   variant = "default",
-  asLink = true,
+  asLink,
   className,
   labelTitle,
   termLabel,
@@ -41,6 +87,16 @@ export function OntologyTermChip({
   children: ReactNode;
   uri?: string | null;
   variant?: TermVariant;
+  /** Opt in to the browse link. Off by default: the link filters
+   *  `allCharacteristics.valueUri`, the column holding a
+   *  characteristic's value and a statement's SUBJECT, so it is only
+   *  truthful for a chip that IS an annotation's own term. Measured on
+   *  gemma2 2026-09-10 against GSE11630 (eid 1658), whose design page
+   *  renders all four roles: filtering on that dataset's own factor
+   *  CATEGORY (`EFO_0000727`), statement PREDICATE (`TGEMO_00166`) or
+   *  statement OBJECT (`EFO_0004425`) returns **0** datasets — a list
+   *  that excludes the very dataset the chip was clicked on — while
+   *  its statement SUBJECT (`CHEBI_24757`) returns it. */
   asLink?: boolean;
   className?: string;
   /** Full label text, shown as the hover tooltip on the (possibly
@@ -56,7 +112,7 @@ export function OntologyTermChip({
   categoryUri?: string | null;
   categoryLabel?: string | null;
 }) {
-  const effective: TermVariant = variant === "default" && !uri ? "free" : variant;
+  const effective = effectiveTermVariant(variant, uri);
   const variantCls =
     effective === "free"
       ? "bg-stone-50 text-stone-600 border-stone-200 italic"
@@ -85,13 +141,15 @@ export function OntologyTermChip({
     </>
   );
 
-  const browse = browseTermLink({
+  const browse = termChipBrowseLink({
     uri,
-    label: termLabel,
+    variant,
+    asLink,
+    termLabel,
     categoryUri,
     categoryLabel,
   });
-  if (asLink && browse && effective !== "free") {
+  if (browse) {
     return (
       // Same tab on purpose: this is navigation within Gemma, and a new
       // tab per term chip would litter the reader's window.
