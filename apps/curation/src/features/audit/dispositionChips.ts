@@ -364,6 +364,18 @@ export const TAG_MATCH_DISMISS_CHIPS: DialogChip[] = [
   { key: "category_mismatch",           added: "2026-06-14T23:07:40Z", label: "Different category",                help: "agent and the gold tag name different things" },
   { key: "not_sample_applicable",       added: "2026-06-14T23:07:40Z", label: "Doesn't apply to all samples",      help: "tag is partial — applies only to a subset of profiled samples" },
   { key: "synonym_only",                added: "2026-06-14T23:07:40Z", label: "Synonym, not same",                 help: "labels are close but not semantically equivalent" },
+  // 🛑 The other side of the four below, and it was missing here while
+  // existing on both factor sets: they can all say the AGENT's version
+  // wins, and nothing said the CURRENT one is fine. `keep_agent_equivalent`
+  // even names the distinction ("distinct from keeping the current one")
+  // and then offers only the half that adopts.
+  //
+  // A dismissal without it is indistinguishable from a real
+  // disagreement, so calibration counts "we landed somewhere different
+  // and it does not matter" as the agent being wrong. Same key, label
+  // and meaning as `FACTOR_MATCH_DISMISS_CHIPS` — adopted rather than
+  // reworded, so one term does not mean two things across dialogs.
+  { key: "agent_close_enough",          added: "2026-09-10T21:37:49Z", label: "TMTOWTDI",                          help: "There's More Than One Way To Do It — agent's tag was reasonable, but I'm keeping the current one. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call." },
   // Same agent-wins family as the factor set above — see the note
   // there on why these live on a "dismiss" dialog and why that is the
   // thing being fixed rather than the vocabulary.

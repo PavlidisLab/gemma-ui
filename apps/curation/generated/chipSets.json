@@ -545,6 +545,12 @@
         "added": "2026-06-14T23:07:40Z"
       },
       {
+        "key": "agent_close_enough",
+        "label": "TMTOWTDI",
+        "help": "There's More Than One Way To Do It — agent's tag was reasonable, but I'm keeping the current one. Not a real disagreement; signals to calibration analytics that this was a legitimate-either-way call.",
+        "added": "2026-09-10T21:37:49Z"
+      },
+      {
         "key": "keep_agent_better_category",
         "label": "Agent's is better — category",
         "help": "adopting the agent's version: it files this under the right EFC",
