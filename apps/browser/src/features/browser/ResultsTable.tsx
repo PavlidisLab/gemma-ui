@@ -96,7 +96,14 @@ export function ResultsTable(props: Props) {
           table carries the other half of the signal. */}
       <table
         aria-busy={loading && datasets.length > 0}
-        className={`w-full text-sm table-fixed transition-opacity ${
+        // ``min-w`` so the fixed columns keep their widths and the wrapper's
+        // ``overflow-auto`` scrolls, instead of ``w-full`` squeezing them
+        // into a narrower viewport: the five fixed columns total 396px, and
+        // under that they overprint — SAMPLES lands on top of TITLE and
+        // UPDATED falls off the edge. 38rem leaves the fluid title column
+        // ~212px. No effect at or above that width, so the desktop table is
+        // unchanged.
+        className={`w-full min-w-[38rem] text-sm table-fixed transition-opacity ${
           loading && datasets.length > 0 ? "opacity-50" : ""
         }`}
       >
