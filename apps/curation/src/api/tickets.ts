@@ -956,6 +956,18 @@ export interface TicketSearchHit {
   type: TicketType;
   target_count?: number | null;
   updated_at?: string | null;
+  /** This ticket's own priority. Added to both ticket routes in
+   *  `d43d5f03b5fb`; before that a summary row carried none and
+   *  `ticketTone` read an absent field. */
+  priority?: TicketPriority | null;
+  /** THE QUERIED DATASET's status on this ticket — never an aggregate
+   *  over the ticket's other targets. Only `POST /datasets/tickets`
+   *  answers it, because only that route joins a target; a row from
+   *  `/tickets/search` has no single dataset to be about, which is why
+   *  this is optional rather than required.
+   *
+   *  Absent in local mode, where the store serves no such route. */
+  target_status?: TicketTargetStatus | null;
 }
 
 /** Find a ticket by number or title (gembro `96605f3cee3f`, live).

@@ -577,6 +577,69 @@ function mkSummaryTicket(id: number, datasetId: number): Ticket {
   } as unknown as Ticket;
 }
 
+/** The same row once the bulk route carries the queried dataset's own
+ *  status — `TicketSummaryForTargetValueObject`, live `d43d5f03b5fb`. */
+function mkSummaryTicketWithStatus(
+  id: number,
+  datasetId: number,
+  status: "NOT_DONE" | "UNDERWAY" | "DONE",
+): Ticket {
+  return {
+    id,
+    title: "Reference 500 — ongoing curation review",
+    state: "OPEN",
+    type: "CURATION",
+    targets: [
+      { target_type: "EXPRESSION_EXPERIMENT", target_id: datasetId, status },
+    ],
+  } as unknown as Ticket;
+}
+
+describe("deriveNextTask — the queried dataset's own target status", () => {
+  // Measured on gemma2 the day the field shipped: dataset 8303 answers
+  // DONE on ticket 6 and NOT_DONE on ticket 38 in one response. Before
+  // the status was on the wire both rows read as outstanding, so the
+  // finished one drew a chip claiming work already done.
+  it("draws no chip when this dataset's target is DONE", () => {
+    const task = deriveNextTask(8303, undefined, [
+      mkSummaryTicketWithStatus(6, 8303, "DONE"),
+    ]);
+    expect(task).toBeNull();
+  });
+
+  it("still draws one when the target is NOT_DONE", () => {
+    const task = deriveNextTask(8303, undefined, [
+      mkSummaryTicketWithStatus(38, 8303, "NOT_DONE"),
+    ]);
+    expect(task).not.toBeNull();
+    expect(task!.source).toBe("ticket");
+  });
+
+  it("UNDERWAY is outstanding — only DONE closes the guard", () => {
+    const task = deriveNextTask(8303, undefined, [
+      mkSummaryTicketWithStatus(38, 8303, "UNDERWAY"),
+    ]);
+    expect(task).not.toBeNull();
+  });
+
+  it("the DONE ticket is skipped and an outstanding sibling still wins", () => {
+    const task = deriveNextTask(8303, undefined, [
+      mkSummaryTicketWithStatus(6, 8303, "DONE"),
+      mkSummaryTicketWithStatus(38, 8303, "NOT_DONE"),
+    ]);
+    expect(task).not.toBeNull();
+    expect(task!.source).toBe("ticket");
+  });
+
+  // Local mode serves no bulk route, so the field is absent there. It
+  // must keep reading as outstanding rather than being guessed DONE,
+  // which would hide real work.
+  it("an absent status still reads as outstanding", () => {
+    const task = deriveNextTask(4242, undefined, [mkSummaryTicket(6, 4242)]);
+    expect(task).not.toBeNull();
+  });
+});
+
 describe("deriveNextTask — a summary ticket has no priority", () => {
   it("does not throw when priority is absent", () => {
     expect(() =>

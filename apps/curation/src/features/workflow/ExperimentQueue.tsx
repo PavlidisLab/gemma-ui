@@ -1187,21 +1187,20 @@ export function ExperimentQueue({
                 // DONE) that re-badged every finished row with work it
                 // had already done.
                 //
-                // 🛑 That guard is still open for every OTHER ticket,
-                // and nothing here can close it: `POST /datasets/tickets`
-                // answers `TicketSearchHitValueObject` — id, title,
-                // state, type, targetCount, updatedAt — so there is no
-                // per-target status to carry, and `undefined !== "DONE"`
-                // reads as outstanding. On the GLOBAL queue (`ticket`
-                // undefined, so the filter above excludes nothing) a row
-                // whose target on some other open ticket is already DONE
-                // still draws a next-task chip. Do not paper it over
-                // with a guessed status — a "DONE" nobody measured is a
-                // claim about a curator's work. Closing it needs either
-                // the status on the wire (the DAO already joins
-                // `t.targets`, so it is one appended column) or a route
-                // for the glyph that is separate from the one
-                // `deriveNextTask` reads.
+                // The status now arrives on the wire, so the guard is
+                // closed for every ticket rather than only this one:
+                // `POST /datasets/tickets` answers
+                // `TicketSummaryForTargetValueObject`, which carries
+                // `targetStatus` for THE QUERIED DATASET (gembro
+                // `d43d5f03b5fb`). Measured on gemma2 the day it
+                // shipped: dataset 8303 is DONE on ticket 6 and
+                // NOT_DONE on ticket 38, which is exactly the row that
+                // used to draw a chip for work already finished.
+                //
+                // 🛑 Still never GUESS it. Local mode serves no such
+                // route, so the field is absent there and the row keeps
+                // reading as outstanding — a "DONE" nobody measured is
+                // a claim about a curator's work.
                 .filter((t: TicketSearchHit) => t.id !== ticket?.id)
                 .map(
                 (t: TicketSearchHit) =>
@@ -1213,7 +1212,18 @@ export function ExperimentQueue({
                     // the one target it needs is synthesised here rather
                     // than fetched.
                     targets: [
-                      { target_type: "EXPRESSION_EXPERIMENT", target_id: d.id },
+                      {
+                        target_type: "EXPRESSION_EXPERIMENT",
+                        target_id: d.id,
+                        // Omitted rather than defaulted when the wire
+                        // does not carry it: `deriveNextTask` selects on
+                        // `!== "DONE"`, so an invented "NOT_DONE" would
+                        // read identically while a wrong "DONE" would
+                        // hide real work.
+                        ...(t.target_status
+                          ? { status: t.target_status }
+                          : {}),
+                      },
                     ],
                   }) as unknown as Ticket,
               ),
