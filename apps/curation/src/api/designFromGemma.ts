@@ -192,10 +192,24 @@ function foldCharacteristics(chars: WireCharacteristic[]): {
   for (const c of chars) {
     const cat = (c.category ?? "").trim();
     const val = (c.value ?? "").trim();
-    if (!cat || !val) continue;
-    characteristics[cat] = characteristics[cat]
-      ? `${characteristics[cat]}; ${val}`
-      : val;
+    if (!cat) continue;
+    // 🛑 A characteristic recorded with NO value is kept, as the empty
+    // string, rather than dropped. `VALUE` became NULL where it used to
+    // be `''` (8,141 rows, 2026-09-10), and dropping the key made a
+    // field the submitter did record indistinguishable from one they
+    // never mentioned — on GSE20881 that is 3,942 of 11,363, and where
+    // no sample carries a value the whole column vanished. A blank is
+    // missing data, not an absence of the question.
+    //
+    // Registered without overwriting: a sibling that DOES carry a value
+    // wins, and the join below only ever appends real values.
+    if (!val) {
+      if (!(cat in characteristics)) characteristics[cat] = "";
+    } else {
+      characteristics[cat] = characteristics[cat]
+        ? `${characteristics[cat]}; ${val}`
+        : val;
+    }
     if (!(cat in characteristic_uris)) {
       characteristic_uris[cat] = {
         category_uri: c.category_uri ?? null,

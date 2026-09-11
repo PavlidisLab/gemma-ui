@@ -291,7 +291,15 @@ describe("the shapes that are not GSE324761", () => {
     expect(rows[0].characteristics.treatment).toBe("drug A; drug B");
   });
 
-  it("skips a characteristic with no category or no value", () => {
+  // 🛑 This used to assert that a characteristic with no category OR no
+  // value was skipped, which conflated two different things. A row with
+  // no CATEGORY has nothing to file under and is still dropped. A row
+  // with a category and no VALUE is a field the submitter recorded and
+  // left empty — dropping it made that indistinguishable from a field
+  // they never mentioned, and where no sample in a cohort carried a
+  // value the column vanished (GSE20881: 3,942 of 11,363). It is kept
+  // as the empty string and rendered as "missing".
+  it("skips a characteristic with no CATEGORY — nothing to file it under", () => {
     const rows = toSampleBiomaterials([
       {
         id: 1,
@@ -302,13 +310,36 @@ describe("the shapes that are not GSE324761", () => {
           name: "BM",
           characteristics: [
             { category: "", value: "orphan" },
-            { category: "sex", value: "  " },
             { category: "organism part", value: "liver" },
           ],
         },
       },
     ]);
     expect(rows[0].characteristics).toEqual({ "organism part": "liver" });
+  });
+
+  it("KEEPS a characteristic with a category and no value", () => {
+    const rows = toSampleBiomaterials([
+      {
+        id: 1,
+        name: "a",
+        accession: null,
+        sample: {
+          id: 9,
+          name: "BM",
+          characteristics: [
+            { category: "sex", value: "  " },
+            { category: "organism part", value: "liver" },
+          ],
+        },
+      },
+    ]);
+    expect(rows[0].characteristics).toEqual({
+      sex: "",
+      "organism part": "liver",
+    });
+    // Present-with-no-value, not absent — that is the whole distinction.
+    expect("sex" in rows[0].characteristics).toBe(true);
   });
 
   it("ignores an assay with no biomaterial", () => {

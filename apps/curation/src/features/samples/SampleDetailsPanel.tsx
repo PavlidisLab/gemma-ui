@@ -1986,7 +1986,9 @@ function SampleTable({
                               ? `${agg.distinct.length} distinct values across ${groupSize} cell-type buckets:\n${agg.distinct.join("\n")}`
                               : isOntology
                                 ? `ontology term — ${agg.valueUri}`
-                                : agg.display || undefined
+                                : agg.isMissing
+                                  ? `"${k}" is recorded for these samples with no value — missing data in the source, not a gap in this table`
+                                  : agg.display || undefined
                           }
                         >
                           {agg.isMixed ? (
@@ -2007,7 +2009,13 @@ function SampleTable({
                             >
                               <InlineText
                                 value={agg.display}
-                                placeholder="—"
+                                // A recorded characteristic with no
+                                // value says so. A bare dash reads as a
+                                // rendering gap; "missing" says the
+                                // source recorded the field and left it
+                                // empty, which is the honest statement
+                                // and is not a defect to chase.
+                                placeholder={agg.isMissing ? "missing" : "—"}
                                 dirty={isDirty}
                                 onCommit={(value) => {
                                   for (const sn of allShortNames) {
@@ -2597,6 +2605,12 @@ function aggregateCharValue(
 ): {
   display: string;
   isMixed: boolean;
+  /** The characteristic IS recorded on these samples and carries no
+   *  value — distinct from not being recorded at all. A blank is
+   *  missing data, and saying so is the difference between a curator
+   *  reading the cell as a gap in the source and reading it as a bug
+   *  in the table. */
+  isMissing: boolean;
   distinct: string[];
   /** value_uri agreed across siblings for this (key, value) — null
    *  when the characteristic has no ontology URI on any sibling, or
@@ -2607,6 +2621,10 @@ function aggregateCharValue(
 } {
   const values = siblings.map((b) => (b.characteristics?.[k] ?? "").trim());
   const distinct = [...new Set(values.filter(Boolean))].sort();
+  // Recorded by at least one sibling, valued by none.
+  const isMissing =
+    distinct.length === 0 &&
+    siblings.some((b) => !!b.characteristics && k in b.characteristics);
   if (distinct.length <= 1) {
     const display = distinct[0] ?? "";
     // Pull the URI off any sibling that has it on this key (they
@@ -2620,13 +2638,13 @@ function aggregateCharValue(
       if (!categoryUri && u.category_uri) categoryUri = u.category_uri;
       if (valueUri && categoryUri) break;
     }
-    return { display, isMixed: false, distinct, valueUri, categoryUri };
+    return { display, isMixed: false, isMissing, distinct, valueUri, categoryUri };
   }
   const display =
     distinct.length <= 2
       ? distinct.join(", ")
       : `${distinct.slice(0, 2).join(", ")} (+${distinct.length - 2} more)`;
-  return { display, isMixed: true, distinct, valueUri: null, categoryUri: null };
+  return { display, isMixed: true, isMissing: false, distinct, valueUri: null, categoryUri: null };
 }
 
 /**
