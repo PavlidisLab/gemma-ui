@@ -41,6 +41,7 @@ vi.mock("@/api/curationCommit", async () => {
     ...actual,
     preflightCuration: vi.fn(),
     commitCuration: vi.fn(),
+    signCuration: vi.fn(),
   };
 });
 vi.mock("@/lib/gemmaMode", async () => {
@@ -67,7 +68,12 @@ vi.mock("@/features/proposal/paperDismissal", () => ({
 
 import { useDesign, useUpdateDesign, useUpdatePolished } from "@/api/design";
 import { sendCurationEditLog } from "@/api/designEdits";
-import { commitCuration, preflightCuration } from "@/api/curationCommit";
+import {
+  commitCuration,
+  preflightCuration,
+  signCuration,
+} from "@/api/curationCommit";
+import { ApiError } from "@/api/client";
 import { resolveGemmaMode, useGemmaMode } from "@/lib/gemmaMode";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
@@ -78,6 +84,7 @@ const useUpdateDesignMock = useUpdateDesign as ReturnType<typeof vi.fn>;
 const useUpdatePolishedMock = useUpdatePolished as ReturnType<typeof vi.fn>;
 const preflightMock = preflightCuration as ReturnType<typeof vi.fn>;
 const commitMock = commitCuration as ReturnType<typeof vi.fn>;
+const signMock = signCuration as ReturnType<typeof vi.fn>;
 const sendLogMock = sendCurationEditLog as ReturnType<typeof vi.fn>;
 
 const EID = "1658";
@@ -115,7 +122,7 @@ function makeDesign(): Design {
 }
 
 function Probe() {
-  const { draft, apply, commit } = useDesignDraft();
+  const { draft, apply, commit, signOff, signOffReport } = useDesignDraft();
   return (
     <div>
       <span data-testid="ready">{draft ? "y" : "n"}</span>
@@ -151,6 +158,10 @@ function Probe() {
         commit
       </button>
       <span data-testid="result" />
+      <span data-testid="sign-report">{signOffReport ? "y" : "n"}</span>
+      <button data-testid="sign" onClick={() => signOff()}>
+        sign
+      </button>
     </div>
   );
 }
@@ -217,6 +228,7 @@ beforeEach(() => {
   // nothing and Gemma's stale-baseline 409 had nothing to check.
   preflightMock.mockResolvedValue({ new_baseline: "2026-09-01T21:00:00Z" });
   commitMock.mockResolvedValue({ applied: true });
+  signMock.mockResolvedValue({ applied: true });
   sendLogMock.mockResolvedValue(undefined);
   try {
     window.localStorage?.clear();
@@ -288,5 +300,69 @@ describe("local mode is untouched", () => {
     await waitFor(() => expect(putMutate).toHaveBeenCalled());
     expect(preflightMock).not.toHaveBeenCalled();
     expect(commitMock).not.toHaveBeenCalled();
+  });
+});
+
+/** The relay's 409, as `readErrorBody` hands it on. */
+function relayRefusal(reason: string, upstream: string): ApiError {
+  return new ApiError(
+    `POST /curation-commit/${EID} failed: 409 Conflict`,
+    409,
+    "Conflict",
+    "flattened",
+    { detail: { error: "curation commit conflict", reason, retryableAfterReread: false, upstream } },
+  );
+}
+
+describe("a commit refused as REQUIRES_FORCE is signed off, never forced", () => {
+  beforeEach(() => {
+    preflightMock.mockResolvedValue({
+      new_baseline: "2026-09-01T21:00:00Z",
+      design_report: {
+        requires_force: true,
+        differential_expression_analyses_to_delete: [{ id: 9, name: "treatment DEA" }],
+      },
+    });
+  });
+
+  it("keeps the refused commit's preflight report for review", async () => {
+    commitMock.mockRejectedValueOnce(
+      relayRefusal("REQUIRES_FORCE", "would delete 1 analysis"),
+    );
+    await renderAndCommit("remote");
+    await waitFor(() =>
+      expect(screen.getByTestId("sign-report").textContent).toBe("y"),
+    );
+    expect(signMock).not.toHaveBeenCalled();
+  });
+
+  it("🛑 signs the very document that was refused, as the curator", async () => {
+    commitMock.mockRejectedValueOnce(
+      relayRefusal("REQUIRES_FORCE", "would delete 1 analysis"),
+    );
+    await renderAndCommit("remote");
+    await waitFor(() =>
+      expect(screen.getByTestId("sign-report").textContent).toBe("y"),
+    );
+    fireEvent.click(screen.getByTestId("sign"));
+    await waitFor(() => expect(signMock).toHaveBeenCalledTimes(1));
+    const [eid, doc, onBehalfOf] = signMock.mock.calls[0];
+    expect(eid).toBe(EID);
+    expect(doc).toEqual(commitMock.mock.calls[0][1]);
+    expect(onBehalfOf).toBe("paul");
+    await waitFor(() =>
+      expect(screen.getByTestId("sign-report").textContent).toBe("n"),
+    );
+  });
+
+  it("offers nothing to sign for any other refusal", async () => {
+    commitMock.mockRejectedValueOnce(relayRefusal("LOCK_REQUIRED", "held by alice"));
+    await renderAndCommit("remote");
+    await waitFor(() =>
+      expect(screen.getByTestId("result").textContent).toMatch(/^err:/),
+    );
+    expect(screen.getByTestId("sign-report").textContent).toBe("n");
+    fireEvent.click(screen.getByTestId("sign"));
+    expect(signMock).not.toHaveBeenCalled();
   });
 });

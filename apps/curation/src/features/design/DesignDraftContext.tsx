@@ -14,6 +14,9 @@ import {
   buildCurationDocument,
   commitCuration,
   preflightCuration,
+  signCuration,
+  type CommitReport,
+  type CurationDocument,
 } from "@/api/curationCommit";
 import { removalsFromDiff } from "./removals";
 import { useGemmaMode } from "@/lib/gemmaMode";
@@ -140,6 +143,13 @@ export interface DesignDraftValue {
    *  should DO about it. Null on any 409 without a structured reason,
    *  which is every server today. */
   saveConflict: CommitConflict | null;
+  /** Sign off the last commit Gemma refused as `REQUIRES_FORCE`. A
+   *  no-op unless `signOffReport` is set. */
+  signOff: () => void;
+  /** The preflight report of that refused commit — what signing would
+   *  delete. Null when there is nothing to sign, or when the draft has
+   *  changed since the refusal. */
+  signOffReport: CommitReport | null;
   isLoading: boolean;
   loadError: string | null;
   /** True when a localStorage-cached draft was discarded on mount
@@ -663,6 +673,33 @@ export function DesignDraftProvider({
   const invalidateAfterCommit = useInvalidateAfterDesignCommit(experimentId);
   const [remoteCommitting, setRemoteCommitting] = useState(false);
   const [remoteCommitError, setRemoteCommitError] = useState<Error | null>(null);
+  // A commit Gemma refused as REQUIRES_FORCE, kept so it can be signed off
+  // exactly as refused: the same document, against the same draft.
+  const [refusedForSignOff, setRefusedForSignOff] = useState<{
+    draft: Design;
+    doc: CurationDocument;
+    report: CommitReport;
+  } | null>(null);
+
+  // What a landed write does to local state, whichever route wrote it.
+  const checkpointAfterWrite = useCallback(
+    (server: Design) => {
+      setDraft(server);
+      // From here on the checkpoint is what we just wrote, not the
+      // baseline we seeded from. Without this the diff is computed
+      // against a row commit() never writes, so a successful commit
+      // leaves the bar dirty and the curator re-commits forever.
+      setCommittedHere(true);
+      clearCachedDraft(experimentId);
+      setUndoStack([]);
+      setRedoStack([]);
+      // Apply-All undo snapshots are pre-commit drafts — replaying one
+      // now would rewind past the design we just committed. Same
+      // invalidation reason as the undo/redo stacks above.
+      clearAppliedBatches(experimentId);
+    },
+    [experimentId],
+  );
 
   const commit = useCallback((onSettled?: (result: CommitResult) => void) => {
     if (!draft) {
@@ -682,19 +719,7 @@ export function DesignDraftProvider({
     // and the durable /polished mirror have landed. Every prior
     // intermediate state is uninteresting after a full commit.
     const finalizeCheckpoint = (server: Design) => {
-      setDraft(server);
-      // From here on the checkpoint is what we just wrote, not the
-      // baseline we seeded from. Without this the diff is computed
-      // against a row commit() never writes, so a successful commit
-      // leaves the bar dirty and the curator re-commits forever.
-      setCommittedHere(true);
-      clearCachedDraft(experimentId);
-      setUndoStack([]);
-      setRedoStack([]);
-      // Apply-All undo snapshots are pre-commit drafts — replaying one
-      // now would rewind past the design we just committed. Same
-      // invalidation reason as the undo/redo stacks above.
-      clearAppliedBatches(experimentId);
+      checkpointAfterWrite(server);
       onSettled?.({ ok: true });
     };
     // What this commit CHANGED, captured before anything moves —
@@ -730,7 +755,10 @@ export function DesignDraftProvider({
       const removals = saved ? removalsFromDiff(diff, saved) : undefined;
       setRemoteCommitting(true);
       setRemoteCommitError(null);
+      setRefusedForSignOff(null);
       void (async () => {
+        let report: CommitReport | undefined;
+        let doc: CurationDocument | undefined;
         try {
           // 🛑 The baseline is not optional here. A tag is add/delete
           // only on Gemma's side, so whether a tag's content changed —
@@ -752,14 +780,14 @@ export function DesignDraftProvider({
           // pure. See `api/canonicalLabels.ts` for why clause terms are
           // ours to repair and a curator's labels are not.
           const canon = await canonicaliseClauses(built);
-          const report = await preflightCuration(experimentId, canon, reviewer);
+          report = await preflightCuration(experimentId, canon, reviewer);
           // 🐍 `new_baseline`, not `newBaseline`: every response passes
           // through `snakeify` in `api/client.ts`. Read camel, this was
           // always `undefined` and the commit went out with no baseline
           // stamp at all — Gemma's stale-baseline 409 had nothing to
           // compare against.
           const baselineLastModified = report.new_baseline ?? undefined;
-          const doc = await canonicaliseClauses(
+          doc = await canonicaliseClauses(
             buildCurationDocument(
               draft,
               {
@@ -803,6 +831,9 @@ export function DesignDraftProvider({
           // rather than listed twice.
           invalidateAfterCommit();
         } catch (err) {
+          if (doc && report && commitConflictOf(err)?.reason === "REQUIRES_FORCE") {
+            setRefusedForSignOff({ draft, doc, report });
+          }
           setRemoteCommitError(err as Error);
           onSettled?.({ ok: false, error: (err as Error).message });
         } finally {
@@ -849,9 +880,36 @@ export function DesignDraftProvider({
         onSettled?.({ ok: false, error: (err as Error).message });
       },
     });
-  }, [draft, saved, diff, editBase, updater, polisher, reviewer, experimentId, remoteMode, invalidateAfterCommit]);
+  }, [draft, saved, diff, editBase, updater, polisher, reviewer, experimentId, remoteMode, invalidateAfterCommit, checkpointAfterWrite]);
+
+  /** Sign off the commit Gemma refused as REQUIRES_FORCE. Sends the
+   *  refused document rather than no body: a bodiless sign takes the
+   *  server-side DRAFT, which is whatever the last autosave held, not
+   *  necessarily what the curator was shown. */
+  const signOff = useCallback(() => {
+    const refused = refusedForSignOff;
+    if (!refused || refused.draft !== draft) return;
+    setRemoteCommitting(true);
+    setRemoteCommitError(null);
+    void (async () => {
+      try {
+        await signCuration(experimentId, refused.doc, reviewer);
+        setRefusedForSignOff(null);
+        // Lands like a commit: Gemma may have rewritten what it took in,
+        // so the next /design read is adopted rather than diffed.
+        adoptNextServerDesignRef.current = true;
+        checkpointAfterWrite(refused.draft);
+        invalidateAfterCommit();
+      } catch (err) {
+        setRemoteCommitError(err as Error);
+      } finally {
+        setRemoteCommitting(false);
+      }
+    })();
+  }, [refusedForSignOff, draft, experimentId, reviewer, checkpointAfterWrite, invalidateAfterCommit]);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
+    setRefusedForSignOff(null);
     setUndoStack([]);
     setRedoStack([]);
     // The Apply-All mutations these snapshots would revert are already
@@ -954,6 +1012,11 @@ export function DesignDraftProvider({
       : polisher.isError
         ? "durable save to the export store failed — retry commit so " +
           "your accepted changes reach the ticket export."
+        : null,
+    signOff,
+    signOffReport:
+      refusedForSignOff && refusedForSignOff.draft === draft
+        ? refusedForSignOff.report
         : null,
     isLoading,
     loadError: seedMismatchError ?? (error ? (error as Error).message : null),

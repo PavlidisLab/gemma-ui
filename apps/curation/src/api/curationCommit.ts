@@ -170,7 +170,29 @@ export interface CommitReport {
   new_baseline?: string | null;
   /** The undo: the annotation set captured before this commit. */
   snapshot_annotation_set_id?: number | null;
+  /** What the design section would do — Gemma's `DesignPreflightReport`.
+   *  Null when the document carried no design section. */
+  design_report?: DesignPreflightReport | null;
 }
+
+/** The part of Gemma's `DesignPreflightReport` a sign-off is decided on:
+ *  the analyses a commit would delete and the subsets it would leave
+ *  anchored on deleted factor values. Declared only as far as the UI
+ *  reads it. */
+export interface DesignPreflightReport {
+  requires_force?: boolean;
+  differential_expression_analyses_to_delete?: Array<{
+    id: number;
+    name?: string | null;
+    subset_factor_value_id?: number | null;
+  }>;
+  subsets_with_stale_anchor?: Array<{
+    id: number;
+    name?: string | null;
+    lost_factor_value_ids?: number[];
+  }>;
+}
+
 
 function qs(params: Record<string, string | boolean | undefined>): string {
   const p = new URLSearchParams();
@@ -266,6 +288,9 @@ export function commitCuration(
 
 /**
  * Sign off on a commit whose consequences the curator has accepted.
+ *
+ * Pass the refused document as `body`. With no body Gemma signs the
+ * caller's server-side DRAFT annotation set instead.
  *
  * ⚠️ A successful sign RELEASES the curation lock. Anything showing
  * lock state must re-read rather than assume it still holds — the

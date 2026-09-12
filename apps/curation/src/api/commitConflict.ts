@@ -85,7 +85,12 @@ function isReason(v: unknown): v is CommitConflictReason {
  */
 function findConflictFields(
   body: unknown,
-): { reason?: unknown; retryableAfterReread?: unknown; message?: unknown } | null {
+): {
+  reason?: unknown;
+  retryableAfterReread?: unknown;
+  message?: unknown;
+  upstream?: unknown;
+} | null {
   if (!body || typeof body !== "object") return null;
   const o = body as Record<string, unknown>;
 
@@ -133,10 +138,16 @@ export function commitConflictOf(err: unknown): CommitConflict | null {
     ? fields.reason
     : "UNSPECIFIED";
   const spec = REASONS[reason];
+  // The relay carries Gemma's own sentence as `upstream`. Unread, the
+  // banner fell back to `detail`, which is the relay's whole object
+  // stringified — GSE391's REQUIRES_FORCE refusal reached the curator as
+  // raw JSON.
   const message =
     typeof fields.message === "string" && fields.message.trim()
       ? fields.message.trim()
-      : err.detail;
+      : typeof fields.upstream === "string" && fields.upstream.trim()
+        ? fields.upstream.trim()
+        : err.detail;
   return {
     reason,
     message,

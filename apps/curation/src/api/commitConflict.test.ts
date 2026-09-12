@@ -108,3 +108,23 @@ describe("commitConflictOf", () => {
     expect(commitConflictOf(null)).toBeNull();
   });
 });
+
+describe("commitConflictOf — the relay's upstream sentence", () => {
+  it("shows Gemma's sentence from `upstream`, not the relay's JSON", () => {
+    const upstream =
+      "This design change would delete 1 differential-expression analysis/analyses; " +
+      "sign it off (POST /datasets/{id}/curation/sign, holding the curation lock).";
+    const c = commitConflictOf(
+      conflict({
+        detail: {
+          error: "curation commit conflict",
+          reason: "REQUIRES_FORCE",
+          retryableAfterReread: false,
+          upstream,
+        },
+      }),
+    );
+    expect(c?.reason).toBe("REQUIRES_FORCE");
+    expect(c?.message).toBe(upstream);
+  });
+});

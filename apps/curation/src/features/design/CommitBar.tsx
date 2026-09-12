@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { useGemmaMode } from "@/lib/gemmaMode";
+import type { CommitReport } from "@/api/curationCommit";
 import type { CommitConflict } from "@/api/commitConflict";
 import type { DesignDiff } from "./diff";
 import type { Design, DesignValidationState } from "@/features/experiment/types";
@@ -38,6 +40,8 @@ export function CommitBar({
   lockedBy,
   onTakeOver,
   takingOver,
+  onSignOff,
+  signOffReport,
 }: {
   diff: DesignDiff;
   saving: boolean;
@@ -59,6 +63,10 @@ export function CommitBar({
   lockedBy?: string | null;
   onTakeOver?: () => void;
   takingOver?: boolean;
+  /** Sign off a commit refused as `REQUIRES_FORCE`. Offered only with
+   *  `signOffReport`, which says what signing deletes. */
+  onSignOff?: () => void;
+  signOffReport?: CommitReport | null;
 }) {
   // Per-factor override state. Map of factor_id → ``{checked, reason}``.
   // Only relevant when a factor has a baseline-count problem; commit is
@@ -77,6 +85,8 @@ export function CommitBar({
   // Editing stays free, exactly as under someone else's lease: the
   // draft is local and has to remain workable. Only the WRITE is gated.
   const remoteMode = useGemmaMode().mode === "remote";
+  // Before the early return: hook order has to be the same on every render.
+  const [confirmingSignOff, setConfirmingSignOff] = useState(false);
   if (!diff.isDirty) return null;
 
   // Only factors whose missing baseline should *block commit* are
@@ -359,6 +369,63 @@ export function CommitBar({
                 {saveConflict.nextMove}
               </div>
             ) : null}
+            {saveConflict.reason === "REQUIRES_FORCE" && onSignOff && signOffReport
+              ? (() => {
+                  const dr = signOffReport.design_report ?? null;
+                  const analyses = dr?.differential_expression_analyses_to_delete ?? [];
+                  const stranded = dr?.subsets_with_stale_anchor ?? [];
+                  const n = analyses.length;
+                  return (
+                    <div className="mt-1 space-y-1 text-slate-700 dark:text-slate-300">
+                      {n > 0 ? (
+                        <div>
+                          <span className="font-semibold">Deletes:</span>{" "}
+                          {analyses.map((a) => a.name || `analysis ${a.id}`).join("; ")}
+                        </div>
+                      ) : null}
+                      {stranded.length > 0 ? (
+                        <div>
+                          <span className="font-semibold">Leaves unanchored:</span>{" "}
+                          {stranded.map((s) => s.name || `subset ${s.id}`).join("; ")}
+                        </div>
+                      ) : null}
+                      {confirmingSignOff ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="text-[11px] px-2 py-0.5 rounded bg-rose-700 text-white hover:bg-rose-800 disabled:opacity-50"
+                            onClick={() => {
+                              setConfirmingSignOff(false);
+                              onSignOff();
+                            }}
+                            disabled={saving}
+                          >
+                            {n > 0
+                              ? `Delete ${n} ${n === 1 ? "analysis" : "analyses"} and commit`
+                              : "Sign off and commit"}
+                          </button>
+                          <button
+                            type="button"
+                            className="text-[11px] px-2 py-0.5 rounded text-slate-600 hover:bg-slate-100"
+                            onClick={() => setConfirmingSignOff(false)}
+                          >
+                            cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="text-[11px] px-2 py-0.5 rounded border border-rose-400 text-rose-800 hover:bg-rose-50 disabled:opacity-50"
+                          onClick={() => setConfirmingSignOff(true)}
+                          disabled={saving}
+                        >
+                          Sign off…
+                        </button>
+                      )}
+                    </div>
+                  );
+                })()
+              : null}
           </div>
         ) : saveError ? (
           <div className="px-3 pb-2 text-[11px] text-rose-700">
