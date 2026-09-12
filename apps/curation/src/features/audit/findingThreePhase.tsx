@@ -336,9 +336,7 @@ function WhyPhase({
           <HelpPopup title="Why proposed" size="md">
             <div className="leading-snug">
               The proposer's rationale + supporting evidence (quotes /
-              sources) for this proposal — the reasoning that led to it. It
-              describes the proposal on its own terms and never references
-              your current curation.
+              sources) for this proposal — the reasoning that led to it.
             </div>
           </HelpPopup>
         )
@@ -512,23 +510,21 @@ export function dedupeReviews(reviews: ReviewVerdict[]): ReviewVerdict[] {
   return kept;
 }
 
-/** Small pill marking whether the voice saw the gold standard. This is
- *  the load-bearing eval distinction — the two gold-blind voices carry
- *  the real signal; the gold-seeing voice is the eval crutch. */
-function GoldVisibilityBadge({ seesGold }: { seesGold: boolean }): JSX.Element {
-  return seesGold ? (
+/** Small pill on the one voice that saw the reference standard. The
+ *  other voices carry none: an audit judge is not reference-blind, and
+ *  on a proposal it goes without saying. */
+function GoldVisibilityBadge({
+  seesGold,
+}: {
+  seesGold: boolean;
+}): JSX.Element | null {
+  if (!seesGold) return null;
+  return (
     <span
       data-testid="gold-visibility-sees-gold"
       className="rs-10 font-semibold text-amber-700 dark:text-amber-300"
     >
       sees reference · eval only
-    </span>
-  ) : (
-    <span
-      data-testid="gold-visibility-gold-blind"
-      className="rs-10 font-medium text-emerald-700 dark:text-emerald-400"
-    >
-      reference-blind
     </span>
   );
 }
@@ -790,7 +786,7 @@ export function ThreePhaseFindingBody({
     <div className="space-y-1.5">
       <GuidelineCiteRow finding={finding} />
 
-      {/* Voice 1 — the proposer (reference-blind): what it proposed + why. */}
+      {/* Voice 1 — the proposer, or on an audit the judge: what and why. */}
       <PhaseGroup
         kind="proposer"
         title={judge ? "Auditor" : "Proposer"}
@@ -803,13 +799,9 @@ export function ThreePhaseFindingBody({
               </div>
             </HelpPopup>
           ) : (
-            <HelpPopup title="Proposer — reference-blind" size="md">
+            <HelpPopup title="Proposer" size="md">
               <div className="leading-snug">
-                What the agent proposed and its own reasoning for it. The
-                proposer never sees your current curation or any reference
-                standard — its rationale and any confidence read
-                ("strongly supported" / "borderline") describe the
-                proposal on its own terms.
+                What the agent proposed and its own reasoning for it.
               </div>
             </HelpPopup>
           )
@@ -826,17 +818,16 @@ export function ThreePhaseFindingBody({
         ) : null}
       </PhaseGroup>
 
-      {/* Voice 2 — the internal critic (reference-blind boss review). */}
+      {/* Voice 2 — the internal critic (boss review). */}
       <PhaseGroup
         kind="critic"
         title="Internal critic"
         help={
-          <HelpPopup title="Internal critic — reference-blind" size="md">
+          <HelpPopup title="Internal critic" size="md">
             <div className="leading-snug">
-              The boss-critic's holistic review of the proposal. It is a
-              correctness reviewer that, like the proposer, never sees
-              the reference standard — see the Boss-critic review panel for
-              its experiment-wide blockers / advisories.
+              The boss-critic's holistic review of the proposal — see the
+              Boss-critic review panel for its experiment-wide blockers /
+              advisories.
             </div>
           </HelpPopup>
         }
@@ -853,13 +844,11 @@ export function ThreePhaseFindingBody({
         kind="gold"
         title="Reference comparison"
         help={
-          <HelpPopup title="Reference comparison — sees reference" size="md">
+          <HelpPopup title="Reference comparison" size="md">
             <div className="leading-snug">
-              The reference-seeing judges: the arbiter's ruling and the
-              comparison against the reference (polished consensus)
-              curation. Unlike the two voices above, these DID see the
-              reference standard — this is the eval crutch, present only
-              to score the run, not a reference-blind signal.
+              The arbiter's ruling and the comparison against the reference
+              (polished consensus) curation. These judges saw the reference
+              standard; they are here to score the run.
             </div>
           </HelpPopup>
         }

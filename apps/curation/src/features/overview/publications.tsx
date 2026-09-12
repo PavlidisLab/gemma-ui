@@ -250,7 +250,7 @@ export function ProposedAbstract({
 /** Always-visible callout surfacing the publication-provenance audit's
  *  verdict directly on the row — no dot-hunting, no clicking into the
  *  sidebar, no jargon from the tag/factor finding-card framework
- *  ("PROPOSER reference-blind" / "INTERNAL CRITIC") that doesn't apply
+ *  ("PROPOSER" / "INTERNAL CRITIC") that doesn't apply
  *  to a plain "is this the right paper" check. Renders nothing when no
  *  provenance audit has run, or when it confirmed the link (severity
  *  "ok") — a confirmed link needs no attention. Design review

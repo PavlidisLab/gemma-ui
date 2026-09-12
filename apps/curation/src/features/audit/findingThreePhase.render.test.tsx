@@ -9,10 +9,8 @@
  *   - ``ThreePhaseFindingBody`` renders exactly three labelled voice
  *     groups — Proposer, Internal critic, Gold comparison — and they are
  *     DISTINCT containers (separate ``phase-group-*`` testids).
- *   - The load-bearing gold-blind vs gold-seeing distinction is visible:
- *     the two gold-blind groups carry a "gold-blind" marker; the gold-
- *     comparison group carries a "sees gold" marker and is flagged
- *     ``data-phase-gold="sees-gold"``.
+ *   - Only the gold-comparison group carries a visible marker ("sees
+ *     reference"), and it is flagged ``data-phase-gold="sees-gold"``.
  *   - Reviewer LLMs sort into the correct voice (defender → proposer,
  *     boss → internal critic, arbiter → gold comparison).
  */
@@ -107,34 +105,20 @@ describe("ThreePhaseFindingBody — three labelled voice groups", () => {
     ).toBeInTheDocument();
   });
 
-  it("makes the gold-blind vs gold-seeing distinction unmissable", () => {
+  it("marks only the voice that sees the reference", () => {
     renderWithProviders(
       <ThreePhaseFindingBody finding={makeFinding()} report={null} />,
     );
-    // Two gold-blind voices, one gold-seeing.
-    expect(screen.getAllByTestId("gold-visibility-gold-blind")).toHaveLength(2);
-    expect(
-      screen.getByTestId("gold-visibility-sees-gold"),
-    ).toBeInTheDocument();
-
-    // The markers live in the right containers.
-    expect(
-      within(screen.getByTestId("phase-group-proposer")).getByTestId(
-        "gold-visibility-gold-blind",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId("phase-group-critic")).getByTestId(
-        "gold-visibility-gold-blind",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText("reference-blind")).toBeNull();
+    expect(screen.queryByTestId("gold-visibility-gold-blind")).toBeNull();
+    expect(screen.getAllByTestId("gold-visibility-sees-gold")).toHaveLength(1);
     expect(
       within(screen.getByTestId("phase-group-gold")).getByTestId(
         "gold-visibility-sees-gold",
       ),
     ).toBeInTheDocument();
 
-    // The container-level flag agrees.
+    // The container-level flag is unchanged.
     expect(screen.getByTestId("phase-group-proposer")).toHaveAttribute(
       "data-phase-gold",
       "gold-blind",
