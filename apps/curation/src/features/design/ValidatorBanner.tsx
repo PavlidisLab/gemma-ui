@@ -512,9 +512,9 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
   // unactionable without knowing which subject is over and by how much.
   for (const g of s.overfull_statement_groups) {
     warnings.push(
-      `"${g.subject}" carries ${g.pairs} predicate/object pairs — Gemma ` +
-        `holds ${MAX_STATEMENT_PAIRS}, so the extra would be dropped on ` +
-        `write. Split it into its own statement.`,
+      `"${g.subject}" carries ${g.pairs} predicate/object pairs on one ` +
+        `statement — Gemma holds ${MAX_STATEMENT_PAIRS} per statement and ` +
+        `refuses a third. Split it into its own statement.`,
     );
   }
   if (s.unassigned_biomaterials.length > 0)

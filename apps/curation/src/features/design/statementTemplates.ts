@@ -297,7 +297,7 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       "recording it as the strain says the experiment was about wild-type " +
       "mice. The object is a grounded strain term. " +
       "🛑 Gemma stores two predicate/object pairs per statement and " +
-      "truncates a third silently, so a subject already carrying two — a " +
+      "refuses a third on the same statement, so a subject already carrying two — a " +
       "compound genotype most often — needs its OWN statement for the " +
       "background; there is no other way to say it.",
     subjectHint: "cell line, strain or genotype",

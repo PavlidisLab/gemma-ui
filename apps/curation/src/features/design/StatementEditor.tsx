@@ -471,6 +471,21 @@ export function StatementEditor({
 // statements in the group via per-row callbacks the parent threads
 // back to the design.
 
+/** Indices of rows that are a third-or-later pair on one stored
+ *  statement. Rows without a `gemma_id` are each their own statement
+ *  and are never past the ceiling. Same rule as `validateDesign`. */
+function rowsPastStatementCeiling(statements: readonly Statement[]): Set<number> {
+  const perStatement = new Map<number, number>();
+  const past = new Set<number>();
+  statements.forEach((s, i) => {
+    if (s.gemma_id == null) return;
+    const n = (perStatement.get(s.gemma_id) ?? 0) + 1;
+    perStatement.set(s.gemma_id, n);
+    if (n > MAX_STATEMENT_PAIRS) past.add(i);
+  });
+  return past;
+}
+
 export function StatementGroupEditor({
   statements,
   factorCategory,
@@ -493,12 +508,12 @@ export function StatementGroupEditor({
   onAddSibling: () => void;
 }) {
   const head = statements[0];
-  // Full once the group holds the wire's two rows. Counted on ROWS,
-  // not on rows-with-a-pair: each row is a slot, and a freshly-added
-  // blank one is a slot already claimed. Counting only filled rows
-  // let a curator stack blanks past the ceiling and fill them in
-  // afterwards, which is the same third pair by a slower route.
-  const atPairLimit = statements.length >= MAX_STATEMENT_PAIRS;
+  // Gemma's ceiling is two pairs per STATEMENT — rows sharing a
+  // `gemma_id` — not per subject. A row with no id commits as its own
+  // statement, so a subject can carry any number of pairs; only a third
+  // row on one stored statement is refused (`STATEMENT_ID_REPEATED` at
+  // preflight). "+ pred/obj" adds id-less rows, so it is never capped.
+  const pastCeiling = rowsPastStatementCeiling(statements);
   const cat = head.category ?? null;
   const catDiffers = categoryDiffersFromFactor(cat, factorCategory);
 
@@ -577,50 +592,23 @@ export function StatementGroupEditor({
             key={i}
             statement={s}
             sharedCategory={cat?.label || factorCategory?.label || null}
-            // 🛑 Past the ceiling. The editor's "+ pred/obj" cannot
-            // build a third pair, so any group that HAS one arrived
-            // from an agent proposal or an older snapshot — and until
-            // now it rendered identically to the two legal rows, so the
-            // curator being asked to "split the extras" could not see
-            // which row was the extra. Paul, 2026-08-20: *"if that
-            // happens, the ui has to warn. Gemma only supports 2."*
-            overLimit={i >= MAX_STATEMENT_PAIRS}
+            overLimit={pastCeiling.has(i)}
             onChange={(next) => onChange(i, next)}
             onDelete={() => onDelete(i)}
           />
         ))}
-        {statements.length > MAX_STATEMENT_PAIRS ? (
+        {pastCeiling.size > 0 ? (
           <div className="text-[10px] text-amber-800 dark:text-amber-200">
-            Gemma stores {MAX_STATEMENT_PAIRS} pairs per subject — the{" "}
-            {statements.length - MAX_STATEMENT_PAIRS === 1
-              ? "marked one has"
-              : `${statements.length - MAX_STATEMENT_PAIRS} marked ones have`}{" "}
-            nowhere to land and would be dropped on write. Move{" "}
-            {statements.length - MAX_STATEMENT_PAIRS === 1 ? "it" : "them"} to a
-            separate statement with “+ statement”.
+            Gemma holds {MAX_STATEMENT_PAIRS} pairs per statement and refuses a
+            third on the same one. Move the marked{" "}
+            {pastCeiling.size === 1 ? "pair" : "pairs"} to a separate statement
+            with “+ statement”.
           </div>
         ) : null}
-        {/* Capped at ``MAX_STATEMENT_PAIRS``. Gemma holds two
-            predicate/object slots per subject and no third, so a
-            stacked pair beyond that has nowhere to land. Disabled
-            rather than hidden: a curator hunting for the affordance
-            should be told the ceiling exists, not left wondering
-            where the button went. */}
         <button
-          className={
-            "self-start text-[11px] px-1 py-0.5 rounded " +
-            (atPairLimit
-              ? "text-slate-300 cursor-not-allowed dark:text-slate-600"
-              : "text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800")
-          }
-          disabled={atPairLimit}
-          aria-disabled={atPairLimit}
-          onClick={atPairLimit ? undefined : onAddSibling}
-          title={
-            atPairLimit
-              ? `A subject carries at most ${MAX_STATEMENT_PAIRS} predicate/object pairs — Gemma has no third slot. Use a separate statement for a further claim.`
-              : "Add another predicate/object pair under this subject"
-          }
+          className="self-start text-[11px] px-1 py-0.5 rounded text-slate-500 hover:text-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800"
+          onClick={onAddSibling}
+          title="Add another predicate/object pair under this subject"
         >
           + pred/obj
         </button>
@@ -646,10 +634,9 @@ function InlinePredicateObjectPair({
   /** Category shared at the group level — threaded so the object
    *  picker's "Search ontologies" affordance has a scope. */
   sharedCategory: string | null;
-  /** This pair sits past Gemma's two-slot ceiling and has nowhere to
-   *  land on write. Marked rather than hidden — it is real curation
-   *  that someone entered, and hiding it would lose it silently, which
-   *  is the failure this marker exists to make visible. */
+  /** A third (or later) pair on one stored statement, which Gemma
+   *  refuses. Marked rather than hidden — it is real curation that
+   *  someone entered, and hiding it would lose it silently. */
   overLimit?: boolean;
   onChange: (next: Statement) => void;
   onDelete: () => void;
@@ -664,7 +651,7 @@ function InlinePredicateObjectPair({
       }
       title={
         overLimit
-          ? "No slot for this in Gemma — it holds two predicate/object pairs per subject. Move it to its own statement or it is dropped on write."
+          ? "Gemma holds two predicate/object pairs per statement and refuses a third on the same one. Move this pair to its own statement."
           : undefined
       }
     >

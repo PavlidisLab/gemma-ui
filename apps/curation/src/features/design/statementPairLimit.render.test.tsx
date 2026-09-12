@@ -1,15 +1,14 @@
 /**
  * @vitest-environment jsdom
  *
- * A subject carries at most two (predicate, object) pairs — Gemma's
- * wire model has ``predicate``/``object`` and ``secondPredicate``/
- * ``secondObject`` and no third slot.
+ * Gemma holds two (predicate, object) pairs per STATEMENT, not per
+ * subject. Rows sharing a ``gemma_id`` are one statement's pairs; a row
+ * with no id commits as its own statement, so a subject can carry any
+ * number. Only a third row on one stored statement is over the ceiling,
+ * and Gemma refuses it at preflight (``STATEMENT_ID_REPEATED``).
  *
- * The UI stores statements FLAT (one row per pair, sharing category +
- * subject) and regroups them at render time, so nothing in its own
- * shape enforced the ceiling: "+ pred/obj" stacked a third, fourth,
- * fifth pair happily. Four experiments in the store already carry
- * groups over the limit, one with six pairs on a single subject.
+ * The editor used to cap and warn per subject, which told a curator to
+ * move or delete pairs Gemma would have kept.
  */
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
@@ -27,9 +26,15 @@ const SUBJECT: OntologyTerm = {
   uri: "http://purl.obolibrary.org/obo/CHEBI_39867",
 };
 
-/** One flat row: same category + subject, its own predicate/object. */
-function pair(predicate: string | null, object: string | null): Statement {
+/** One flat row: same category + subject, its own predicate/object.
+ *  ``gemmaId`` marks it as a pair of that stored statement. */
+function pair(
+  predicate: string | null,
+  object: string | null,
+  gemmaId?: number,
+): Statement {
   return {
+    ...(gemmaId != null ? { gemma_id: gemmaId } : {}),
     category: TREATMENT,
     subject: SUBJECT,
     predicate: predicate ? { label: predicate, uri: null } : null,
@@ -76,53 +81,54 @@ function renderEditable(statements: Statement[]) {
  *  of this test passed against a still-broken cap for that reason. */
 const addPairButtons = () => screen.getAllByText("+ pred/obj");
 
-describe("statement pair limit — '+ pred/obj'", () => {
-  it("is offered on a subject holding one pair", () => {
-    renderEditable([pair("delivered at dose", "20 g/kg")]);
-    const buttons = addPairButtons();
-    expect(buttons.length).toBeGreaterThan(0);
-    expect(buttons.every((b) => !b.hasAttribute("disabled"))).toBe(true);
-  });
-
-  it("is disabled once the subject holds two", () => {
-    renderEditable([
-      pair("delivered at dose", "20 g/kg"),
-      pair("delivered for duration", "2 week"),
-    ]);
-    const buttons = addPairButtons();
-    expect(buttons.length).toBeGreaterThan(0);
-    expect(buttons.every((b) => b.hasAttribute("disabled"))).toBe(true);
-  });
-
-  it("says WHY rather than vanishing", () => {
-    // A curator hunting for the affordance should learn the ceiling
-    // exists; a button that silently disappears reads as a bug.
-    renderEditable([
-      pair("delivered at dose", "20 g/kg"),
-      pair("delivered for duration", "2 week"),
-    ]);
-    expect(
-      screen.getAllByTitle(/at most 2 predicate\/object pairs/i).length,
-    ).toBeGreaterThan(0);
-  });
-
-  it("counts an unfilled row as a slot already claimed", () => {
-    // One real pair plus the blank row "+ pred/obj" just added. Counting
-    // only filled rows would leave the button live, letting a curator
-    // stack blanks past the ceiling and fill them in afterwards — the
-    // same third pair by a slower route.
-    renderEditable([pair("delivered at dose", "20 g/kg"), pair(null, null)]);
-    const buttons = addPairButtons();
-    expect(buttons.length).toBeGreaterThan(0);
-    expect(buttons.every((b) => b.hasAttribute("disabled"))).toBe(true);
-  });
-
-  it("does not fire the add handler when disabled", () => {
+describe("statement pair limit — per statement, not per subject", () => {
+  it("offers '+ pred/obj' on a subject that already holds two pairs", () => {
     const { onAddSiblingStatement } = renderEditable([
       pair("delivered at dose", "20 g/kg"),
       pair("delivered for duration", "2 week"),
     ]);
-    for (const b of addPairButtons()) b.click();
-    expect(onAddSiblingStatement).not.toHaveBeenCalled();
+    const buttons = addPairButtons();
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every((b) => !b.hasAttribute("disabled"))).toBe(true);
+    buttons[0].click();
+    expect(onAddSiblingStatement).toHaveBeenCalled();
+  });
+
+  it("offers it on a stored two-pair statement too — the added row is its own", () => {
+    renderEditable([
+      pair("has role", "initial time point", 7),
+      pair("delivered for duration", "30 min", 7),
+    ]);
+    expect(addPairButtons().every((b) => !b.hasAttribute("disabled"))).toBe(true);
+  });
+
+  it("🛑 marks nothing when three new pairs share a subject", () => {
+    // GSE391's protein triplet: three id-less rows, three statements.
+    renderEditable([
+      pair("derives from", "Ccl20"),
+      pair("delivered for duration", "30 min"),
+      pair("has role", "initial time point"),
+    ]);
+    expect(screen.queryByText(/refuses a/i)).toBeNull();
+    expect(screen.queryAllByTitle(/refuses a third/i)).toHaveLength(0);
+  });
+
+  it("marks the third pair on ONE stored statement, and only that one", () => {
+    renderEditable([
+      pair("delivered at dose", "20 g/kg", 7),
+      pair("delivered for duration", "2 week", 7),
+      pair("has role", "treatment", 7),
+    ]);
+    expect(screen.getByText(/refuses a/i)).toBeInTheDocument();
+    expect(screen.getAllByTitle(/refuses a third/i)).toHaveLength(1);
+  });
+
+  it("does not count pairs of two different stored statements together", () => {
+    renderEditable([
+      pair("delivered at dose", "20 g/kg", 7),
+      pair("delivered for duration", "2 week", 7),
+      pair("has role", "treatment", 8),
+    ]);
+    expect(screen.queryAllByTitle(/refuses a third/i)).toHaveLength(0);
   });
 });

@@ -99,19 +99,18 @@ export interface Statement {
   supporting_evidence?: FindingEvidence[] | null;
 }
 
-/** How many (predicate, object) pairs one subject may carry.
+/** How many (predicate, object) pairs one STATEMENT may carry.
  *
- *  Gemma's wire model holds exactly two slots — ``predicate`` /
- *  ``object`` and ``secondPredicate`` / ``secondObject`` on
- *  ``AnnotationValueObject``. There is no third. The UI keeps
- *  statements FLAT (one row per pair, sharing category + subject) and
- *  regroups them at render time, so nothing in the editor's own shape
- *  stops a curator from stacking a third pair — the ceiling has to be
- *  enforced, not inherited.
+ *  Gemma's `Statement` holds exactly two slots — ``predicate`` /
+ *  ``object`` and ``secondPredicate`` / ``secondObject``. The limit is
+ *  per statement, not per subject: a factor value holds a set of
+ *  statements and nothing makes two of them differ in subject. The UI
+ *  keeps statements FLAT, and rows sharing a ``gemma_id`` are one
+ *  statement's pairs; a row with no id commits as its own statement.
+ *  So only a third row on one stored id is over the ceiling, and Gemma
+ *  refuses that at preflight (``STATEMENT_ID_REPEATED``).
  *
- *  Enforced by ``StatementGroupEditor``'s "+ pred/obj" affordance and
- *  reported by ``validateDesign`` for groups that arrived over the
- *  limit from somewhere else (an agent proposal, an older snapshot). */
+ *  Reported by ``validateDesign`` and marked in ``StatementGroupEditor``. */
 export const MAX_STATEMENT_PAIRS = 2;
 
 /** Bucket key for "statements about the same thing" —
