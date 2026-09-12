@@ -97,7 +97,7 @@ function mapFactor(
   };
 }
 
-function mapFactorValue(
+export function mapFactorValue(
   design: Design,
   factorId: number,
   fvId: number,

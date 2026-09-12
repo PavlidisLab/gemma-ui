@@ -166,3 +166,32 @@ describe("ThreePhaseFindingBody — three labelled voice groups", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("ThreePhaseFindingBody — an audit judge's reasoning", () => {
+  it("is labelled as the Auditor's, not a proposer's", () => {
+    renderWithProviders(
+      <ThreePhaseFindingBody
+        finding={makeFinding({
+          judge: "statement_shape_judge",
+          issue_code: "delivery_predicate_on_a_gene",
+          reviews: [],
+          comparison: null,
+        })}
+        report={null}
+      />,
+    );
+    const group = within(screen.getByTestId("phase-group-proposer"));
+    expect(group.getAllByText("Auditor").length).toBeGreaterThan(0);
+    expect(group.getAllByText("Why flagged").length).toBeGreaterThan(0);
+    expect(group.queryByText("Proposer")).toBeNull();
+    expect(group.queryByText("Why proposed")).toBeNull();
+  });
+
+  it("keeps the proposer labels when no judge is named", () => {
+    renderWithProviders(
+      <ThreePhaseFindingBody finding={makeFinding()} report={null} />,
+    );
+    const group = within(screen.getByTestId("phase-group-proposer"));
+    expect(group.getAllByText("Why proposed").length).toBeGreaterThan(0);
+  });
+});

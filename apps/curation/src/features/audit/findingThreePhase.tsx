@@ -266,8 +266,12 @@ function PhaseSection({
 
 function WhyPhase({
   why,
+  raisedByJudge = false,
 }: {
   why: WhyBlock | null;
+  /** An audit judge wrote this block (``finding.judge``), not a
+   *  proposer — same content, different author. */
+  raisedByJudge?: boolean;
 }): JSX.Element | null {
   if (!why) return null;
   const rationale = (why.rationale ?? "").trim();
@@ -319,16 +323,25 @@ function WhyPhase({
   );
   return (
     <PhaseSection
-      header="Why proposed"
+      header={raisedByJudge ? "Why flagged" : "Why proposed"}
       headerAccessory={
-        <HelpPopup title="Why proposed" size="md">
-          <div className="leading-snug">
-            The proposer's rationale + supporting evidence (quotes /
-            sources) for this proposal — the reasoning that led to it. It
-            describes the proposal on its own terms and never references
-            your current curation.
-          </div>
-        </HelpPopup>
+        raisedByJudge ? (
+          <HelpPopup title="Why flagged" size="md">
+            <div className="leading-snug">
+              The audit judge's reasoning and supporting evidence for this
+              finding.
+            </div>
+          </HelpPopup>
+        ) : (
+          <HelpPopup title="Why proposed" size="md">
+            <div className="leading-snug">
+              The proposer's rationale + supporting evidence (quotes /
+              sources) for this proposal — the reasoning that led to it. It
+              describes the proposal on its own terms and never references
+              your current curation.
+            </div>
+          </HelpPopup>
+        )
       }
       brief={brief}
       detail={trail ? <ReasoningTrailDetail trail={trail} /> : null}
@@ -769,6 +782,8 @@ export function ThreePhaseFindingBody({
   });
 
   const hasProposer = !!why || proposerReviews.length > 0;
+  // An audit finding's reasoning is its judge's, not a proposer's.
+  const judge = (finding.judge ?? "").trim();
   const hasGoldComparison = goldReviews.length > 0 || !!comparison;
 
   return (
@@ -778,25 +793,36 @@ export function ThreePhaseFindingBody({
       {/* Voice 1 — the proposer (reference-blind): what it proposed + why. */}
       <PhaseGroup
         kind="proposer"
-        title="Proposer"
+        title={judge ? "Auditor" : "Proposer"}
         help={
-          <HelpPopup title="Proposer — reference-blind" size="md">
-            <div className="leading-snug">
-              What the agent proposed and its own reasoning for it. The
-              proposer never sees your current curation or any reference
-              standard — its rationale and any confidence read
-              ("strongly supported" / "borderline") describe the
-              proposal on its own terms.
-            </div>
-          </HelpPopup>
+          judge ? (
+            <HelpPopup title="Auditor" size="md">
+              <div className="leading-snug">
+                The audit judge that raised this finding (
+                <code className="font-mono">{judge}</code>) and its reasoning.
+              </div>
+            </HelpPopup>
+          ) : (
+            <HelpPopup title="Proposer — reference-blind" size="md">
+              <div className="leading-snug">
+                What the agent proposed and its own reasoning for it. The
+                proposer never sees your current curation or any reference
+                standard — its rationale and any confidence read
+                ("strongly supported" / "borderline") describe the
+                proposal on its own terms.
+              </div>
+            </HelpPopup>
+          )
         }
       >
-        <WhyPhase why={why} />
+        <WhyPhase why={why} raisedByJudge={!!judge} />
         {proposerReviews.length > 0 ? (
           <ReviewList reviews={proposerReviews} />
         ) : null}
         {!hasProposer ? (
-          <NoneNote>no proposer rationale recorded for this finding</NoneNote>
+          <NoneNote>
+            no {judge ? "auditor" : "proposer"} rationale recorded for this finding
+          </NoneNote>
         ) : null}
       </PhaseGroup>
 

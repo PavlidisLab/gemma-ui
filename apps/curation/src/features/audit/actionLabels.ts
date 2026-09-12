@@ -26,9 +26,9 @@
  * highlighted-side mapping from `leanButtonKinds` is unaffected;
  * only the text changes here.
  *
- * Action shape is derived from `finding.issue_code` (and
- * `finding.apply_action.kind` when present, for future-proofing
- * against issue-code-without-apply-action shapes). The mapping:
+ * Action shape is derived from `finding.issue_code`, and from
+ * `finding.apply_action.kind` for any code the table doesn't list
+ * (`applyKindShape`). The mapping:
  *
  *   calibration_factor_extra            → add     (add a NEW factor)
  *   calibration_agent_extra             → add     (add a NEW tag)
@@ -40,7 +40,8 @@
  *   calibration_factor_rename           → change  (rename existing factor)
  *   calibration_factor_match_exact      → match
  *   calibration_match                   → match   (tag exact match)
- *   anything else                       → change  (safe default — a
+ *   anything else                       → the apply kind's shape, else
+ *                                         change  (safe default — a
  *                                                  generic disagreement
  *                                                  is a change-or-keep
  *                                                  decision)
@@ -79,6 +80,52 @@ export function blockedReasonOf(finding: AuditFinding): string | null {
     | undefined;
   const raw = aa?.blocked_reason;
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
+}
+
+/**
+ * The shape an apply verb implies, or null for a kind not listed.
+ *
+ * Consulted only after the issue-code table finds nothing — which is
+ * every audit finding. Audit codes (`delivery_predicate_on_a_gene`,
+ * `bare_gene_tag`, …) name the defect rather than the edit, so the
+ * table, written for calibration and proposal codes, never matched
+ * them and each landed on the `change` default whatever its action was.
+ *
+ * After the table rather than ahead of it: 38 stored
+ * `calibration_tag_match_exact` findings carry a stale `remove_tag`
+ * (see `FindingDetailsEditor`), and on those the code is right.
+ *
+ * Verbs mirror agents-side `agents/audit/schemas.py::ApplyAction`.
+ */
+const SHAPE_BY_APPLY_KIND: ReadonlyMap<string, ActionShape> = new Map<
+  string,
+  ActionShape
+>([
+  ["add_tag", "add"],
+  ["add_fv", "add"],
+  ["add_factor", "add"],
+  ["add_statements", "add"],
+  ["remove_tag", "remove"],
+  ["remove_factor", "remove"],
+  ["drop_statements", "remove"],
+  ["replace_tag", "change"],
+  ["rename_fv", "change"],
+  ["set_fv_term", "change"],
+  ["change_factor_category", "change"],
+  ["set_statement_subject", "change"],
+  ["set_statement_predicate", "change"],
+  ["set_statement_object", "change"],
+  ["set_statement_category", "change"],
+  ["replace_statements", "change"],
+  ["replace_factor", "change"],
+  ["set_factor_name", "change"],
+  ["set_factor_description", "change"],
+  ["repair_text_from_source", "change"],
+]);
+
+export function applyKindShape(finding: AuditFinding): ActionShape | null {
+  const kind = finding.apply_action?.kind;
+  return (kind && SHAPE_BY_APPLY_KIND.get(kind)) || null;
 }
 
 /** Optional context for ``findingActionShape``. When ``goldEmpty``
@@ -191,7 +238,7 @@ export function findingActionShape(
   if (code === "factor_dropped_by_boss") return "remove";
   if (code === "tag_dropped_by_boss") return "remove";
   if (code === "characteristic_dropped_by_boss") return "remove";
-  return "change";
+  return applyKindShape(finding) ?? "change";
 }
 
 /** Button-text pair for a given action shape. Both fields are

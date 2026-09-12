@@ -26,6 +26,7 @@
  * `applied_fix` populated when the action mutated).
  */
 import type {
+  ApplyActionMatch,
   AuditFinding,
   AuditReport,
   DismissReason,
@@ -54,10 +55,12 @@ import {
 import {
   addContinuousFactorFromCharacteristic,
   adoptNearMatchAgentFactor,
+  mapFactorValue,
   modifyTag,
   setFactorFields,
   setFvLabel,
   setStatement,
+  statementsFromProposal,
 } from "@/features/design/mutations";
 import {
   factorTarget,
@@ -155,6 +158,14 @@ export function resolveApplyAction(
   // through the calibration target_id shape.
   const proposalApply = resolveProposalApply(finding, ctx?.design ?? null);
   if (proposalApply) return proposalApply;
+
+  // FV-targeted, so neither the tag branch above nor the calibration
+  // target_id parsers below recognise it.
+  const statementsApply = resolveReplaceStatementsApply(
+    finding,
+    ctx?.design ?? null,
+  );
+  if (statementsApply) return statementsApply;
 
   // Calibration findings carry a custom target_id shape
   // (``calibration:<status>:<category>/<value>``) the standard
@@ -1803,6 +1814,211 @@ function rebindFactorValue(
   // label or an object-role rebind wouldn't otherwise update.
   next = setFvLabel(next, factorId, fvId, newValue);
   return next;
+}
+
+// ---------------------------------------------------------------------------
+// replace_statements — swap named statements on one factor value
+// ---------------------------------------------------------------------------
+
+type ReplaceStatementsAction = Extract<
+  NonNullable<AuditFinding["apply_action"]>,
+  { kind: "replace_statements" }
+>;
+
+function replaceStatementsAction(
+  finding: AuditFinding,
+): ReplaceStatementsAction | null {
+  const aa = finding.apply_action;
+  if (!aa || aa.kind !== "replace_statements") return null;
+  return aa as ReplaceStatementsAction;
+}
+
+/** The factor value an ``fv:`` target_id names.
+ *
+ *  By its ``#<id>`` suffix — the FV's Gemma id, which a draft seeded
+ *  from Gemma keeps — but only among factors whose category matches
+ *  the target's slug, so an id that means a different value in a
+ *  local-store draft is not taken. By slugs when there is no id, and
+ *  only when they name exactly one value. */
+function resolveTargetFv(
+  finding: AuditFinding,
+  design: Design,
+): { factor: Factor; fv: FactorValue } | null {
+  const parsed = parseTargetId(finding.target_id);
+  if (!parsed || parsed.kind !== "fv") return null;
+  const candidates = (design.factors ?? [])
+    .filter((factor) => slug(factor.category?.label) === parsed.factorSlug)
+    .flatMap((factor) => factor.factor_values.map((fv) => ({ factor, fv })));
+  if (parsed.fvId != null) {
+    return candidates.find(({ fv }) => fv.id === parsed.fvId) ?? null;
+  }
+  const bySlug = candidates.filter(
+    ({ fv }) => slug(fv.free_text_label) === parsed.fvSlug,
+  );
+  return bySlug.length === 1 ? bySlug[0] : null;
+}
+
+/** Does this row satisfy every slot ``match`` constrains? A slot with a
+ *  URI is compared on the URI, one without on its label. A match that
+ *  constrains nothing matches nothing: an action that names no
+ *  statement must not rewrite every row in reach. */
+function statementMatchesSlots(s: Statement, m: ApplyActionMatch): boolean {
+  const slots: Array<
+    [OntologyTerm | null | undefined, string | null | undefined, string | null | undefined]
+  > = [
+    [s.subject, m.subject, m.subject_uri],
+    [s.predicate, m.predicate, m.predicate_uri],
+    [s.object, m.object, m.object_uri],
+    [s.category, m.category, m.category_uri],
+  ];
+  let constrained = 0;
+  for (const [term, label, uri] of slots) {
+    if (uri?.trim()) {
+      constrained++;
+      if (!uriEq(term?.uri, uri)) return false;
+    } else if (label?.trim()) {
+      constrained++;
+      if (!labelEq(term?.label, label)) return false;
+    }
+  }
+  return constrained > 0;
+}
+
+/** The target factor value plus the indices of the rows ``match``
+ *  names, ascending. Null when either can't be found. */
+function locateStatementReplace(
+  finding: AuditFinding,
+  action: ReplaceStatementsAction,
+  design: Design,
+): { factor: Factor; fv: FactorValue; indices: number[] } | null {
+  const match = action.match;
+  if (!match) return null;
+  const target = resolveTargetFv(finding, design);
+  if (!target) return null;
+  const indices = target.fv.statements.flatMap((s, i) =>
+    statementMatchesSlots(s, match) ? [i] : [],
+  );
+  return indices.length > 0 ? { ...target, indices } : null;
+}
+
+/** The statements a replacement brings in, as design rows. A blank URI
+ *  becomes null — the GSE391 payload sends ``"uri": ""`` on ``60 min``,
+ *  and null is how the draft records "no grounding". */
+function incomingStatements(
+  action: ReplaceStatementsAction,
+  categoryFallback: OntologyTerm | null,
+): Statement[] {
+  const blankToNull = (t: OntologyTerm | null | undefined): OntologyTerm | null =>
+    t ? { label: t.label, uri: t.uri?.trim() ? t.uri : null } : null;
+  return statementsFromProposal(action.statements, categoryFallback)
+    .filter((s) => s.subject.label.trim())
+    .map((s) => ({
+      category: blankToNull(s.category),
+      subject: blankToNull(s.subject)!,
+      predicate: blankToNull(s.predicate),
+      object: blankToNull(s.object),
+    }));
+}
+
+/** Put ``incoming`` where the first named row was, and drop the named
+ *  rows. Rows the match didn't name keep their order. */
+function spliceStatements(
+  statements: Statement[],
+  indices: number[],
+  incoming: Statement[],
+): Statement[] {
+  const drop = new Set(indices);
+  const at = indices[0];
+  return [
+    ...statements.slice(0, at),
+    ...incoming,
+    ...statements.slice(at).filter((_, j) => !drop.has(at + j)),
+  ];
+}
+
+/** Apply for ``replace_statements``: on the factor value the finding
+ *  targets, the rows ``match`` names are replaced by the action's
+ *  ``statements`` in one draft edit. The value's label, id and sample
+ *  assignments are untouched. Null when the design isn't loaded or the
+ *  named rows aren't on it — the caller falls back to focus-only. */
+function resolveReplaceStatementsApply(
+  finding: AuditFinding,
+  design: Design | null,
+): ApplyAction | null {
+  const action = replaceStatementsAction(finding);
+  if (!action || !design) return null;
+  const target = resolveTargetFv(finding, design);
+  if (!target) return null;
+  const incoming = incomingStatements(action, target.factor.category ?? null);
+  if (incoming.length === 0) return null;
+  const fvLabel = target.fv.free_text_label;
+
+  const hit = locateStatementReplace(finding, action, design);
+  if (!hit) {
+    // The named rows are gone and every incoming row is present: said
+    // so, so a second Agree isn't a dead button.
+    const have = new Set(target.fv.statements.map(statementSignature));
+    if (incoming.every((s) => have.has(statementSignature(s)))) {
+      return {
+        mutates: false,
+        label: "✓ Already applied",
+        tooltip: `These statements are already on "${fvLabel}". Agree to record the ruling without re-applying.`,
+        successMessage: "",
+      };
+    }
+    return null;
+  }
+
+  const from = hit.indices.map((i) => statementLabel(hit.fv.statements[i])).join("; ");
+  const to = incoming.map(statementLabel).join("; ");
+  return {
+    mutates: true,
+    label: "Agree →",
+    tooltip:
+      `Replace "${from}" with "${to}" on factor value "${fvLabel}". ` +
+      `Its label and sample assignments don't change. Commit the draft to save.`,
+    successMessage: `Replaced "${from}" on "${fvLabel}". Commit to save.`,
+    mutate: (draft) => {
+      const current = locateStatementReplace(finding, action, draft);
+      if (!current) return draft;
+      return mapFactorValue(draft, current.factor.id, current.fv.id, (fv) => ({
+        ...fv,
+        statements: spliceStatements(fv.statements, current.indices, incoming),
+      }));
+    },
+    appliedFix: `replace ${from} → ${to}`,
+  };
+}
+
+/** Before and after for a ``replace_statements`` finding, for display.
+ *  ``before`` is the named rows as the draft holds them, or — when they
+ *  aren't on it (already applied, or not loaded) — the action's own
+ *  ``match`` slots. Null when the finding carries no replacement. */
+export function replaceStatementsDelta(
+  finding: AuditFinding,
+  design: Design | null,
+): { before: Statement[]; after: Statement[] } | null {
+  const action = replaceStatementsAction(finding);
+  if (!action) return null;
+  const hit = design ? locateStatementReplace(finding, action, design) : null;
+  const target = hit ?? (design ? resolveTargetFv(finding, design) : null);
+  const after = incomingStatements(action, target?.factor.category ?? null);
+  const m = action.match;
+  const term = (label?: string | null, uri?: string | null): OntologyTerm | null =>
+    label?.trim() ? { label, uri: uri?.trim() ? uri : null } : null;
+  const before: Statement[] = hit
+    ? hit.indices.map((i) => hit.fv.statements[i])
+    : m && term(m.subject, m.subject_uri)
+      ? [
+          {
+            subject: term(m.subject, m.subject_uri)!,
+            predicate: term(m.predicate, m.predicate_uri),
+            object: term(m.object, m.object_uri),
+          },
+        ]
+      : [];
+  if (before.length === 0 && after.length === 0) return null;
+  return { before, after };
 }
 
 /** Append a populated Factor to the draft from an agent factor

@@ -87,6 +87,7 @@ import {
   findingShortRationale,
   findingSubjectLabel,
   isMatchFinding,
+  producerHeadline,
   subsumedFvChildren,
 } from "./findingHelpers";
 import {
@@ -109,7 +110,7 @@ import {
   summarizeFactorAdoptPlan,
 } from "./factorComparison/adoptFactorPlan";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
-import { resolveApplyAction } from "./applyHandlers";
+import { replaceStatementsDelta, resolveApplyAction } from "./applyHandlers";
 import { undoBatched } from "./appliedBatches";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 import { resolveEditInitial } from "./dispositionEdit";
@@ -1017,14 +1018,26 @@ export function CompactFindingCard({
 }
 
 /** Inline one-line "why" caption that sits BESIDE the card title —
- *  pulls from `suggested_fix` / `rationale` / `proposer_defense` in
- *  that order via `findingShortRationale()`, trimmed at the first
+ *  pulls from `rationale_summary` / `suggested_fix` / `rationale` /
+ *  `proposer_defense` in that order via `findingShortRationale()`, trimmed at the first
  *  clause boundary and capped at ~50 chars so it doesn't push the
  *  right-aligned chips to a second line. Hover surfaces the full
  *  text. Renders nothing when no source is usable. Per design review
  *  2026-06-11: "keep the text on the same line as the title and
  *  shorten it." */
 function FindingShortRationale({ finding }: { finding: AuditFinding }) {
+  // The producer's headline, whole and wrapping rather than cut: on a
+  // statement verb it is the before→after, and it carries backticked
+  // terms.
+  const headline = producerHeadline(finding);
+  if (headline) {
+    return (
+      <span className="min-w-0 break-words text-[13px] text-slate-800 dark:text-slate-100">
+        <span className="text-slate-400 dark:text-slate-500 mr-1">·</span>
+        <InlineMarkdown text={headline} />
+      </span>
+    );
+  }
   // A fix that names one term gets rendered AS that term — labelled
   // with the agent's own verb — instead of a 50-char cut of the
   // sentence around it. "· Replace with `cell type: CD11b-positive
@@ -1226,6 +1239,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // Same goldEmpty signal — a downgraded match's labels read as Add.
   const dispoLabels = findingDispositionButtonLabels(finding, {
     goldEmpty: goldEmptyForTitle,
+    applyMutates: !!action?.mutates,
   });
   // Judge says weak → reframe the action row so Dismiss is the primary
   // blue button and the structural-apply demotes to a small "override"
@@ -1528,6 +1542,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // reaching a curator is the bug that helper exists to fix.
   const noFixReason = blockedReasonOf(finding);
 
+  // What a statement replacement swaps, stated before the button that
+  // does it. The payload fully determines it.
+  const statementDelta = replaceStatementsDelta(finding, draft ?? null);
+
   return (
     <div className="pl-1.5 pt-2 space-y-1.5 relative">
       {noFixReason ? (
@@ -1536,6 +1554,41 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             No fix to apply
           </span>
           <InlineMarkdown text={noFixReason} />
+        </div>
+      ) : null}
+      {statementDelta ? (
+        <div className="rounded border border-slate-200 px-2 py-1.5 text-[11px] leading-snug space-y-0.5 dark:border-slate-700">
+          {(
+            [
+              ["Replace", statementDelta.before],
+              ["With", statementDelta.after],
+            ] as const
+          ).map(([rowLabel, rows]) => (
+            <div key={rowLabel} className="flex items-baseline gap-2">
+              <span className="w-14 shrink-0 text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400">
+                {rowLabel}
+              </span>
+              <span className="flex flex-wrap items-baseline gap-x-1.5 min-w-0">
+                {rows.map((s, i) => (
+                  <span key={i} className="inline-flex items-baseline gap-x-1">
+                    {i > 0 ? (
+                      <span className="text-slate-400 dark:text-slate-500 select-none">
+                        ;
+                      </span>
+                    ) : null}
+                    <StatementSequence
+                      subject={s.subject}
+                      pairs={[{ predicate: s.predicate, object: s.object }]}
+                      separator="·"
+                      separatorClassName="text-slate-400 dark:text-slate-600 select-none"
+                      predicateClassName="italic text-slate-500 dark:text-slate-400 font-normal"
+                      asLink={false}
+                    />
+                  </span>
+                ))}
+              </span>
+            </div>
+          ))}
         </div>
       ) : null}
       {useStructuredEditor ? (

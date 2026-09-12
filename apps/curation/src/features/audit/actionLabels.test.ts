@@ -6,6 +6,7 @@ import {
   findingActionShape,
 } from "./actionLabels";
 import type { AuditFinding } from "@/api/auditTypes";
+import { findingDispositionButtonLabels } from "./findingHelpers";
 
 /** Build a minimal AuditFinding shape sufficient for
  *  ``findingActionShape``. The function reads `issue_code` (and
@@ -251,5 +252,61 @@ describe("actions the agent could not express", () => {
     expect(
       findingActionShape(undecidable("calibration_match"), { goldEmpty: true }),
     ).toBe("decide");
+  });
+});
+
+describe("findingActionShape — audit codes read the apply kind", () => {
+  const withKind = (code: string, kind: string): AuditFinding =>
+    ({ ...f(code), apply_action: { kind } }) as unknown as AuditFinding;
+
+  it("a statement replacement is a change", () => {
+    expect(
+      findingActionShape(
+        withKind("delivery_predicate_on_a_gene", "replace_statements"),
+      ),
+    ).toBe("change");
+  });
+
+  it("an audit tag removal is a remove, not the change default", () => {
+    expect(findingActionShape(withKind("bare_gene_tag", "remove_tag"))).toBe(
+      "remove",
+    );
+  });
+
+  it("an audit statement addition is an add", () => {
+    expect(
+      findingActionShape(withKind("missing_statement", "add_statements")),
+    ).toBe("add");
+  });
+
+  it("a listed code still wins over a stale apply kind", () => {
+    expect(
+      findingActionShape(withKind("calibration_tag_match_exact", "remove_tag")),
+    ).toBe("match");
+  });
+
+  it("an unknown kind keeps the change default", () => {
+    expect(findingActionShape(withKind("some_new_code", "not_a_verb"))).toBe(
+      "change",
+    );
+  });
+});
+
+describe("findingDispositionButtonLabels — statement replacement", () => {
+  const replace = {
+    ...f("delivery_predicate_on_a_gene"),
+    target_kind: "fv",
+    apply_action: { kind: "replace_statements" },
+  } as unknown as AuditFinding;
+
+  it("names the edit when the click performs it", () => {
+    expect(
+      findingDispositionButtonLabels(replace, { applyMutates: true })
+        .acceptLabel,
+    ).toBe("Replace statements");
+  });
+
+  it("keeps the generic verbs when the click only records agreement", () => {
+    expect(findingDispositionButtonLabels(replace).acceptLabel).toBe("Agree");
   });
 });

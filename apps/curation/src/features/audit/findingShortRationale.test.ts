@@ -109,3 +109,44 @@ describe("isEchoRationale", () => {
     expect(isEchoRationale(null)).toBe(false);
   });
 });
+
+describe("findingShortRationale — the producer's headline", () => {
+  const headline =
+    "`Ccl20 [mouse] chemokine (C-C motif) ligand 20 delivered for duration 60 min` → " +
+    "`protein: derives from Ccl20 [mouse] chemokine (C-C motif) ligand 20 + delivered for duration 60 min`";
+
+  it("wins over suggested_fix, and is returned whole", () => {
+    const f = missFinding({
+      issue_code: "delivery_predicate_on_a_gene",
+      rationale_summary: headline,
+      suggested_fix:
+        "Replace the statement with the catalogue's protein triplet, BOTH halves in one edit.",
+    });
+    expect(findingShortRationale(f)).toBe(headline);
+  });
+
+  it("keeps an audit headline that names the action", () => {
+    const f = missFinding({
+      issue_code: "bare_gene_tag",
+      rationale_summary: "Remove this tag",
+    });
+    expect(findingShortRationale(f)).toBe("Remove this tag");
+  });
+
+  it("falls back when the headline is empty", () => {
+    const f = missFinding({
+      rationale_summary: "",
+      suggested_fix: "Already captured by biomaterial characteristic",
+    });
+    expect(findingShortRationale(f)).toBe(
+      "Already captured by biomaterial characteristic",
+    );
+  });
+
+  it("skips a headline that only echoes the curation", () => {
+    const f = missFinding({
+      rationale_summary: "The existing curation has `cell type: liver`",
+    });
+    expect(findingShortRationale(f)).toBe("Agent did not propose");
+  });
+});

@@ -182,6 +182,11 @@ export interface AuditFinding {
    *  ``ungrounded_term``, ``low_confidence_assignment``,
    *  ``coverage_zero``, ``ok``. */
   issue_code: string;
+  /** Which audit judge raised this finding (``statement_shape_judge``).
+   *  Mirrors agents-side ``AuditFinding.judge``. Empty on findings stored
+   *  before 2026-08-22 and on calibration findings, which no judge
+   *  produced. */
+  judge?: string;
   rationale: string;
   /** One-line form of `rationale`, written by the producer. Declared
    *  agents-side (`AuditFinding.rationale_summary`) and on the wire;
@@ -597,11 +602,36 @@ export type ApplyActionPayload =
       new_value_uri?: string | null;
     }
   | {
+      /** Swap the statement(s) ``match`` names on the target FV for the
+       *  set in ``statements``, in ONE mutation. Not a slot edit: one
+       *  statement can become two — GSE391's ``Ccl20 · delivered for
+       *  duration · 60 min`` becomes ``protein · derives from · Ccl20``
+       *  beside ``protein · delivered for duration · 60 min``. */
+      kind: "replace_statements";
+      match?: ApplyActionMatch | null;
+      statements?: StatementProposal[] | null;
+    }
+  | {
       /** Forward-compat placeholder so shapes we don't model yet
        *  type-narrow cleanly when they ship. */
       kind: string;
       [key: string]: unknown;
     };
+
+/** Which statement inside a finding's target an apply action addresses.
+ *  Mirror of agents-side ``ApplyActionMatch``: a slot carrying a URI is
+ *  matched on the URI, one without on its label. */
+export interface ApplyActionMatch {
+  fv?: string | null;
+  subject?: string | null;
+  subject_uri?: string | null;
+  predicate?: string | null;
+  predicate_uri?: string | null;
+  object?: string | null;
+  object_uri?: string | null;
+  category?: string | null;
+  category_uri?: string | null;
+}
 
 /** One statement decomposed into (subject, predicate, object). Each
  *  part is an ``OntologyTerm`` (label + uri) or ``null`` when that

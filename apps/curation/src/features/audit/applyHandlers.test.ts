@@ -7,7 +7,7 @@ import type {
   FactorValue,
   OntologyTerm,
 } from "@/features/experiment/types";
-import { resolveApplyAction } from "./applyHandlers";
+import { replaceStatementsDelta, resolveApplyAction } from "./applyHandlers";
 import { findingProposedUris } from "./findingHelpers";
 
 /**
@@ -1257,5 +1257,201 @@ describe("proposed-tag URI precedence — display and apply must agree", () => {
     expect(findingProposedUris(f).valueUri).toBe(
       "http://purl.obolibrary.org/obo/CLO_0002405",
     );
+  });
+});
+
+/**
+ * replace_statements — the audit statement-shape judge's swap. GSE391
+ * (eid 83), FV 782: `Ccl20 · delivered for duration · 60 min` becomes
+ * `protein · derives from · Ccl20` + `protein · delivered for duration ·
+ * 60 min`. Values are the payload and design Gemma served 2026-09-12.
+ */
+const CCL20 = "Ccl20 [mouse] chemokine (C-C motif) ligand 20";
+const CCL20_URI = "http://purl.org/commons/record/ncbi_gene/20297";
+const TREATMENT = term("treatment", "http://www.ebi.ac.uk/efo/EFO_0000727");
+const PROTEIN = term("protein", "http://purl.obolibrary.org/obo/CHEBI_36080");
+const DERIVES_FROM = term(
+  "derives from",
+  "http://purl.obolibrary.org/obo/RO_0001000",
+);
+const DELIVERED_FOR = term(
+  "delivered for duration",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00167",
+);
+
+function gse391Design(
+  fv782Statements?: FactorValue["statements"],
+  subjectUri: string = CCL20_URI,
+): Design {
+  const named = {
+    category: TREATMENT,
+    subject: term(CCL20, subjectUri),
+    predicate: DELIVERED_FOR,
+    object: term("60 min"),
+  };
+  return design({
+    factors: [
+      {
+        ...factor(125, "treatment", [
+          mfv(782, "60 minute", { statements: fv782Statements ?? [named] }),
+          mfv(781, "control", {
+            statements: [{ category: TREATMENT, subject: term("PBS") }],
+          }),
+        ]),
+        category: TREATMENT,
+      },
+    ],
+  });
+}
+
+function replaceFinding(overrides: Partial<AuditFinding> = {}): AuditFinding {
+  return finding({
+    target_kind: "fv",
+    target_id: "fv:treatment/ccl20-[mouse]-chemokine-(c-c-motif)-ligand-20#782",
+    issue_code: "delivery_predicate_on_a_gene",
+    severity: "major",
+    judge: "statement_shape_judge",
+    apply_action: {
+      kind: "replace_statements",
+      match: {
+        fv: null,
+        subject: CCL20,
+        subject_uri: CCL20_URI,
+        predicate: "delivered for duration",
+        predicate_uri: null,
+        object: "60 min",
+        object_uri: null,
+        category: null,
+        category_uri: null,
+      },
+      statements: [
+        {
+          category: TREATMENT,
+          subject: PROTEIN,
+          predicate: DERIVES_FROM,
+          object: term(CCL20, CCL20_URI),
+        },
+        {
+          category: TREATMENT,
+          subject: PROTEIN,
+          predicate: DELIVERED_FOR,
+          object: { label: "60 min", uri: "" },
+        },
+      ],
+    },
+    ...overrides,
+  });
+}
+
+const triples = (fv: FactorValue) =>
+  fv.statements.map((s) => [s.subject.label, s.predicate?.label, s.object?.label]);
+
+describe("resolveApplyAction — REPLACE STATEMENTS (replace_statements)", () => {
+  it("replaces the named statement with both halves", () => {
+    const d = gse391Design();
+    const action = resolveApplyAction(replaceFinding(), { design: d });
+    expect(action?.mutates).toBe(true);
+    const fv = action!.mutate!(d).factors[0].factor_values.find(
+      (v) => v.id === 782,
+    )!;
+    expect(triples(fv)).toEqual([
+      ["protein", "derives from", CCL20],
+      ["protein", "delivered for duration", "60 min"],
+    ]);
+    // A blank URI on the wire is no grounding, not an empty-string URI.
+    expect(fv.statements[1].object?.uri).toBeNull();
+    // The value's label is the curator's; a statement edit leaves it.
+    expect(fv.free_text_label).toBe("60 minute");
+  });
+
+  it("puts the new rows where the old one was and keeps the rest", () => {
+    const before = { category: TREATMENT, subject: term("Il10"), predicate: term("has role"), object: term("a") };
+    const after = { category: TREATMENT, subject: term("Il10"), predicate: term("has role"), object: term("b") };
+    const named = { category: TREATMENT, subject: term(CCL20, CCL20_URI), predicate: DELIVERED_FOR, object: term("60 min") };
+    const d = gse391Design([before, named, after]);
+    const action = resolveApplyAction(replaceFinding(), { design: d });
+    const fv = action!.mutate!(d).factors[0].factor_values.find(
+      (v) => v.id === 782,
+    )!;
+    expect(triples(fv)).toEqual([
+      ["Il10", "has role", "a"],
+      ["protein", "derives from", CCL20],
+      ["protein", "delivered for duration", "60 min"],
+      ["Il10", "has role", "b"],
+    ]);
+  });
+
+  it("leaves the other factor values alone", () => {
+    const d = gse391Design();
+    const next = resolveApplyAction(replaceFinding(), { design: d })!.mutate!(d);
+    expect(next.factors[0].factor_values.find((v) => v.id === 781)).toBe(
+      d.factors[0].factor_values.find((v) => v.id === 781),
+    );
+  });
+
+  it("refuses when the subject's URI differs, even under the same label", () => {
+    const d = gse391Design(undefined, "http://purl.org/commons/record/ncbi_gene/1");
+    expect(resolveApplyAction(replaceFinding(), { design: d })?.mutates).toBe(
+      false,
+    );
+  });
+
+  it("refuses an fv id that sits under a different category", () => {
+    const f = replaceFinding({
+      target_id: "fv:genotype/ccl20-[mouse]-chemokine-(c-c-motif)-ligand-20#782",
+    });
+    expect(
+      resolveApplyAction(f, { design: gse391Design() })?.mutates,
+    ).toBe(false);
+  });
+
+  it("refuses a match that names no slot", () => {
+    const f = replaceFinding();
+    const aa = f.apply_action as unknown as { match: Record<string, unknown> };
+    for (const k of Object.keys(aa.match)) aa.match[k] = null;
+    expect(
+      resolveApplyAction(f, { design: gse391Design() })?.mutates,
+    ).toBe(false);
+  });
+
+  it("says already applied once the swap has landed", () => {
+    const d = gse391Design();
+    const f = replaceFinding();
+    const applied = resolveApplyAction(f, { design: d })!.mutate!(d);
+    const again = resolveApplyAction(f, { design: applied });
+    expect(again?.mutates).toBe(false);
+    expect(again?.label).toBe("✓ Already applied");
+  });
+
+  it("does not offer an edit without the draft", () => {
+    expect(resolveApplyAction(replaceFinding())?.mutates).toBe(false);
+  });
+});
+
+describe("replaceStatementsDelta", () => {
+  it("reads the named rows off the draft", () => {
+    const delta = replaceStatementsDelta(replaceFinding(), gse391Design())!;
+    expect(delta.before.map((s) => s.subject.label)).toEqual([CCL20]);
+    expect(delta.after.map((s) => s.predicate?.label)).toEqual([
+      "derives from",
+      "delivered for duration",
+    ]);
+  });
+
+  it("falls back to the action's match slots when the draft lacks them", () => {
+    const delta = replaceStatementsDelta(replaceFinding(), null)!;
+    expect(delta.before).toEqual([
+      {
+        subject: { label: CCL20, uri: CCL20_URI },
+        predicate: { label: "delivered for duration", uri: null },
+        object: { label: "60 min", uri: null },
+      },
+    ]);
+  });
+
+  it("is null for a finding with no replacement", () => {
+    expect(
+      replaceStatementsDelta(replaceFinding({ apply_action: null }), null),
+    ).toBeNull();
   });
 });

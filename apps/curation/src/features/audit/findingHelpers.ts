@@ -337,6 +337,10 @@ export interface DispositionButtonLabels {
  *  is visually an Add (2026-06-16). */
 export interface FindingDispositionButtonLabelsContext {
   goldEmpty?: boolean;
+  /** Whether the resolved apply action edits the draft. The accept
+   *  label is also the text of the NON-mutating Agree, so a label naming
+   *  an edit is only used when the click performs it. */
+  applyMutates?: boolean;
 }
 
 export function findingDispositionButtonLabels(
@@ -469,6 +473,14 @@ export function findingDispositionButtonLabels(
       acceptDoneLabel: "✓ Renamed",
       dismissLabel: "Don't rename",
       dismissDialogTitle: "Don't rename factor",
+    };
+  }
+  if (ctx?.applyMutates && finding.apply_action?.kind === "replace_statements") {
+    return {
+      acceptLabel: "Replace statements",
+      acceptDoneLabel: "✓ Replaced",
+      dismissLabel: "Don't replace",
+      dismissDialogTitle: "Don't replace statements",
     };
   }
   // Generic fallback for unhandled codes — keep the legacy verbs so
@@ -880,6 +892,25 @@ export function findingFixTerm(
   };
 }
 
+/**
+ * The producer's own one-line headline (`rationale_summary`), or null.
+ *
+ * Returned whole — never clause-cut or capped like the other sources.
+ * On a statement verb it is a before→after
+ * (`` `Ccl20 … 60 min` → `protein: derives from Ccl20 … + …` ``), and a
+ * 50-character cut ends it before the arrow.
+ *
+ * Only an echo of the curation is skipped. The action-prefix skip is
+ * not applied: it exists because calibration titles already say "Add
+ * tag", while an audit finding's title is just its target kind, so on
+ * those "Remove this tag" is the one place the action is named.
+ */
+export function producerHeadline(finding: AuditFinding): string | null {
+  const s = (finding.rationale_summary ?? "").trim();
+  if (!s || isEchoRationale(s)) return null;
+  return s;
+}
+
 export function findingShortRationale(finding: AuditFinding): string | null {
   const max = 50;
   const trim = (s: string | null | undefined): string => {
@@ -913,6 +944,8 @@ export function findingShortRationale(finding: AuditFinding): string | null {
     const lastSpace = cut.lastIndexOf(" ");
     return (lastSpace > max * 0.6 ? cut.slice(0, lastSpace) : cut) + "…";
   };
+  const headline = producerHeadline(finding);
+  if (headline) return headline;
   const fix = trim(finding.suggested_fix);
   if (fix) return fix;
   const rationale = trim(finding.rationale);
