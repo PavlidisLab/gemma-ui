@@ -114,3 +114,75 @@ describe("clientRef on a statement being created", () => {
     expect(out?.[0]).not.toHaveProperty("secondPredicate");
   });
 });
+
+/**
+ * Dropping ONE clause of a compound statement.
+ *
+ * Omission used to be how that was said. `003b932cf7` (gembro,
+ * 2026-09-11) made omitting a pair the stored statement HAS a 400, with
+ * `clearSecondPair: true` as the replacement — because both fields are
+ * objects and Jackson cannot tell a missing key from an explicit null,
+ * so without it a second pair would be unremovable.
+ *
+ * The draft alone cannot tell a dropped pair from a statement that
+ * never had one; only the baseline can, which is why these cases pass
+ * one.
+ */
+const withBaseline = (rows: unknown[], baselineRows: unknown[]) =>
+  buildCurationDocument(
+    {
+      factors: [
+        { id: 7, gemma_factor_id: 7, factor_values: [{ id: 1, statements: rows }] },
+      ],
+    } as never,
+    {
+      mode: "remote",
+      baseline: {
+        factors: [
+          {
+            id: 7,
+            gemma_factor_id: 7,
+            factor_values: [{ id: 1, statements: baselineRows }],
+          },
+        ],
+      },
+    } as never,
+  ).design?.factors?.items?.[0].factorValues?.items?.[0].statements?.items;
+
+const dose = { gemma_id: 300, subject, predicate: { label: "has dose" }, object: { label: "10 nM" } };
+const forTwelve = { gemma_id: 300, subject, predicate: { label: "for" }, object: { label: "12 hours" } };
+
+describe("clearSecondPair", () => {
+  it("says the clear out loud when the curator drops a clause", () => {
+    const out = withBaseline([dose], [dose, forTwelve]);
+    expect(out).toHaveLength(1);
+    expect(out?.[0]).toMatchObject({ gemmaId: 300, clearSecondPair: true });
+    expect(out?.[0]).not.toHaveProperty("secondPredicate");
+    expect(out?.[0]).not.toHaveProperty("secondObject");
+  });
+
+  it("🛑 is ABSENT — never false — when the pair is being kept", () => {
+    // The flag beside a pair is a 400, not a precedence rule.
+    const out = withBaseline([dose, forTwelve], [dose, forTwelve]);
+    expect(out?.[0]).toMatchObject({ secondPredicate: { label: "for" } });
+    expect(out?.[0]).not.toHaveProperty("clearSecondPair");
+  });
+
+  it("stays off a statement that never had a second pair", () => {
+    const out = withBaseline([dose], [dose]);
+    expect(out?.[0]).not.toHaveProperty("clearSecondPair");
+  });
+
+  it("stays off a statement being CREATED — there is nothing stored to clear", () => {
+    const out = withBaseline(
+      [{ gemma_id: null, subject, predicate: { label: "has dose" }, object: { label: "10 nM" } }],
+      [dose, forTwelve],
+    );
+    expect(out?.[0]).not.toHaveProperty("clearSecondPair");
+  });
+
+  it("🛑 never guesses without a baseline — a wrong flag DELETES a pair", () => {
+    const out = stmts([dose]);
+    expect(out?.[0]).not.toHaveProperty("clearSecondPair");
+  });
+});

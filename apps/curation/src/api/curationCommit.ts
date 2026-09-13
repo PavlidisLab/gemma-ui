@@ -48,6 +48,15 @@ export interface StatementCommit extends CommitTarget {
    *  these fields and one item per statement — see {@link statementItems}. */
   secondPredicate?: OntologyTermRef;
   secondObject?: OntologyTermRef;
+  /** Drop the stored second pair on purpose. Live on gemma2 from
+   *  `003b932cf7`; before it, OMITTING the pair was the clear, and
+   *  after it omission is a 400 instead.
+   *
+   *  🛑 **Only ever `true`, and never beside a pair.** Sending it
+   *  together with `secondPredicate`/`secondObject` is a 400, not a
+   *  precedence rule, so a statement whose pair is being KEPT must
+   *  leave the key absent rather than send `false`. */
+  clearSecondPair?: true;
   supportingEvidence?: unknown;
   /** 🛑 Must be sent back or it is CLEARED — see the emit site. */
   evidenceCode?: string;
@@ -192,7 +201,6 @@ export interface DesignPreflightReport {
     lost_factor_value_ids?: number[];
   }>;
 }
-
 
 function qs(params: Record<string, string | boolean | undefined>): string {
   const p = new URLSearchParams();
@@ -413,6 +421,21 @@ interface StatementRow {
  * The statements of one container, as the wire wants them.
  *
  * 🛑 **The draft holds one PAIR per row; Gemma holds one STATEMENT with
+/** Whether this item must carry `clearSecondPair`. True only when the
+ *  row is an in-place update of a statement Gemma issued (`gemma_id`)
+ *  whose stored form has two pairs while the draft kept one. With no
+ *  baseline in hand the answer is no: inventing the flag would delete a
+ *  pair on a guess. */
+function clearsStoredSecondPair(
+  first: StatementRow | undefined,
+  storedPairCounts: ReadonlyMap<number, number> | undefined,
+): boolean {
+  if (!storedPairCounts || !first) return false;
+  const id = first.gemma_id;
+  if (typeof id !== "number" || id <= 0) return false;
+  return (storedPairCounts.get(id) ?? 0) >= 2;
+}
+
  * up to two pairs.** Rows sharing a `gemma_id` are the pairs of one
  * statement (`types.ts::Statement`), so this groups before it emits —
  * one item per statement, second pair under `secondPredicate` /
@@ -471,8 +494,16 @@ function statementItems(
         ? {
             secondPredicate: term(second.predicate),
             secondObject: term(second.object),
+  storedPairCounts?: ReadonlyMap<number, number>,
           }
-        : {}),
+        : // The draft holds one pair where the stored statement holds
+          // two: the curator dropped a clause. Omission USED to say
+          // that and now 400s, so say it with the flag. Needs the
+          // baseline because the group alone cannot tell a dropped
+          // pair from a statement that never had one.
+          clearsStoredSecondPair(first, storedPairCounts)
+          ? { clearSecondPair: true as const }
+          : {}),
       ...(first.evidence_code ? { evidenceCode: first.evidence_code } : {}),
       ...(first.supporting_evidence === undefined ||
       first.supporting_evidence === null
@@ -712,6 +743,21 @@ export function buildCurationDocument(
     // No baseline in hand, or the stored flag was null: say nothing.
     return {};
   }
+  // How many pairs each stored statement holds, off the same baseline.
+  // Rows sharing a `gemma_id` are the pairs of ONE statement, so this
+  // counts rows per id — the only way to tell "the curator dropped a
+  // clause" from "this statement never had a second one", which
+  // `statementItems` cannot see from the draft alone.
+  const storedPairCounts = new Map<number, number>();
+  for (const f of opts.baseline?.factors ?? []) {
+    for (const v of f.factor_values ?? []) {
+      for (const s of v.statements ?? []) {
+        const id = s.gemma_id;
+        if (typeof id !== "number" || id <= 0) continue;
+        storedPairCounts.set(id, (storedPairCounts.get(id) ?? 0) + 1);
+      }
+    }
+  }
 
   const factors: FactorCommit[] = (design.factors ?? []).map((f) => {
     // Gemma's own `gemmaFactorId` where the experiment was imported;
@@ -748,7 +794,7 @@ export function buildCurationDocument(
               (removals?.statements ?? []).find((r) => r.valueId === v.id)
                 ?.statementIds,
             ),
-            items: statementItems(v.statements, `fv${v.id}`),
+            items: statementItems(v.statements, `fv${v.id}`, storedPairCounts),
           },
         })),
       },
