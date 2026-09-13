@@ -125,6 +125,8 @@ function ReportHeader({ report }: { report: AuditReport }) {
 }
 
 function VerdictPill({ verdict }: { verdict: AuditReport["summary"]["overall_verdict"] }) {
+  // See the sidebar's twin: an absent verdict renders nothing.
+  if (!verdict) return null;
   const cls = {
     clean: "bg-emerald-100 text-emerald-900 border-emerald-300",
     minor_issues: "bg-slate-100 text-slate-700 border-slate-300",

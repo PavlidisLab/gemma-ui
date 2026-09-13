@@ -1726,6 +1726,10 @@ function VerdictPill({
    *  MAJOR / BLOCKERS tint stops competing for the eye. */
   muted?: boolean;
 }) {
+  // No verdict is a real state: the producer sent no summary, and a
+  // verdict is the one thing in it that cannot be tallied. Render
+  // nothing rather than an empty pill.
+  if (!verdict) return null;
   // Live tints, dialled down one notch from the previous shouty
   // amber-900/rose-900 set. The verdict is a first-impression heuristic
   // (and major/blockers labels are sometimes over-stated by the

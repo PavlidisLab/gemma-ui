@@ -263,7 +263,10 @@ function ExperimentGroup({ group }: { group: Group }) {
   );
 }
 
-function VerdictPill({ verdict }: { verdict: OverallVerdict }) {
+function VerdictPill({ verdict }: { verdict?: OverallVerdict }) {
+  // A report whose producer sent no summary has no verdict — see
+  // `annotationSetReviews.summaryFromFindings`. Render nothing.
+  if (!verdict) return null;
   const cls = {
     clean: "bg-emerald-100 text-emerald-900 border-emerald-300",
     minor_issues: "bg-slate-100 text-slate-700 border-slate-300",

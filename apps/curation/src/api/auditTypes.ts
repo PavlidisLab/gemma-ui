@@ -1252,7 +1252,12 @@ export interface AuditSummary {
   n_major: number;
   n_minor: number;
   n_ok: number;
-  overall_verdict: OverallVerdict;
+  /** 🛑 **Absent when the producer sent no summary at all.** The
+   *  counts beside it can be tallied off the findings; this cannot —
+   *  it is the agent's own headline judgement, so a report that did
+   *  not carry one has no verdict rather than a derived one, and the
+   *  pills render nothing. See `annotationSetReviews.summaryFromFindings`. */
+  overall_verdict?: OverallVerdict;
   /** Review focus — "what am I meant to look at on THIS experiment".
    *
    *  Both have shipped on the wire since the calibration package was

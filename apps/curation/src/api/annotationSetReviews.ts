@@ -27,8 +27,10 @@
 import { api, snakeify } from "./client";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 import type {
+  AuditFinding,
   AuditFindingDisposition,
   AuditReport,
+  AuditSummary,
   CurationReviewKind,
   DispositionStatus,
 } from "./auditTypes";
@@ -213,6 +215,34 @@ export function dispositionsFor(
 }
 
 /**
+ * The severity counts, tallied off the findings we were handed.
+ *
+ * 🛑 **Only when the producer sent no ``summary`` at all.** Every set
+ * in run ``2026-09-11_test100b_light`` ships
+ * ``{accession, agentVersion, findings, kind, model, ranAt, runId,
+ * runSha}`` and no summary, and `AuditSummary` is typed non-optional —
+ * so `SidebarHeader` read `summary.n_blocker` off `undefined` and took
+ * the whole experiment page down with it (`experiments/83?ticket=52`,
+ * Paul 2026-09-11). Every other field the payload can omit is already
+ * defended two functions down; this was the one that was not.
+ *
+ * A count of the findings in hand is a tally, not an invention — but
+ * ``overall_verdict`` is the agent's own headline judgement and is left
+ * ABSENT rather than derived. Inferring "blockers" from a blocker count
+ * would put a verdict nobody wrote into a pill that reads as the
+ * agent's.
+ */
+function summaryFromFindings(findings: readonly AuditFinding[]): AuditSummary {
+  const n = (sev: string) => findings.filter((f) => f.severity === sev).length;
+  return {
+    n_blocker: n("blocker"),
+    n_major: n("major"),
+    n_minor: n("minor"),
+    n_ok: n("ok"),
+  };
+}
+
+/**
  * One annotation set → one ``AuditReport``.
  *
  * The payload IS the report; the envelope supplies identity and the
@@ -241,6 +271,24 @@ export function annotationSetToReview(
     model: p.model ?? row.model ?? null,
     agent_version: p.agent_version ?? row.agent_version ?? null,
     findings: Array.isArray(p.findings) ? p.findings : [],
+    summary:
+      p.summary ??
+      summaryFromFindings(Array.isArray(p.findings) ? p.findings : []),
+    // 🛑 The other two the run omits. Both are typed non-optional and
+    // both are read without a guard — `scope.include` took the page
+    // down straight after `summary` did. Empty is the honest default:
+    // an absent scope claims no subset (readers derive the scope text
+    // from the findings' own `target_kind` anyway), and absent
+    // evidence is no excerpt rather than a blank one presented as the
+    // producer's.
+    scope: p.scope ?? { include: [] },
+    evidence:
+      p.evidence ?? {
+        preboarding_excerpt: "",
+        paper_source: null,
+        paper_excerpt: "",
+        comparison_proposal: null,
+      },
     // Standing rulings come from the ENVELOPE when the route loaded
     // them, and only fall back to the payload when it did not.
     dispositions: dispositionsFor(row, payload),

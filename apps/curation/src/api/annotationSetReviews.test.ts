@@ -220,6 +220,90 @@ describe("annotationSetToReview", () => {
     expect(report.audited_at).toBe("2026-09-04T01:15:33.000+00:00");
     expect(report.experiment_id).toBe(2706);
   });
+
+  /**
+   * A payload with no `summary`, `scope` or `evidence`.
+   *
+   * Verbatim key set of every set in run `2026-09-11_test100b_light`
+   * (checked 20050–20076, 27 of 27). All three are typed non-optional
+   * and were read without a guard, so `experiments/83?ticket=52` white-
+   * screened on `summary.n_blocker` and then again on `scope.include`.
+   */
+  const RUN_100B_KEYS = {
+    accession: "GSE391",
+    agentVersion: "agents@10843a0",
+    kind: "audit",
+    model: "claude-sonnet-5",
+    ranAt: "2026-09-11T23:20:00Z",
+    runId: "2026-09-11_test100b_light",
+    runSha: "deadbee",
+  };
+
+  it("tallies the severity counts when the producer sent no summary", () => {
+    const row = {
+      ...SET_2563,
+      payload_json: JSON.stringify({
+        ...RUN_100B_KEYS,
+        findings: [
+          { severity: "major" },
+          { severity: "major" },
+          { severity: "minor" },
+          { severity: "ok" },
+        ],
+      }),
+    };
+    const report = annotationSetToReview(row, parseReviewPayload(row)!);
+    expect(report.summary).toMatchObject({
+      n_blocker: 0,
+      n_major: 2,
+      n_minor: 1,
+      n_ok: 1,
+    });
+  });
+
+  it("🛑 does NOT derive a verdict — that one is the agent's to state", () => {
+    const row = {
+      ...SET_2563,
+      payload_json: JSON.stringify({
+        ...RUN_100B_KEYS,
+        findings: [{ severity: "blocker" }],
+      }),
+    };
+    const report = annotationSetToReview(row, parseReviewPayload(row)!);
+    expect(report.summary.n_blocker).toBe(1);
+    expect(report.summary.overall_verdict).toBeUndefined();
+  });
+
+  it("defaults the scope and evidence the same run omits", () => {
+    const row = {
+      ...SET_2563,
+      payload_json: JSON.stringify({ ...RUN_100B_KEYS, findings: [] }),
+    };
+    const report = annotationSetToReview(row, parseReviewPayload(row)!);
+    expect(report.scope.include).toEqual([]);
+    expect(report.evidence.paper_excerpt).toBe("");
+    expect(report.evidence.comparison_proposal).toBeNull();
+  });
+
+  it("keeps the producer's own summary when it sent one", () => {
+    const row = {
+      ...SET_2563,
+      payload_json: JSON.stringify({
+        findings: [{ severity: "major" }, { severity: "major" }],
+        summary: {
+          n_blocker: 0,
+          n_major: 9,
+          n_minor: 0,
+          n_ok: 0,
+          overall_verdict: "major_issues",
+        },
+      }),
+    };
+    const report = annotationSetToReview(row, parseReviewPayload(row)!);
+    // 9, not the 2 a tally would give — the producer's count wins.
+    expect(report.summary.n_major).toBe(9);
+    expect(report.summary.overall_verdict).toBe("major_issues");
+  });
 });
 
 describe("isReviewPayload", () => {
