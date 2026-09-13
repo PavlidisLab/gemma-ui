@@ -15,6 +15,8 @@ import {
   commitCuration,
   preflightCuration,
   signCuration,
+  tagDeletionShortfall,
+  tagDeletionShortfallMessage,
   type CommitReport,
   type CurationDocument,
 } from "@/api/curationCommit";
@@ -150,6 +152,12 @@ export interface DesignDraftValue {
    *  delete. Null when there is nothing to sign, or when the draft has
    *  changed since the refusal. */
   signOffReport: CommitReport | null;
+  /** Set after a commit that landed with tag deletions left undone —
+   *  see `tagDeletionShortfall`. The draft is clean by then, so the bar
+   *  shows this on its own. Optional so hand-built contexts in tests
+   *  need not supply it. */
+  commitWarning?: string | null;
+  dismissCommitWarning?: () => void;
   isLoading: boolean;
   loadError: string | null;
   /** True when a localStorage-cached draft was discarded on mount
@@ -673,6 +681,7 @@ export function DesignDraftProvider({
   const invalidateAfterCommit = useInvalidateAfterDesignCommit(experimentId);
   const [remoteCommitting, setRemoteCommitting] = useState(false);
   const [remoteCommitError, setRemoteCommitError] = useState<Error | null>(null);
+  const [commitWarning, setCommitWarning] = useState<string | null>(null);
   // A commit Gemma refused as REQUIRES_FORCE, kept so it can be signed off
   // exactly as refused: the same document, against the same draft.
   const [refusedForSignOff, setRefusedForSignOff] = useState<{
@@ -755,6 +764,7 @@ export function DesignDraftProvider({
       const removals = saved ? removalsFromDiff(diff, saved) : undefined;
       setRemoteCommitting(true);
       setRemoteCommitError(null);
+      setCommitWarning(null);
       setRefusedForSignOff(null);
       void (async () => {
         let report: CommitReport | undefined;
@@ -798,12 +808,16 @@ export function DesignDraftProvider({
               removals,
             ),
           );
-          await commitCuration(experimentId, doc, {
+          const committed = await commitCuration(experimentId, doc, {
             baselineLastModified,
             onBehalfOf: reviewer,
           });
-          // A 200 means EVERYTHING applied — there is no partial write
-          // to reconcile — so the draft is the checkpoint for now.
+          // A 200 means everything applied except, possibly, tag
+          // deletions: an id naming no tag on the dataset is skipped
+          // rather than refused. The rest landed, so the draft is still
+          // the checkpoint for now, and a shortfall is reported beside it.
+          const shortfall = tagDeletionShortfall(doc, committed);
+          if (shortfall) setCommitWarning(tagDeletionShortfallMessage(shortfall));
           //
           // 🛑 **But it is not what Gemma holds, and the refetch is.**
           // The local path checkpoints on `server`, the design its own
@@ -891,9 +905,13 @@ export function DesignDraftProvider({
     if (!refused || refused.draft !== draft) return;
     setRemoteCommitting(true);
     setRemoteCommitError(null);
+    setCommitWarning(null);
     void (async () => {
       try {
-        await signCuration(experimentId, refused.doc, reviewer);
+        const signed = await signCuration(experimentId, refused.doc, reviewer);
+        // Sign commits the refused document, so the same skip applies.
+        const shortfall = tagDeletionShortfall(refused.doc, signed);
+        if (shortfall) setCommitWarning(tagDeletionShortfallMessage(shortfall));
         setRefusedForSignOff(null);
         // Lands like a commit: Gemma may have rewritten what it took in,
         // so the next /design read is adopted rather than diffed.
@@ -907,9 +925,11 @@ export function DesignDraftProvider({
       }
     })();
   }, [refusedForSignOff, draft, experimentId, reviewer, checkpointAfterWrite, invalidateAfterCommit]);
+  const dismissCommitWarning = useCallback(() => setCommitWarning(null), []);
   const discard = useCallback(() => {
     setDraft(saved ?? null);
     setRefusedForSignOff(null);
+    setCommitWarning(null);
     setUndoStack([]);
     setRedoStack([]);
     // The Apply-All mutations these snapshots would revert are already
@@ -1018,6 +1038,8 @@ export function DesignDraftProvider({
       refusedForSignOff && refusedForSignOff.draft === draft
         ? refusedForSignOff.report
         : null,
+    commitWarning,
+    dismissCommitWarning,
     isLoading,
     loadError: seedMismatchError ?? (error ? (error as Error).message : null),
     staleCacheDiscarded,

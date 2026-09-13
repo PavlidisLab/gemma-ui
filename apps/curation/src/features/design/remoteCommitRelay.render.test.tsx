@@ -73,7 +73,7 @@ import {
   preflightCuration,
   signCuration,
 } from "@/api/curationCommit";
-import { ApiError } from "@/api/client";
+import { ApiError, snakeify } from "@/api/client";
 import { resolveGemmaMode, useGemmaMode } from "@/lib/gemmaMode";
 import { useCurations } from "@/features/comparison/useSourceAvailability";
 import { resolveCuration } from "@/features/comparison/resolveCuration";
@@ -116,16 +116,38 @@ function makeDesign(): Design {
       },
     ],
     biomaterials: [],
-    tags: [],
+    tags: [
+      {
+        id: 9018,
+        category: {
+          label: "strain",
+          uri: "http://www.ebi.ac.uk/efo/EFO_0005135",
+        },
+        value: {
+          label: "C57BL/6",
+          uri: "http://www.ebi.ac.uk/efo/EFO_0022397",
+        },
+        evidence_code: "IC",
+      },
+    ],
     title: "a title",
   } as unknown as Design;
 }
 
 function Probe() {
-  const { draft, apply, commit, signOff, signOffReport } = useDesignDraft();
+  const { draft, apply, commit, signOff, signOffReport, commitWarning } =
+    useDesignDraft();
   return (
     <div>
       <span data-testid="ready">{draft ? "y" : "n"}</span>
+      <span data-testid="tag-count">{draft?.tags?.length ?? 0}</span>
+      <span data-testid="warning">{commitWarning ?? ""}</span>
+      <button
+        data-testid="drop-tag"
+        onClick={() => apply((d) => ({ ...d, tags: [] }))}
+      >
+        drop tag
+      </button>
       <span data-testid="label">
         {draft?.factors?.[0]?.factor_values?.[0]?.free_text_label ?? ""}
       </span>
@@ -168,7 +190,10 @@ function Probe() {
 
 const putMutate = vi.fn();
 
-async function renderAndCommit(mode: "local" | "remote") {
+async function renderAndCommit(
+  mode: "local" | "remote",
+  edit: "edit" | "drop-tag" = "edit",
+) {
   vi.mocked(useGemmaMode).mockReturnValue(
     resolveGemmaMode(
       mode === "remote"
@@ -213,9 +238,11 @@ async function renderAndCommit(mode: "local" | "remote") {
     </DesignDraftProvider>,
   );
   await waitFor(() => expect(screen.getByTestId("ready").textContent).toBe("y"));
-  fireEvent.click(screen.getByTestId("edit"));
+  fireEvent.click(screen.getByTestId(edit));
   await waitFor(() =>
-    expect(screen.getByTestId("label").textContent).toBe("vehicle"),
+    edit === "edit"
+      ? expect(screen.getByTestId("label").textContent).toBe("vehicle")
+      : expect(screen.getByTestId("tag-count").textContent).toBe("0"),
   );
   fireEvent.click(screen.getByTestId("go"));
 }
@@ -364,5 +391,37 @@ describe("a commit refused as REQUIRES_FORCE is signed off, never forced", () =>
     expect(screen.getByTestId("sign-report").textContent).toBe("n");
     fireEvent.click(screen.getByTestId("sign"));
     expect(signMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("a commit that leaves a tag deletion undone says so", () => {
+  // Gemma skips a tag id that names nothing on the dataset and still
+  // answers 200 (gembro, 2026-09-13). The only sign is the tally.
+  const reportDeleting = (deleted: number) =>
+    snakeify({
+      applied: true,
+      changes: { tags: { created: 0, updated: 0, deleted, unchanged: 0 } },
+    });
+
+  it("🛑 warns when Gemma deleted fewer tags than the commit removed", async () => {
+    commitMock.mockResolvedValueOnce(reportDeleting(0));
+    await renderAndCommit("remote", "drop-tag");
+    await waitFor(() => expect(commitMock).toHaveBeenCalled());
+    // Not vacuous: the document really asked Gemma to delete the tag.
+    expect(commitMock.mock.calls[0][1].tags?.deletedIds).toEqual([9018]);
+    await waitFor(() =>
+      expect(screen.getByTestId("warning").textContent).toContain(
+        "deleted 0 of the 1 tags",
+      ),
+    );
+  });
+
+  it("says nothing when every deletion landed", async () => {
+    commitMock.mockResolvedValueOnce(reportDeleting(1));
+    await renderAndCommit("remote", "drop-tag");
+    await waitFor(() =>
+      expect(screen.getByTestId("result").textContent).toBe("ok"),
+    );
+    expect(screen.getByTestId("warning").textContent).toBe("");
   });
 });

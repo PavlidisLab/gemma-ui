@@ -253,8 +253,9 @@ export function preflightCuration(
  * lock rather than on being an admin — so a `REQUIRES_FORCE` conflict
  * becomes "review what is affected, then sign", never a force button.
  *
- * A 200 means EVERYTHING applied; there is no partial write to
- * reconcile.
+ * A 200 means everything applied except, possibly, tag deletions: an
+ * id in `tags.deletedIds` that names no tag on the dataset is skipped
+ * rather than refused. See {@link tagDeletionShortfall}.
  *
  * 🛑 **A 403 here does NOT mean the curator lacks permission**, and the
  * surface that wires this must not say so. Settled 2026-08-29 across
@@ -312,6 +313,40 @@ export function signCuration(
   return api.post<CommitReport>(
     `/curation-sign/${experimentId}${qs({ onBehalfOf })}`,
     body ?? {},
+  );
+}
+
+/** Tag deletions a commit asked for that Gemma did not make.
+ *
+ *  🛑 **A 200 does not mean every tag deletion happened.** Gemma counts a
+ *  deletion only when `removeAnnotation` returns a row, so an id that
+ *  names no tag on the dataset is skipped: the commit still answers 200,
+ *  the other sections still apply, and `changes.tags.deleted` comes back
+ *  lower than the number sent (gembro, 2026-09-13, read from
+ *  `ExpressionExperimentServiceImpl.commitCuration`). A dry run counts
+ *  what was sent, so preflight cannot see it.
+ *
+ *  Null when no tag was deleted or every one was. A report with no tag
+ *  tally counts as nothing deleted. */
+export function tagDeletionShortfall(
+  doc: CurationDocument,
+  report: CommitReport | null | undefined,
+): { sent: number; deleted: number } | null {
+  const sent = doc.tags?.deletedIds?.length ?? 0;
+  if (sent === 0) return null;
+  const deleted = report?.changes?.tags?.deleted ?? 0;
+  return deleted < sent ? { sent, deleted } : null;
+}
+
+/** The curator-facing sentence for {@link tagDeletionShortfall}. */
+export function tagDeletionShortfallMessage(s: {
+  sent: number;
+  deleted: number;
+}): string {
+  return (
+    `Committed, but Gemma deleted ${s.deleted} of the ${s.sent} tags this ` +
+    `commit removed. It skips a tag id it does not find on this dataset ` +
+    `and applies everything else, so check the experiment's tags.`
   );
 }
 
@@ -386,6 +421,21 @@ function term(t: { label?: string; uri?: string | null } | null | undefined):
   return { ...(label ? { label } : {}), ...(uri ? { uri } : {}) };
 }
 
+/** Whether this item must carry `clearSecondPair`. True only when the
+ *  row is an in-place update of a statement Gemma issued (`gemma_id`)
+ *  whose stored form has two pairs while the draft kept one. With no
+ *  baseline in hand the answer is no: inventing the flag would delete a
+ *  pair on a guess. */
+function clearsStoredSecondPair(
+  first: StatementRow | undefined,
+  storedPairCounts: ReadonlyMap<number, number> | undefined,
+): boolean {
+  if (!storedPairCounts || !first) return false;
+  const id = first.gemma_id;
+  if (typeof id !== "number" || id <= 0) return false;
+  return (storedPairCounts.get(id) ?? 0) >= 2;
+}
+
 /**
  * One statement, as the wire wants it.
  *
@@ -421,21 +471,6 @@ interface StatementRow {
  * The statements of one container, as the wire wants them.
  *
  * 🛑 **The draft holds one PAIR per row; Gemma holds one STATEMENT with
-/** Whether this item must carry `clearSecondPair`. True only when the
- *  row is an in-place update of a statement Gemma issued (`gemma_id`)
- *  whose stored form has two pairs while the draft kept one. With no
- *  baseline in hand the answer is no: inventing the flag would delete a
- *  pair on a guess. */
-function clearsStoredSecondPair(
-  first: StatementRow | undefined,
-  storedPairCounts: ReadonlyMap<number, number> | undefined,
-): boolean {
-  if (!storedPairCounts || !first) return false;
-  const id = first.gemma_id;
-  if (typeof id !== "number" || id <= 0) return false;
-  return (storedPairCounts.get(id) ?? 0) >= 2;
-}
-
  * up to two pairs.** Rows sharing a `gemma_id` are the pairs of one
  * statement (`types.ts::Statement`), so this groups before it emits —
  * one item per statement, second pair under `secondPredicate` /
@@ -459,6 +494,7 @@ function clearsStoredSecondPair(
 function statementItems(
   rows: readonly StatementRow[] | null | undefined,
   scope: string,
+  storedPairCounts?: ReadonlyMap<number, number>,
 ): StatementCommit[] {
   const groups: StatementRow[][] = [];
   const byId = new Map<number, StatementRow[]>();
@@ -494,7 +530,6 @@ function statementItems(
         ? {
             secondPredicate: term(second.predicate),
             secondObject: term(second.object),
-  storedPairCounts?: ReadonlyMap<number, number>,
           }
         : // The draft holds one pair where the stored statement holds
           // two: the curator dropped a clause. Omission USED to say
@@ -708,6 +743,21 @@ export function buildCurationDocument(
   for (const f of opts.baseline?.factors ?? []) {
     for (const v of f.factor_values ?? []) priorValues.set(v.id, v);
   }
+  // How many pairs each stored statement holds, off the same baseline.
+  // Rows sharing a `gemma_id` are the pairs of ONE statement, so this
+  // counts rows per id — the only way to tell "the curator dropped a
+  // clause" from "this statement never had a second one", which
+  // `statementItems` cannot see from the draft alone.
+  const storedPairCounts = new Map<number, number>();
+  for (const f of opts.baseline?.factors ?? []) {
+    for (const v of f.factor_values ?? []) {
+      for (const s of v.statements ?? []) {
+        const id = s.gemma_id;
+        if (typeof id !== "number" || id <= 0) continue;
+        storedPairCounts.set(id, (storedPairCounts.get(id) ?? 0) + 1);
+      }
+    }
+  }
   // The ids Gemma issued, read off the same baseline. `priorValues` is
   // the factor-value half of the answer; this is the factor half.
   const baselineFactorIds = new Set<number>();
@@ -742,21 +792,6 @@ export function buildCurationDocument(
     }
     // No baseline in hand, or the stored flag was null: say nothing.
     return {};
-  }
-  // How many pairs each stored statement holds, off the same baseline.
-  // Rows sharing a `gemma_id` are the pairs of ONE statement, so this
-  // counts rows per id — the only way to tell "the curator dropped a
-  // clause" from "this statement never had a second one", which
-  // `statementItems` cannot see from the draft alone.
-  const storedPairCounts = new Map<number, number>();
-  for (const f of opts.baseline?.factors ?? []) {
-    for (const v of f.factor_values ?? []) {
-      for (const s of v.statements ?? []) {
-        const id = s.gemma_id;
-        if (typeof id !== "number" || id <= 0) continue;
-        storedPairCounts.set(id, (storedPairCounts.get(id) ?? 0) + 1);
-      }
-    }
   }
 
   const factors: FactorCommit[] = (design.factors ?? []).map((f) => {

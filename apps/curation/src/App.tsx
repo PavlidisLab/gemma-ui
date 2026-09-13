@@ -1465,6 +1465,8 @@ function SharedCommitBar({
     saveConflict,
     signOff,
     signOffReport,
+    commitWarning,
+    dismissCommitWarning,
   } = useDesignDraft();
   // Autosave. Off in read-only, where a save would write a draft the
   // curator did not author. Declared before the read-only early return
@@ -1520,6 +1522,8 @@ function SharedCommitBar({
       saveConflict={saveConflict}
       onSignOff={signOff}
       signOffReport={signOffReport}
+      commitWarning={commitWarning}
+      onDismissCommitWarning={dismissCommitWarning}
       validation={validation}
       draft={draft}
       // Only when it is SOMEONE ELSE's. Your own lease must never

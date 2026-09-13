@@ -8,9 +8,15 @@ vi.mock("./client", async (orig) => {
   return { ...actual, api: { ...actual.api, post } };
 });
 
-const { preflightCuration, commitCuration, signCuration, conflictOf } =
-  await import("./curationCommit");
-const { ApiError } = await import("./client");
+const {
+  preflightCuration,
+  commitCuration,
+  signCuration,
+  conflictOf,
+  tagDeletionShortfall,
+  tagDeletionShortfallMessage,
+} = await import("./curationCommit");
+const { ApiError, snakeify } = await import("./client");
 
 beforeEach(() => post.mockClear());
 
@@ -60,5 +66,43 @@ describe("conflictOf", () => {
       detail: { reason: "LOCK_REQUIRED", retryableAfterReread: false },
     });
     expect(conflictOf(err)?.reason).toBe("LOCK_REQUIRED");
+  });
+});
+
+describe("tagDeletionShortfall", () => {
+  // Gemma's spelling, through the client boundary, as the commit path
+  // reads it.
+  const reportDeleting = (deleted: number) =>
+    snakeify({
+      applied: true,
+      changes: { tags: { created: 0, updated: 0, deleted, unchanged: 3 } },
+    }) as never;
+  const doc = { tags: { deletedIds: [9018, 9019] } };
+
+  it("🛑 reports a deletion Gemma skipped on a 200", () => {
+    expect(tagDeletionShortfall(doc, reportDeleting(1))).toEqual({
+      sent: 2,
+      deleted: 1,
+    });
+  });
+
+  it("is null when every id was deleted", () => {
+    expect(tagDeletionShortfall(doc, reportDeleting(2))).toBeNull();
+  });
+
+  it("is null when the commit deleted no tags", () => {
+    expect(tagDeletionShortfall({ design: {} }, reportDeleting(0))).toBeNull();
+  });
+
+  it("counts a report with no tag tally as nothing deleted", () => {
+    expect(
+      tagDeletionShortfall(doc, snakeify({ applied: true }) as never),
+    ).toEqual({ sent: 2, deleted: 0 });
+  });
+
+  it("puts both counts in the curator's sentence", () => {
+    expect(tagDeletionShortfallMessage({ sent: 2, deleted: 1 })).toContain(
+      "deleted 1 of the 2 tags",
+    );
   });
 });

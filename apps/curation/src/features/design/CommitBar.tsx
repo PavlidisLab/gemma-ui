@@ -15,9 +15,10 @@ export interface BaselineOverride {
 }
 
 /**
- * Sticky footer for the design editor. Visible only when the draft
- * differs from the saved server state. Summarises the pending change
- * counts and offers Discard / Commit.
+ * Sticky footer for the design editor. Visible when the draft differs
+ * from the saved server state, and when the last commit left tag
+ * deletions undone. Summarises the pending change counts and offers
+ * Discard / Commit.
  *
  * No auto-save: the editor only PUTs when the user clicks Commit.
  *
@@ -52,6 +53,8 @@ export function CommitBar({
   validation?: DesignValidationState | null;
   /** Used to resolve factor names in the blocked-state message. */
   draft?: Design | null;
+  commitWarning,
+  onDismissCommitWarning,
   /** Receives the per-factor override list (empty when no factors had
    *  a baseline gate fire). The wiring at the App level stamps these
    *  onto curation_note for provenance. */
@@ -77,6 +80,10 @@ export function CommitBar({
   //
   // Commit's write path is the older whole-design PUT, and `/rest` is a
   // catch-all whose meaning changes with mode — that same relative path
+  /** A commit landed with tag deletions left undone. Shown even when the
+   *  draft is clean, since by then it is the only thing left to say. */
+  commitWarning?: string | null;
+  onDismissCommitWarning?: () => void;
   // reaches the curation store locally and a real Gemma remotely. The
   // mutation refuses there too (`REMOTE_DESIGN_SAVE_REFUSED`); this is
   // the half the curator can see, so the button says why rather than
@@ -87,7 +94,33 @@ export function CommitBar({
   const remoteMode = useGemmaMode().mode === "remote";
   // Before the early return: hook order has to be the same on every render.
   const [confirmingSignOff, setConfirmingSignOff] = useState(false);
-  if (!diff.isDirty) return null;
+  const warningLine = commitWarning ? (
+    <div
+      role="status"
+      className="px-2 py-1 flex items-start gap-2 text-[11px] text-amber-900 whitespace-normal"
+    >
+      <span>{commitWarning}</span>
+      {onDismissCommitWarning ? (
+        <button
+          type="button"
+          className="shrink-0 text-amber-700 hover:text-amber-900"
+          onClick={onDismissCommitWarning}
+          aria-label="dismiss commit warning"
+        >
+          ✕
+        </button>
+      ) : null}
+    </div>
+  ) : null;
+  if (!diff.isDirty) {
+    return warningLine ? (
+      <div className="inline-block max-w-[34rem]">
+        <div className="card border-amber-300 bg-amber-50 shadow-sm">
+          {warningLine}
+        </div>
+      </div>
+    ) : null;
+  }
 
   // Only factors whose missing baseline should *block commit* are
   // counted. Block / batch / cell-type / organism-part factors carry
@@ -463,6 +496,7 @@ export function humaniseSaveError(raw: string): string {
   // 🛑 **Gemma's envelope is `{error: {code, message}}`, and this
   // used to understand only FastAPI's.** Two backends answer through
   // one client: the agent relay speaks FastAPI, Gemma speaks this.
+        {warningLine}
   // With no `detail` key the parser fell through to the status alone,
   // so a 400 whose body read
   //   Unrecognized field "baselineRelevance" … (8 known properties: …)
