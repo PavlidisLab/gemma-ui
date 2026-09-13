@@ -37,15 +37,17 @@ interface WireAnalysis {
 /**
  * The Gemma factor ids this experiment's analyses subset by.
  *
- * ⚠️ **Not exercised against a populated response.** Every dataset in
- * reach today answers with zero subset analyses — the reference-500
- * experiments had their DEAs deleted by design commits and are queued
- * for re-run, so the population that would carry one is exactly the
- * population currently missing its analyses. Built to the field names
- * the OpenAPI declares on `DifferentialExpressionAnalysisValueObject`
- * (`isSubset`, `subsetFactorId`, `subsetFactor`, `subsetFactorValue`),
- * read tolerantly, and a shape change shows as an absent mark rather
- * than a broken one.
+ * ✅ **Exercised 2026-09-11.** It answered zero everywhere until then —
+ * the reference-500 experiments had their DEAs deleted by design commits
+ * and are queued for re-run, so the population that would carry one was
+ * exactly the population missing its analyses. Measured on gemma2: eid 5
+ * and eid 16 each return two rows with `isSubset: true` and
+ * `subsetFactorId` 6 / 29, matching the factor each design names. Built
+ * to the field names the OpenAPI declares on
+ * `DifferentialExpressionAnalysisValueObject` (`isSubset`,
+ * `subsetFactorId`, `subsetFactor`, `subsetFactorValue`), read
+ * tolerantly, and a shape change shows as an absent mark rather than a
+ * broken one.
  */
 export async function fetchSubsetAnalyses(
   experimentId: number | string,
