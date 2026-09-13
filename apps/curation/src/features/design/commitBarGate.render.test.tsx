@@ -59,6 +59,8 @@ const factorState = (
     duplicate_assignments: [],
     ungrounded_categories: [],
     unknown_predicates: 0,
+    overfull_statement_groups: [],
+    half_pair_statements: [],
     ...patch,
   };
   return {
@@ -69,7 +71,13 @@ const factorState = (
 
 const validation = (
   factors: FactorValidationState[],
-): DesignValidationState => ({ factors, bare_free_text_tags: [], ok: false });
+  tagHalfPairs: DesignValidationState["half_pair_tag_statements"] = [],
+): DesignValidationState => ({
+  factors,
+  bare_free_text_tags: [],
+  half_pair_tag_statements: tagHalfPairs,
+  ok: false,
+});
 
 const DRAFT = {
   experiment_id: 1,
@@ -178,5 +186,48 @@ describe("commit gate — a missing baseline is a NOTE, not a gate", () => {
       ]),
     );
     expect((commit as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("commit gate — statement pairs Gemma cannot take", () => {
+  it("blocks on a predicate with no object, and names the subject", () => {
+    const { commit } = renderBar(
+      validation([
+        factorState({
+          baseline_count: 1,
+          half_pair_statements: [
+            { fv_id: 3, subject: "metformin", missing: "object" },
+          ],
+        }),
+      ]),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(true);
+    screen.getByText(/"metformin" has a predicate with no object/);
+  });
+
+  it("blocks on a third pair on one statement", () => {
+    const { commit } = renderBar(
+      validation([
+        factorState({
+          baseline_count: 1,
+          overfull_statement_groups: [
+            { fv_id: 3, subject: "valproic acid", pairs: 3 },
+          ],
+        }),
+      ]),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(true);
+    screen.getByText(/"valproic acid" carries 3 predicate\/object pairs/);
+  });
+
+  it("blocks on a tag statement with an object and no predicate", () => {
+    const { commit } = renderBar(
+      validation(
+        [factorState({ baseline_count: 1 })],
+        [{ id: 4, category: "cell line", value: "HeLa", missing: "predicate" }],
+      ),
+    );
+    expect((commit as HTMLButtonElement).disabled).toBe(true);
+    screen.getByText(/tag "cell line: HeLa" has an object with no predicate/);
   });
 });

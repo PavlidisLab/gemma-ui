@@ -136,6 +136,23 @@ export function statementHasPair(s: Statement): boolean {
   return Boolean(s.predicate?.label?.trim() || s.object?.label?.trim());
 }
 
+/** Which half of this row's (predicate, object) pair is missing when
+ *  exactly one half is there; `null` for a whole pair and for the empty
+ *  placeholder row. A label or a URI counts as present — the rule the
+ *  commit builder's `term()` uses to decide what it sends.
+ *
+ *  Gemma 400s half a pair on every route that writes a statement
+ *  (`618c7958fb`). The builder sends a first pair's two halves
+ *  independently, so nothing between the editor and that 400 stops one
+ *  except the validator reading this. */
+export function missingHalfOfPair(s: Statement): "predicate" | "object" | null {
+  const present = (t: { label?: string; uri?: string | null } | null | undefined) =>
+    Boolean(t?.label?.trim() || t?.uri);
+  const hasPredicate = present(s.predicate);
+  if (hasPredicate === present(s.object)) return null;
+  return hasPredicate ? "object" : "predicate";
+}
+
 export interface FactorValue {
   id: number;
   free_text_label: string;
@@ -171,6 +188,14 @@ export interface FactorValue {
    *  categorical FVs. ``free_text_label`` carries the human
    *  rendering ("86 years") for display. */
   numeric_value?: number | null;
+  /** Gemma's `supportingEvidence` on the factor value itself
+   *  (`FactorValueBasicValueObject`), apart from its statements'.
+   *  Absent when `/design` omits the key. Carried as read and rendered
+   *  through `asFindingEvidence`.
+   *
+   *  🛑 **The commit does not send it back** — `FactorValueCommit` has
+   *  no such field. See `Factor.supporting_evidence`. */
+  supporting_evidence?: FindingEvidence[] | null;
 }
 
 export type FactorType = "categorical" | "continuous";
@@ -188,14 +213,6 @@ export type BaselineRelevance =
  *  (`DifferentialExpressionAnalysis.subsetFactorValue`) and is not
  *  settable through the curation route. The two are allowed to
  *  disagree: a recommendation between curation and the next analysis
-  /** Gemma's `supportingEvidence` on the factor value itself
-   *  (`FactorValueBasicValueObject`), apart from its statements'.
-   *  Absent when `/design` omits the key. Carried as read and rendered
-   *  through `asFindingEvidence`.
-   *
-   *  🛑 **The commit does not send it back** — `FactorValueCommit` has
-   *  no such field. See `Factor.supporting_evidence`. */
-  supporting_evidence?: FindingEvidence[] | null;
  *  run is advice nobody has acted on yet, which is the normal state,
  *  not a discrepancy to reconcile.
  *
@@ -255,6 +272,16 @@ export interface Factor {
    *  factors Gemma doesn't know. Lands on gold today; not yet on the
    *  design wire, so expect null here until it is. */
   local_factor_id?: string | null;
+  /** Gemma's `supportingEvidence` on the factor itself
+   *  (`ExperimentalFactorEntry`), absent when `/design` omits the key.
+   *  Carried as read, like `Statement.supporting_evidence`, and
+   *  rendered through `asFindingEvidence`.
+   *
+   *  🛑 **The commit does not send it back** — `FactorCommit` has no
+   *  such field. gembro, 2026-09-12: the first factor that carries
+   *  evidence makes every UI design commit on its dataset a 400 until
+   *  it does. No factor on production carried any then (0 of 49,877). */
+  supporting_evidence?: FindingEvidence[] | null;
   factor_values: FactorValue[];
 }
 
@@ -272,16 +299,6 @@ export interface BioAssay {
   /** Descriptive title — the value curators key off when scanning a
    *  cohort. */
   name: string;
-  /** Gemma's `supportingEvidence` on the factor itself
-   *  (`ExperimentalFactorEntry`), absent when `/design` omits the key.
-   *  Carried as read, like `Statement.supporting_evidence`, and
-   *  rendered through `asFindingEvidence`.
-   *
-   *  🛑 **The commit does not send it back** — `FactorCommit` has no
-   *  such field. gembro, 2026-09-12: the first factor that carries
-   *  evidence makes every UI design commit on its dataset a 400 until
-   *  it does. No factor on production carried any then (0 of 49,877). */
-  supporting_evidence?: FindingEvidence[] | null;
   /**
    * What was extracted, and how the library was built — straight from
    * `BIO_ASSAY`. Added by gembro 2026-09-05 to give the molecule a home
@@ -353,6 +370,11 @@ export interface Biomaterial {
       value: string;
       category_uri?: string | null;
       value_uri?: string | null;
+      /** This characteristic's own `supportingEvidence`, when Gemma
+       *  carries one. Read it through ``characteristicEvidence()``: like
+       *  the URIs beside it, it describes the value it was folded from,
+       *  not one a curator typed over it. */
+      supporting_evidence?: FindingEvidence[];
     }>
   >;
   /** Assays attached to this biomaterial. Usually one per
@@ -370,11 +392,6 @@ export interface Biomaterial {
   /** Raw per-sample GEO MINiML fields (treatment_protocol,
    *  growth_protocol, extract_protocol, source_name, title, …) captured
    *  at GEO ingest and carried on the design. NOT curated — verbatim
-      /** This characteristic's own `supportingEvidence`, when Gemma
-       *  carries one. Read it through ``characteristicEvidence()``: like
-       *  the URIs beside it, it describes the value it was folded from,
-       *  not one a curator typed over it. */
-      supporting_evidence?: FindingEvidence[];
    *  submitter text. Surfaced in the sample metadata popover, labelled
    *  "from GEO", so a curator can read whole-experiment context (e.g.
    *  disease induction — "immunized with MOG35-55/CFA to induce EAE")
@@ -934,26 +951,27 @@ export interface FactorValidationState {
    *  no longer lets a curator build one, so these arrived from
    *  elsewhere: an agent proposal, or a snapshot predating the cap.
    *
-   *  Part of ``ok`` since 2026-08-20 — it WARNS, and the design does not
-   *  read as valid while one stands. It does not hard-block the commit
-   *  bar (only a free-text category and an unknown predicate do), so a
-   *  curator is never stranded on data they did not author.
+   *  Part of ``ok``, and blocks the commit bar: Gemma holds two pairs per
+   *  statement, so a third belongs in another statement. The commit
+   *  builder emits a statement's first two rows and nothing past them,
+   *  so a commit over one would lose the rest.
    *
-   *  🛑 **The unit is under question.** This counts pairs per
-   *  ``(category, subject)`` GROUP, collapsing statement rows — while
-   *  Gemma's ceiling may be per statement ROW, in which case a subject
-   *  can legitimately carry two rows of two pairs and this warns on a
-   *  correct annotation. That is exactly the shape a background on a
-   *  compound genotype needs (1,953 subjects corpus-wide are already at
-   *  two ``has_genotype`` pairs). Asked in
-   *  ``CAB_TO_GEMBRO_2026_08_29_IS_THE_TWO_PAIR_CEILING_PER_STATEMENT_OR_PER_SUBJECT``;
-   *  if the answer is per-row, the grouping here and in
-   *  ``groupStatementsBySubject`` both have to change, together — see
-   *  {@link statementGroupKey}. */
+   *  Counted per STATEMENT — rows sharing a ``gemma_id``. A row with no
+   *  id commits as its own statement, so a subject may carry any number
+   *  of pairs (`GEMBRO_TO_CAB_AND_UIB_2026_09_12_THE_TWO_PAIR_QUESTION_WAS_ANSWERED_ON_08_29_THE_CEILING_IS_PER_STATEMENT`). */
   overfull_statement_groups: {
     fv_id: number;
     subject: string;
     pairs: number;
+  }[];
+  /** Statement rows with a predicate and no object, or an object and no
+   *  predicate — see {@link missingHalfOfPair}. Gemma refuses them, so
+   *  they block commit. Every row is checked, a statement's second pair
+   *  included, because the draft stores each pair as its own row. */
+  half_pair_statements: {
+    fv_id: number;
+    subject: string;
+    missing: "predicate" | "object";
   }[];
   /** FVs Gemma's own detector would take as the baseline without the
    *  curator marking anything — a "reference substance role" control, a
@@ -1072,6 +1090,16 @@ export interface DesignValidationState {
    *  submitter's own string and a factor value is ungated, so neither
    *  is flagged here. */
   bare_free_text_tags: { id: number; category: string; value: string }[];
+  /** Tag statements holding half a (predicate, object) pair — the tag
+   *  counterpart of `FactorValidationState.half_pair_statements`. Gemma
+   *  refuses these on tags too, so they block commit. Inferred tags are
+   *  skipped, as for `bare_free_text_tags`. */
+  half_pair_tag_statements: {
+    id: number;
+    category: string;
+    value: string;
+    missing: "predicate" | "object";
+  }[];
   ok: boolean;
 }
 
@@ -1127,6 +1155,7 @@ export function validateDesign(design: Design): DesignValidationState {
       subject: string;
       pairs: number;
     }[] = [];
+    const halfPairStatements: FactorValidationState["half_pair_statements"] = [];
 
     // Factor category must be a grounded ontology term, not free text.
     // A label with no ``uri`` is free text; Gemma rejects it on commit.
@@ -1204,6 +1233,14 @@ export function validateDesign(design: Design): DesignValidationState {
         }
       }
       for (const s of fv.statements) {
+        const missing = missingHalfOfPair(s);
+        if (missing) {
+          halfPairStatements.push({
+            fv_id: fv.id,
+            subject: s.subject?.label ?? "",
+            missing,
+          });
+        }
         // Every predicate must be a grounded preset ontology term.
         if (s.predicate && s.predicate.uri) {
           // Canonicalise the namespace before the allow-list check.
@@ -1331,6 +1368,7 @@ export function validateDesign(design: Design): DesignValidationState {
       ungrounded_categories: ungroundedCategories,
       factor_missing_description: !(f.description || "").trim(),
       overfull_statement_groups: overfullStatementGroups,
+      half_pair_statements: halfPairStatements,
     };
   });
   // A design with zero factors isn't "valid" — it's empty. The
@@ -1363,6 +1401,7 @@ export function validateDesign(design: Design): DesignValidationState {
         // back. `AnnotationValueObject` has `predicate`/`object` and
         // `secondPredicate`/`secondObject`, and no third.
         s.overfull_statement_groups.length === 0 &&
+        s.half_pair_statements.length === 0 &&
         // ``deprecated_baseline_fvs`` deliberately absent: a non-canonical
         // baseline label is a wording preference, not a broken design.
         // It used to fail here on the premise that Gemma wouldn't
@@ -1388,9 +1427,30 @@ export function validateDesign(design: Design): DesignValidationState {
   // is the contradiction `overfull_statement_groups` was moved out of
   // for the same reason. The curator sees the ask (add a predicate and
   // object) instead of a 400 naming a field they never set.
+  const halfPairTagStatements = (design.tags ?? [])
+    .filter((t) => !t.inferred)
+    .flatMap((t) =>
+      (t.statements ?? []).flatMap((s) => {
+        const missing = missingHalfOfPair(s);
+        return missing
+          ? [
+              {
+                id: t.id,
+                category: t.category?.label ?? "",
+                value: t.value?.label ?? "",
+                missing,
+              },
+            ]
+          : [];
+      }),
+    );
   return {
     factors: factorStates,
     bare_free_text_tags: bareFreeTextTags,
-    ok: ok && bareFreeTextTags.length === 0,
+    half_pair_tag_statements: halfPairTagStatements,
+    ok:
+      ok &&
+      bareFreeTextTags.length === 0 &&
+      halfPairTagStatements.length === 0,
   };
 }

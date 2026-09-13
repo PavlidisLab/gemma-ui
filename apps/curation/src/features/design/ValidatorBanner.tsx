@@ -149,7 +149,10 @@ export function ValidatorBanner({
           {/* A bare free-text tag blocks the commit whether or not there
               are factors, so the reason cannot live only in the amber
               card below — that path returns before it. */}
-          <BareTagWarnings tags={state.bare_free_text_tags} />
+          <TagWarnings
+          tags={state.bare_free_text_tags}
+          halfPairs={state.half_pair_tag_statements}
+        />
         </div>
       </div>
     );
@@ -176,7 +179,10 @@ export function ValidatorBanner({
   return (
     <div className="card border-amber-200 bg-amber-50/40">
       <div className="px-3 py-2 text-xs text-amber-900 space-y-1">
-        <BareTagWarnings tags={state.bare_free_text_tags} />
+        <TagWarnings
+          tags={state.bare_free_text_tags}
+          halfPairs={state.half_pair_tag_statements}
+        />
         {groups.length > 0 ? (
         <div>
           <div className="font-semibold mb-1">⚠ design has warnings</div>
@@ -338,28 +344,57 @@ function FactorNotes({
  *  never reaches here. Gemma refuses the bare ones outright
  *  (`UNGROUNDED_NOT_DECLARED`), which is why it blocks rather than
  *  merely advises. */
-function BareTagWarnings({
+function TagWarnings({
   tags,
+  halfPairs,
 }: {
   tags: DesignValidationState["bare_free_text_tags"];
+  /** Tag statements with half a (predicate, object) pair. Gemma refuses
+   *  these too, so they sit beside the bare-tag list. */
+  halfPairs: DesignValidationState["half_pair_tag_statements"];
 }) {
-  if (tags.length === 0) return null;
+  if (tags.length === 0 && halfPairs.length === 0) return null;
   return (
-    <div className="text-amber-900">
-      <div className="font-semibold mb-1">⚠ free-text tag with no context</div>
-      <ul className="space-y-0.5 list-disc list-inside">
-        {tags.map((t) => (
-          <li key={t.id}>
-            <span className="font-medium">
-              {t.category ? `${t.category}: ` : ""}
-              {t.value}
-            </span>{" "}
-            — add a predicate and object to say what it derives from
-            (e.g. <em>derives from cell line cell</em> + the parent
-            line), or ground the value itself.
-          </li>
-        ))}
-      </ul>
+    <div className="text-amber-900 space-y-1">
+      {tags.length > 0 ? (
+        <div>
+          <div className="font-semibold mb-1">⚠ free-text tag with no context</div>
+          <ul className="space-y-0.5 list-disc list-inside">
+            {tags.map((t) => (
+              <li key={t.id}>
+                <span className="font-medium">
+                  {t.category ? `${t.category}: ` : ""}
+                  {t.value}
+                </span>{" "}
+                — add a predicate and object to say what it derives from
+                (e.g. <em>derives from cell line cell</em> + the parent
+                line), or ground the value itself.
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {halfPairs.length > 0 ? (
+        <div>
+          <div className="font-semibold mb-1">⚠ tag statement with half a pair</div>
+          <ul className="space-y-0.5 list-disc list-inside">
+            {halfPairs.map((t, i) => (
+              <li key={`${t.id}-${i}`}>
+                <span className="font-medium">
+                  {t.category ? `${t.category}: ` : ""}
+                  {t.value}
+                </span>{" "}
+                — has{" "}
+                {t.missing === "object"
+                  ? "a predicate with no object"
+                  : "an object with no predicate"}
+                . Gemma refuses half a pair: fill in the {t.missing} or
+                clear the other half.
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -515,6 +550,12 @@ function warningsFor(s: DesignValidationState["factors"][number]): string[] {
       `"${g.subject}" carries ${g.pairs} predicate/object pairs on one ` +
         `statement — Gemma holds ${MAX_STATEMENT_PAIRS} per statement and ` +
         `refuses a third. Split it into its own statement.`,
+    );
+  }
+  for (const h of s.half_pair_statements) {
+    warnings.push(
+      `"${h.subject}" has ${h.missing === "object" ? "a predicate with no object" : "an object with no predicate"} ` +
+        `— Gemma refuses half a pair. Fill in the ${h.missing} or clear the other half.`,
     );
   }
   if (s.unassigned_biomaterials.length > 0)

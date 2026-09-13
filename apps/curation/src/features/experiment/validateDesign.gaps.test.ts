@@ -933,3 +933,120 @@ describe("bare_free_text_tags", () => {
     expect(state.ok).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// half_pair_statements — a predicate with no object, or an object with no
+// predicate. Gemma 400s both (`618c7958fb`).
+// ---------------------------------------------------------------------------
+
+describe("validateDesign — half_pair_statements", () => {
+  const twoSamples = [
+    { short_name: "s1", name: "s1", characteristics: {} },
+    { short_name: "s2", name: "s2", characteristics: {} },
+  ];
+  const row = (over: Record<string, unknown> = {}) => ({
+    category: { label: "treatment", uri: "http://x/EFO_1" },
+    subject: { label: "metformin", uri: "http://x/CHEBI_1" },
+    ...over,
+  });
+  const pred = { label: "has dose", uri: "http://x/EFO_2" };
+  const obj = { label: "5 mg", uri: null };
+  /** control (baseline) + a drug level carrying `rows`, with the factor
+   *  grounded and described so nothing else fails `ok`. */
+  const build = (rows: Record<string, unknown>[]): Design => {
+    const d = emptyDesign({
+      factors: [
+        categoricalFactor(1, "treatment", [
+          fv(1, "control", ["s1"], true),
+          {
+            ...fv(2, "metformin", ["s2"]),
+            statements: rows as unknown as FactorValue["statements"],
+          },
+        ]),
+      ],
+      biomaterials: twoSamples,
+    });
+    d.factors[0].category = {
+      label: "treatment",
+      uri: "http://www.ebi.ac.uk/efo/EFO_0000727",
+    };
+    d.factors[0].description = "treatment arm";
+    return d;
+  };
+  const halves = (rows: Record<string, unknown>[]) =>
+    validateDesign(build(rows)).factors[0].half_pair_statements;
+
+  it("flags a predicate with no object", () => {
+    expect(halves([row({ predicate: pred })])).toEqual([
+      { fv_id: 2, subject: "metformin", missing: "object" },
+    ]);
+  });
+
+  it("flags an object with no predicate", () => {
+    expect(halves([row({ object: obj })])).toEqual([
+      { fv_id: 2, subject: "metformin", missing: "predicate" },
+    ]);
+  });
+
+  it("counts a URI with a blank label as present", () => {
+    const uriOnly = { label: "", uri: "http://x/EFO_2" };
+    expect(halves([row({ predicate: uriOnly })])).toHaveLength(1);
+    expect(halves([row({ predicate: uriOnly, object: obj })])).toEqual([]);
+  });
+
+  it("says nothing for a whole pair or for the empty placeholder row", () => {
+    expect(halves([row({ predicate: pred, object: obj }), row()])).toEqual([]);
+  });
+
+  it("checks a statement's second pair like its first", () => {
+    expect(
+      halves([
+        row({ gemma_id: 50, predicate: pred, object: obj }),
+        row({ gemma_id: 50, predicate: { label: "delivered for duration" } }),
+      ]),
+    ).toEqual([{ fv_id: 2, subject: "metformin", missing: "object" }]);
+  });
+
+  it("makes the design not-ok", () => {
+    // The placeholder row is the control: same design, same row count,
+    // and `ok` holds — so the half pair is what fails it.
+    expect(validateDesign(build([row()])).ok).toBe(true);
+    expect(validateDesign(build([row({ object: obj })])).ok).toBe(false);
+  });
+});
+
+describe("validateDesign — half_pair_tag_statements", () => {
+  const tagWith = (over: Record<string, unknown>) =>
+    validateDesign(
+      emptyDesign({
+        factors: [categoricalFactor(7, "treatment")],
+        tags: [
+          {
+            id: 4,
+            category: { label: "cell line", uri: "http://x/EFO_0000322" },
+            value: { label: "HeLa", uri: "http://x/CLO_0003684" },
+            statements: [
+              {
+                category: null,
+                subject: { label: "HeLa", uri: "http://x/CLO_0003684" },
+                predicate: { label: "derives from", uri: "http://x/RO_1" },
+              },
+            ],
+            ...over,
+          },
+        ],
+      } as Partial<Design>),
+    );
+
+  it("flags a tag statement with a predicate and no object", () => {
+    const state = tagWith({});
+    expect(state.half_pair_tag_statements).toEqual([
+      { id: 4, category: "cell line", value: "HeLa", missing: "object" },
+    ]);
+    expect(state.ok).toBe(false);
+  });
+
+  it("skips an inferred tag", () => {
+    expect(tagWith({ inferred: true }).half_pair_tag_statements).toEqual([]);
+  });
+});

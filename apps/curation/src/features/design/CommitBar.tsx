@@ -3,7 +3,17 @@ import { useGemmaMode } from "@/lib/gemmaMode";
 import type { CommitReport } from "@/api/curationCommit";
 import type { CommitConflict } from "@/api/commitConflict";
 import type { DesignDiff } from "./diff";
-import type { Design, DesignValidationState } from "@/features/experiment/types";
+import {
+  MAX_STATEMENT_PAIRS,
+  type Design,
+  type DesignValidationState,
+} from "@/features/experiment/types";
+
+function halfPairText(missing: "predicate" | "object"): string {
+  return missing === "object"
+    ? "a predicate with no object"
+    : "an object with no predicate";
+}
 
 /** One curator-supplied override on a factor whose baseline gate fired.
  *  Surfaces as a dated stamp on the experiment's ``curation_note`` so
@@ -43,6 +53,8 @@ export function CommitBar({
   takingOver,
   onSignOff,
   signOffReport,
+  commitWarning,
+  onDismissCommitWarning,
 }: {
   diff: DesignDiff;
   saving: boolean;
@@ -53,8 +65,6 @@ export function CommitBar({
   validation?: DesignValidationState | null;
   /** Used to resolve factor names in the blocked-state message. */
   draft?: Design | null;
-  commitWarning,
-  onDismissCommitWarning,
   /** Receives the per-factor override list (empty when no factors had
    *  a baseline gate fire). The wiring at the App level stamps these
    *  onto curation_note for provenance. */
@@ -70,6 +80,10 @@ export function CommitBar({
    *  `signOffReport`, which says what signing deletes. */
   onSignOff?: () => void;
   signOffReport?: CommitReport | null;
+  /** A commit landed with tag deletions left undone. Shown even when the
+   *  draft is clean, since by then it is the only thing left to say. */
+  commitWarning?: string | null;
+  onDismissCommitWarning?: () => void;
 }) {
   // Per-factor override state. Map of factor_id → ``{checked, reason}``.
   // Only relevant when a factor has a baseline-count problem; commit is
@@ -80,10 +94,6 @@ export function CommitBar({
   //
   // Commit's write path is the older whole-design PUT, and `/rest` is a
   // catch-all whose meaning changes with mode — that same relative path
-  /** A commit landed with tag deletions left undone. Shown even when the
-   *  draft is clean, since by then it is the only thing left to say. */
-  commitWarning?: string | null;
-  onDismissCommitWarning?: () => void;
   // reaches the curation store locally and a real Gemma remotely. The
   // mutation refuses there too (`REMOTE_DESIGN_SAVE_REFUSED`); this is
   // the half the curator can see, so the button says why rather than
@@ -151,7 +161,9 @@ export function CommitBar({
   // the commit. The ValidatorBanner asks about the multi case in its
   // slate advisory channel instead.
   // Hard validation problems that block commit with no override — Gemma
-  // rejects them (ungrounded category / off-preset predicate). Unlike the
+  // rejects them (ungrounded category / off-preset predicate / half a
+  // predicate-object pair), or the write would lose part of them (a
+  // third pair on one statement: the builder emits two). Unlike the
   // baseline gate there's no legitimate "commit anyway"; the only fix is
   // to resolve them in the editor. A missing factor description is NOT
   // here: it's advisory only — surfaced as a ValidatorBanner warning, not
@@ -178,11 +190,26 @@ export function CommitBar({
                   } not from the preset list`,
                 ]
               : []),
+            ...f.half_pair_statements.map(
+              (h) => `"${h.subject}" has ${halfPairText(h.missing)}`,
+            ),
+            ...f.overfull_statement_groups.map(
+              (g) =>
+                `"${g.subject}" carries ${g.pairs} predicate/object pairs on one ` +
+                `statement — Gemma holds ${MAX_STATEMENT_PAIRS}; move the rest ` +
+                `into another statement`,
+            ),
           ],
         }))
         .filter((p) => p.lines.length > 0)
     : [];
-  const hasHardProblem = hardProblems.length > 0;
+  const tagHardProblems = validation
+    ? validation.half_pair_tag_statements.map(
+        (t) =>
+          `tag "${t.category ? `${t.category}: ` : ""}${t.value}" has ${halfPairText(t.missing)}`,
+      )
+    : [];
+  const hasHardProblem = hardProblems.length > 0 || tagHardProblems.length > 0;
   // 🛑 Someone else holds the lease, so COMMIT is blocked.
   //
   // The lease used to be purely advisory — it warned and never gated,
@@ -334,7 +361,7 @@ export function CommitBar({
                   : lockedOut
                   ? `${lockedBy} holds the editing lease. Take over to commit — their draft is separate and survives.`
                   : hasHardProblem
-                    ? "Fix the flagged factor problems (grounded category + predicate) to commit."
+                    ? "Fix the problems listed below to commit."
                     : blocked
                       ? "Gemma could not infer a reference level for these factors, and none is marked. Tick the per-factor sign-off to commit anyway."
                       : undefined
@@ -385,6 +412,9 @@ export function CommitBar({
                 </div>
               );
             })}
+            {tagHardProblems.map((line, i) => (
+              <div key={`tag-${i}`}>{line}</div>
+            ))}
           </div>
         ) : null}
         {saveConflict ? (
@@ -466,6 +496,7 @@ export function CommitBar({
             {humaniseSaveError(saveError)}
           </div>
         ) : null}
+        {warningLine}
       </div>
     </div>
   );
@@ -496,7 +527,6 @@ export function humaniseSaveError(raw: string): string {
   // 🛑 **Gemma's envelope is `{error: {code, message}}`, and this
   // used to understand only FastAPI's.** Two backends answer through
   // one client: the agent relay speaks FastAPI, Gemma speaks this.
-        {warningLine}
   // With no `detail` key the parser fell through to the status alone,
   // so a 400 whose body read
   //   Unrecognized field "baselineRelevance" … (8 known properties: …)
