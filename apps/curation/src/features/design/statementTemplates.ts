@@ -42,6 +42,8 @@ export interface StatementTemplate {
 
 const HAS_ROLE = predicate("http://purl.obolibrary.org/obo/RO_0000087");
 const HAS_GENOTYPE = predicate("http://purl.obolibrary.org/obo/GENO_0000222");
+const HAS_ALLELE = predicate("http://purl.obolibrary.org/obo/GENO_0000413");
+const HAS_QUALITY = predicate("http://purl.obolibrary.org/obo/RO_0000086");
 const HAS_PHENOTYPE = predicate("http://purl.obolibrary.org/obo/RO_0002200");
 const HAS_DISEASE = predicate("http://purl.obolibrary.org/obo/RO_0016002");
 // CLO's own object property. Pairs with HAS_DISEASE: that one is the
@@ -279,6 +281,30 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { label: "" },
         predicate: { ...TARGETED_TO },
+        object: { label: "" },
+      }),
+  },
+
+  {
+    id: "genotype-allele",
+    category: "genotype",
+    label: "gene + has_allele + allele",
+    description:
+      "Names WHICH allele, not the gene's state: FUS + has_allele + R521H; " +
+      "APOE + has_allele + APOE4 (GENO_0000413). Point mutations, repeat " +
+      "expansions, named human variants, frameshifts and named lab alleles. " +
+      "🛑 A different assertion from `has_genotype`, whose objects are " +
+      "allele STATES (homozygous negative, overexpression). The two are " +
+      "independent statements about the same gene and are often both right: " +
+      "`Atxn1 + has_allele + CAG expansion mutation (154Q)` says which " +
+      "allele, `Atxn1 + has_genotype + heterozygous` says how many copies. " +
+      "🛑 Not `has modifier`, which would erase which allele.",
+    subjectHint: "gene (NCBI_GENE)",
+    objectHint: "the allele (e.g. R521H)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_ALLELE },
         object: { label: "" },
       }),
   },
@@ -805,6 +831,29 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   },
 
   // -- Baseline (any category, free pattern) ---------------------------
+  {
+    id: "has-quality",
+    category: "phenotype",
+    label: "subject + has quality + attribute",
+    description:
+      "An intrinsic, observable attribute the subject HAS — a PATO-shaped " +
+      "quality: light + has quality + blue; scaffold + has quality + porous " +
+      "(RO_0000086). 🛑 A role the subject PLAYS is `has role`, and a " +
+      "genetic state such as overexpression is `has_genotype` — ask those " +
+      "first. 🛑 Its parent `has characteristic` (RO_0000053) is not " +
+      "offered (Paul, 2026-09-13): it is true of all four of its children, " +
+      "so it fits whenever the writer is unsure. If none of the children " +
+      "fits, the statement is the wrong shape.",
+    subjectHint: "the bearer of the attribute",
+    objectHint: "quality (PATO)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_QUALITY },
+        object: { label: "" },
+      }),
+  },
+
   {
     id: "baseline-has-role",
     category: "*",
