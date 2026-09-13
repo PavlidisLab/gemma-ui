@@ -82,6 +82,14 @@ if [ -z "${GEMMA_USERNAME:-}" ] && [ -z "${GEMMA_PASSWORD:-}" ]; then
     fi
 fi
 
+# The agent's WRITE principal for one-click Accept (`POST /curation-apply`).
+# Optional: without it that route refuses to commit, and every other route is
+# unaffected.
+if [ -z "${GEMMA_AGENT_PASSWORD:-}" ]; then
+    keychain_export GEMMA_AGENT_PASSWORD "GEMMA_AGENT_PASSWORD" \
+        || echo "[up] no GEMMA_AGENT_PASSWORD in keychain — one-click Accept will refuse to commit" >&2
+fi
+
 # Say which Gemma is about to be reached and as whom, since the pairing
 # is what goes wrong and neither half is visible from the UI.
 echo "[up] gemma: ${GEMMA_BASE_URL:-<compose default>} as ${GEMMA_USERNAME:-groupadmin (local-mode seed)}" >&2

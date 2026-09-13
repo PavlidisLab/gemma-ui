@@ -1,0 +1,338 @@
+{
+  "schema": "apply_action_kinds/v1",
+  "generatedBy": "gemma-curation-agents/scripts/export_apply_action_kinds.py",
+  "route": "POST /curation-apply/{annotationSetId}/{findingId}?onBehalfOf=&dryRun=&baselineLastModified=",
+  "kinds": [
+    {
+      "kind": "add_factor",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_category",
+          "new_factor_payload"
+        ]
+      ],
+      "reach": [
+        "factor",
+        "factor.category",
+        "factor.description",
+        "factor.name",
+        "fv",
+        "fv.label",
+        "fv.statements",
+        "fv.term",
+        "sample.assignment"
+      ]
+    },
+    {
+      "kind": "add_fv",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_value"
+        ]
+      ],
+      "reach": [
+        "fv",
+        "fv.label",
+        "fv.term",
+        "sample.assignment"
+      ]
+    },
+    {
+      "kind": "add_statements",
+      "executes": true,
+      "requiredFields": [
+        [
+          "statements"
+        ]
+      ],
+      "reach": [
+        "fv.statements",
+        "tag.statements"
+      ]
+    },
+    {
+      "kind": "add_tag",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_value"
+        ]
+      ],
+      "reach": [
+        "tag",
+        "tag.category",
+        "tag.statements",
+        "tag.value"
+      ]
+    },
+    {
+      "kind": "change_factor_category",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_category"
+        ]
+      ],
+      "reach": [
+        "factor.category"
+      ]
+    },
+    {
+      "kind": "drop_statements",
+      "executes": true,
+      "requiredFields": [
+        [
+          "statements"
+        ]
+      ],
+      "reach": [
+        "fv.statements",
+        "tag.statements"
+      ]
+    },
+    {
+      "kind": "edit_set",
+      "executes": true,
+      "requiredFields": [
+        [
+          "edits"
+        ]
+      ],
+      "reach": []
+    },
+    {
+      "kind": "needs_curator_decision",
+      "executes": false,
+      "requiredFields": [
+        [
+          "blocked_reason"
+        ]
+      ],
+      "reach": [],
+      "curatorDecision": true,
+      "whyNot": "UNDETERMINED, not unhandled and not routed: the auditor asserts a real defect and could not name the fix. A curator names it — see the action's `blocked_reason`. There is no handler to write; guessing one would apply an edit nobody proposed"
+    },
+    {
+      "kind": "remove_factor",
+      "executes": true,
+      "requiredFields": [],
+      "reach": [
+        "factor"
+      ]
+    },
+    {
+      "kind": "remove_tag",
+      "executes": true,
+      "requiredFields": [],
+      "reach": [
+        "tag"
+      ]
+    },
+    {
+      "kind": "rename_fv",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_value"
+        ]
+      ],
+      "reach": [
+        "fv.label"
+      ]
+    },
+    {
+      "kind": "repair_text_from_source",
+      "executes": false,
+      "requiredFields": [
+        [
+          "repairs"
+        ]
+      ],
+      "reach": [
+        "biomaterial.name"
+      ],
+      "whyNot": "the target is Gemma's stored biomaterial NAMES, and no route writes one — not the store's design (a projection) and not Gemma's curation commit (no section carries a name). ROUTED until Gemma has the route: a re-import / rename job (naming_gate.REMEDY_ROUTES)"
+    },
+    {
+      "kind": "replace_factor",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_factor_payloads"
+        ]
+      ],
+      "reach": [
+        "factor",
+        "factor.category",
+        "factor.description",
+        "factor.name",
+        "fv",
+        "fv.label",
+        "fv.statements",
+        "fv.term",
+        "sample.assignment"
+      ]
+    },
+    {
+      "kind": "replace_statements",
+      "executes": true,
+      "requiredFields": [
+        [
+          "match"
+        ],
+        [
+          "statements"
+        ]
+      ],
+      "reach": [
+        "fv.statements",
+        "statement.category",
+        "statement.object",
+        "statement.predicate",
+        "statement.subject"
+      ]
+    },
+    {
+      "kind": "replace_tag",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_value",
+          "new_category",
+          "statements"
+        ]
+      ],
+      "reach": [
+        "tag.category",
+        "tag.statements",
+        "tag.value"
+      ]
+    },
+    {
+      "kind": "set_factor_description",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_description"
+        ]
+      ],
+      "reach": [
+        "factor.description"
+      ]
+    },
+    {
+      "kind": "set_factor_name",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_name"
+        ]
+      ],
+      "reach": [
+        "factor.name"
+      ]
+    },
+    {
+      "kind": "set_fv_term",
+      "executes": true,
+      "requiredFields": [
+        [
+          "new_value"
+        ],
+        [
+          "new_value_uri"
+        ]
+      ],
+      "reach": [
+        "fv.label",
+        "fv.term"
+      ]
+    },
+    {
+      "kind": "set_statement_category",
+      "executes": true,
+      "requiredFields": [
+        [
+          "match"
+        ],
+        [
+          "new_category"
+        ],
+        [
+          "new_category_uri"
+        ]
+      ],
+      "reach": [
+        "statement.category"
+      ]
+    },
+    {
+      "kind": "set_statement_object",
+      "executes": true,
+      "requiredFields": [
+        [
+          "match"
+        ],
+        [
+          "new_value"
+        ],
+        [
+          "new_value_uri"
+        ]
+      ],
+      "reach": [
+        "statement.object"
+      ]
+    },
+    {
+      "kind": "set_statement_predicate",
+      "executes": true,
+      "requiredFields": [
+        [
+          "match"
+        ],
+        [
+          "new_value"
+        ],
+        [
+          "new_value_uri"
+        ]
+      ],
+      "reach": [
+        "statement.predicate"
+      ]
+    },
+    {
+      "kind": "set_statement_subject",
+      "executes": true,
+      "requiredFields": [
+        [
+          "match"
+        ],
+        [
+          "new_value"
+        ],
+        [
+          "new_value_uri"
+        ]
+      ],
+      "reach": [
+        "statement.subject"
+      ]
+    },
+    {
+      "kind": "set_subset_relevance",
+      "executes": true,
+      "requiredFields": [
+        [
+          "subset_relevance"
+        ]
+      ],
+      "reach": [
+        "factor.subset_relevance"
+      ]
+    }
+  ]
+}

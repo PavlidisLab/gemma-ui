@@ -138,6 +138,12 @@ services:
       # principal and a production write; it is safe because the base
       # URL names a sandbox, not because this variable is set.
       GEMMA_WRITE_TARGET: ${GEMMA_WRITE_TARGET:-}
+      # The principal an AGENT write goes out as (`shared.gemma.gemma_agent_auth`):
+      # `gemmaAgent`, naming the curator in `onBehalfOf`. Needed by
+      # `POST /curation-apply` (one-click Accept). Empty default = that route
+      # refuses to commit and says why; it never falls back to GEMMA_USERNAME.
+      GEMMA_AGENT_USERNAME: ${GEMMA_AGENT_USERNAME:-}
+      GEMMA_AGENT_PASSWORD: ${GEMMA_AGENT_PASSWORD:-}
       # Optional Zotero credentials for biolit fetcher.
       GEMMA_AGENTS_USE_ZOTERO: ${GEMMA_AGENTS_USE_ZOTERO:-}
       ZOTERO_API_KEY: ${ZOTERO_API_KEY:-}
