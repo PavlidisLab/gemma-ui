@@ -1,4 +1,5 @@
 import type { FindingEvidence } from "@/api/auditTypes";
+import type { KnownEvidenceSource } from "@/api/justification";
 
 /**
  * Per-source presentation for a verbatim evidence quote. Curators read
@@ -34,7 +35,7 @@ export interface EvidenceSourceMeta {
   badge?: string;
 }
 
-const BASE: Record<EvidenceSourceKey, EvidenceSourceMeta> = {
+const BASE: Record<KnownEvidenceSource, EvidenceSourceMeta> = {
   // BM characteristic — the most direct, trustworthy provenance.
   characteristic: {
     // Named for where it came from, not just what it is — the sibling
@@ -127,7 +128,20 @@ export function evidenceSourceMeta(
     // specific catalog so the inferred-not-verbatim nature is clear.
     return { ...BASE.preboarding, badge: "Cellosaurus" };
   }
-  // Unknown / missing source → neutral grey "source", never the
-  // authoritative "sample characteristic" default (design review 2026-06-19).
-  return BASE[source] ?? NEUTRAL;
+  if (Object.prototype.hasOwnProperty.call(BASE, source)) {
+    return BASE[source as KnownEvidenceSource];
+  }
+  // A source with no entry above stays neutral grey, never the
+  // authoritative "sample characteristic" default (design review
+  // 2026-06-19). But a producer that recorded one did specify it, so
+  // the chip names what was recorded. All 15,240 JSON evidence rows on
+  // production used such a source when counted (cab, 2026-09-11):
+  // `inferred`, `curator_ruling`, `audit`.
+  const recorded = typeof source === "string" ? source.trim() : "";
+  if (!recorded) return NEUTRAL;
+  return {
+    ...NEUTRAL,
+    label: recorded.replace(/_/g, " "),
+    description: `Source recorded as “${recorded}”.`,
+  };
 }

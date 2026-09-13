@@ -188,6 +188,14 @@ export type BaselineRelevance =
  *  (`DifferentialExpressionAnalysis.subsetFactorValue`) and is not
  *  settable through the curation route. The two are allowed to
  *  disagree: a recommendation between curation and the next analysis
+  /** Gemma's `supportingEvidence` on the factor value itself
+   *  (`FactorValueBasicValueObject`), apart from its statements'.
+   *  Absent when `/design` omits the key. Carried as read and rendered
+   *  through `asFindingEvidence`.
+   *
+   *  🛑 **The commit does not send it back** — `FactorValueCommit` has
+   *  no such field. See `Factor.supporting_evidence`. */
+  supporting_evidence?: FindingEvidence[] | null;
  *  run is advice nobody has acted on yet, which is the normal state,
  *  not a discrepancy to reconcile.
  *
@@ -264,6 +272,16 @@ export interface BioAssay {
   /** Descriptive title — the value curators key off when scanning a
    *  cohort. */
   name: string;
+  /** Gemma's `supportingEvidence` on the factor itself
+   *  (`ExperimentalFactorEntry`), absent when `/design` omits the key.
+   *  Carried as read, like `Statement.supporting_evidence`, and
+   *  rendered through `asFindingEvidence`.
+   *
+   *  🛑 **The commit does not send it back** — `FactorCommit` has no
+   *  such field. gembro, 2026-09-12: the first factor that carries
+   *  evidence makes every UI design commit on its dataset a 400 until
+   *  it does. No factor on production carried any then (0 of 49,877). */
+  supporting_evidence?: FindingEvidence[] | null;
   /**
    * What was extracted, and how the library was built — straight from
    * `BIO_ASSAY`. Added by gembro 2026-09-05 to give the molecule a home
@@ -352,6 +370,11 @@ export interface Biomaterial {
   /** Raw per-sample GEO MINiML fields (treatment_protocol,
    *  growth_protocol, extract_protocol, source_name, title, …) captured
    *  at GEO ingest and carried on the design. NOT curated — verbatim
+      /** This characteristic's own `supportingEvidence`, when Gemma
+       *  carries one. Read it through ``characteristicEvidence()``: like
+       *  the URIs beside it, it describes the value it was folded from,
+       *  not one a curator typed over it. */
+      supporting_evidence?: FindingEvidence[];
    *  submitter text. Surfaced in the sample metadata popover, labelled
    *  "from GEO", so a curator can read whole-experiment context (e.g.
    *  disease induction — "immunized with MOG35-55/CFA to induce EAE")

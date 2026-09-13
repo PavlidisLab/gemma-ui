@@ -3,6 +3,8 @@ import { createPortal } from "react-dom";
 import type { BioAssay, Biomaterial } from "@/features/experiment/types";
 import { sampleExternalUrl } from "@/lib/gemmaUrls";
 import { Term } from "@/components/ui/Term";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { characteristicEvidence } from "@/features/experiment/characteristicValues";
 import {
   constantGeoFields,
   geoSampleFor,
@@ -355,6 +357,10 @@ export function BiomaterialMetaPopover({
                                 ) : (
                                   v
                                 )}
+                                <EvidenceTrigger
+                                  evidence={characteristicEvidence(bm, k)}
+                                  className="ml-1"
+                                />
                               </td>
                             </tr>
                           );

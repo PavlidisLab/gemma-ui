@@ -25,6 +25,8 @@ import { gemmaAutoDetectsBaseline } from "./gemmaBaseline";
 import type { FvChange } from "./diff";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { fvTarget } from "@/features/audit/targetIds";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { asFindingEvidence, mergeEvidence } from "@/api/justification";
 
 /** What the baseline chip's click actually does, said plainly.
  *
@@ -296,6 +298,8 @@ export function FactorValueCard({
               fv.id,
             )}
           />
+          {/* Evidence on the value itself; its statements carry their own. */}
+          <EvidenceTrigger evidence={asFindingEvidence(fv.supporting_evidence)} />
           {labelChanged && before ? (
             <span
               className="text-xs text-slate-400 line-through"
@@ -991,6 +995,7 @@ function CompactStatementRow({
           </Term>
         </>
       ) : null}
+      <EvidenceTrigger evidence={asFindingEvidence(statement.supporting_evidence)} />
     </div>
   );
 }
@@ -1087,6 +1092,11 @@ function CompactStatementGroup({
           </span>
         );
       })}
+      {/* One ❝ for the row: the pairs of one statement carry the same
+          evidence, and the popover lists each item once. */}
+      <EvidenceTrigger
+        evidence={mergeEvidence(statements.map((s) => s.supporting_evidence))}
+      />
     </div>
   );
 }

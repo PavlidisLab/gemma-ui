@@ -17,10 +17,27 @@
  * mirror; audit-side keeps its own definitions until extraction.
  */
 
+/** The evidence sources the UI has its own label and colour for — see
+ *  `features/audit/evidenceSource.ts`. */
+export type KnownEvidenceSource =
+  | "paper"
+  | "preboarding"
+  | "sample_names"
+  | "geo_metadata"
+  | "characteristic";
+
+/** 🛑 **Open, not an enum.** What Gemma stores in `supportingEvidence`
+ *  carries sources outside the five above — `inferred`,
+ *  `curator_ruling`, `audit`, `legacy_note` — and the agents'
+ *  `justification.py` opened its own `Literal` to `str` on 2026-09-11
+ *  for that reason. `evidenceSourceMeta` names an unknown source by
+ *  what was recorded. */
+export type EvidenceSource = KnownEvidenceSource | (string & {});
+
 /** One quote / row that grounded a producer's pick. */
 export interface FindingEvidence {
   quote: string;
-  source: "paper" | "preboarding" | "sample_names" | "geo_metadata" | "characteristic";
+  source: EvidenceSource;
   location?: string;
   context?: string;
   source_url?: string;
@@ -29,6 +46,41 @@ export interface FindingEvidence {
    *  `true` → verified (green ✓), `false` → not found in cache (amber ⚠),
    *  `null`/absent → not verifiable (no badge). See auditTypes.FindingEvidence. */
   verified?: boolean | null;
+}
+
+/** Keep what an evidence chip can render: an array of objects carrying
+ *  a string `quote`. Undefined for null, a bare string, or an array of
+ *  anything else, so a shape change upstream shows as a missing chip
+ *  rather than a broken one. */
+export function asFindingEvidence(v: unknown): FindingEvidence[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter(
+    (e): e is FindingEvidence =>
+      !!e &&
+      typeof e === "object" &&
+      typeof (e as { quote?: unknown }).quote === "string",
+  );
+  return out.length > 0 ? out : undefined;
+}
+
+/** Several evidence lists as one, each item once. The samples folded
+ *  into one table row, or the two pairs of one statement, carry copies
+ *  of the same item; same source, quote and location is the same item.
+ *  Anything `asFindingEvidence` would drop is dropped. */
+export function mergeEvidence(
+  lists: ReadonlyArray<unknown>,
+): FindingEvidence[] | undefined {
+  const out: FindingEvidence[] = [];
+  const seen = new Set<string>();
+  for (const list of lists) {
+    for (const e of asFindingEvidence(list) ?? []) {
+      const key = [e.source ?? "", e.quote, e.location ?? ""].join("\u0000");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(e);
+    }
+  }
+  return out.length > 0 ? out : undefined;
 }
 
 /**

@@ -48,7 +48,7 @@
  * this sample". The accession travels as its own field here rather than
  * overloading `short_name` further.
  */
-import type { FindingEvidence } from "@/api/justification";
+import { asFindingEvidence, type FindingEvidence } from "@/api/justification";
 import { api } from "./client";
 import type {
   OntologyTerm,
@@ -64,6 +64,12 @@ interface WireCharacteristic {
   value?: string | null;
   value_uri?: string | null;
   original_value?: string | null;
+  /** The characteristic's own `supportingEvidence`. Measured on eid
+   *  93451: `strain = C57BL/6` carries
+   *  `[{"source":"legacy_note","quote":"likely genetic background"}]`.
+   *  Kept only in the renderable shape, as tags are: the UI sends no
+   *  sample characteristics on commit, so there is nothing to echo. */
+  supporting_evidence?: unknown;
 }
 
 /** A BioAssay row. The BioMaterial hangs off it as `sample` — several
@@ -112,6 +118,7 @@ export interface SampleBiomaterial {
       value: string;
       category_uri?: string | null;
       value_uri?: string | null;
+      supporting_evidence?: FindingEvidence[];
     }>
   >;
   /** 🛑 `bio_assay_id` is Gemma's BioAssay id and it is the JOIN KEY
@@ -219,10 +226,14 @@ function foldCharacteristics(chars: WireCharacteristic[]): {
     // Emitted for every category, not just the doubled ones, so a
     // reader has one enumeration path rather than a branch on whether
     // this particular category collided.
+    const evidence = asFindingEvidence(c.supporting_evidence);
     (characteristic_value_uris[cat] ??= []).push({
       value: val,
       category_uri: c.category_uri ?? null,
       value_uri: c.value_uri ?? null,
+      // Beside the URIs that are this characteristic's own, so two
+      // sharing a category keep their evidence apart.
+      ...(evidence ? { supporting_evidence: evidence } : {}),
     });
   }
   return { characteristics, characteristic_uris, characteristic_value_uris };
@@ -415,19 +426,6 @@ interface WireAnnotation {
  *  violet. Passing it here instead would present a projection as a
  *  stored tag a curator can remove — see the `inferred` rules in
  *  `TagBar`. */
-/** Keep only what the evidence chip can render: an array of objects
- *  carrying a quote. Returns undefined for null, a bare string, or an
- *  array of anything else, so a shape change upstream shows as a
- *  missing chip rather than a broken one. */
-function asFindingEvidence(v: unknown): FindingEvidence[] | undefined {
-  if (!Array.isArray(v)) return undefined;
-  const out = v.filter(
-    (e): e is FindingEvidence =>
-      !!e && typeof e === "object" && typeof (e as { quote?: unknown }).quote === "string",
-  );
-  return out.length > 0 ? out : undefined;
-}
-
 /** The (predicate, object) pairs on one annotation row, as the flat
  *  `Statement` rows the UI keeps.
  *

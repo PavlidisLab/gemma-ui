@@ -4,6 +4,8 @@ import { OntologyTermPicker } from "./OntologyTermPicker";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { CurieLink } from "@/components/ui/CurieLink";
 import { GuidelinePopup } from "@/components/ui/GuidelinePopup";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { asFindingEvidence, mergeEvidence } from "@/api/justification";
 import {
   PREDICATE_GUIDELINE,
   STATEMENT_TEMPLATE_GUIDELINE,
@@ -388,6 +390,8 @@ export function StatementEditor({
         </>
       ) : null}
 
+      <EvidenceTrigger evidence={asFindingEvidence(statement.supporting_evidence)} />
+
       {/* Statement delete — sits inline with the statement's S-P-O
           row, not right-edge-floated. Design review 2026-06-14: the
           ``ml-auto`` floated it to the same column as the FV-level
@@ -584,6 +588,11 @@ export function StatementGroupEditor({
             />
           </span>
         ) : null}
+        {/* One ❝ for the group, each item once — the pairs of one
+            statement carry the same evidence. */}
+        <EvidenceTrigger
+          evidence={mergeEvidence(statements.map((s) => s.supporting_evidence))}
+        />
       </div>
 
       <div className="flex flex-col gap-1 min-w-0">

@@ -40,6 +40,10 @@ import { onSamplesScrollRow } from "@/lib/scrollToSample";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { capitalizeCategory } from "@/lib/ontologyTerm";
 import { BiomaterialMetaPopover } from "./BiomaterialMetaPopover";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { evidenceSourceMeta } from "@/features/audit/evidenceSource";
+import { characteristicEvidence } from "@/features/experiment/characteristicValues";
+import { mergeEvidence } from "@/api/justification";
 import type {
   BiomaterialAssignmentMeta,
   FactorProposal,
@@ -1949,6 +1953,12 @@ function SampleTable({
                           : undefined;
                       const valueTint =
                         valueIdx != null ? tintForIndex(valueIdx) : undefined;
+                      // Each sample's own evidence for this
+                      // characteristic, each item once — the buckets of a
+                      // collapsed row usually carry the same note.
+                      const evidence = mergeEvidence(
+                        siblings.map((b) => characteristicEvidence(b, k)),
+                      );
                       const isDirty =
                         !agg.isMixed &&
                         siblings.some((b) => {
@@ -1992,7 +2002,10 @@ function SampleTable({
                           }
                         >
                           {agg.isMixed ? (
-                            <span>{agg.display}</span>
+                            <span className="inline-flex items-baseline gap-1.5">
+                              <span>{agg.display}</span>
+                              <EvidenceTrigger evidence={evidence} />
+                            </span>
                           ) : (
                             <span
                               className={cn(
@@ -2026,6 +2039,7 @@ function SampleTable({
                               {agg.valueUri ? (
                                 <CurieLink uri={agg.valueUri} />
                               ) : null}
+                              <EvidenceTrigger evidence={evidence} />
                             </span>
                           )}
                         </td>
@@ -2519,8 +2533,18 @@ function FvSelect({
 function FvStatementsTooltipBody({
   fv,
 }: {
-  fv: { free_text_label?: string; statements: Statement[] };
+  fv: {
+    free_text_label?: string;
+    statements: Statement[];
+    supporting_evidence?: unknown;
+  };
 }) {
+  // The value's own evidence and its statements', each item once. Plain
+  // text: the tooltip closes before a ❝ inside it could be clicked.
+  const evidence = mergeEvidence([
+    fv.supporting_evidence,
+    ...fv.statements.map((s) => s.supporting_evidence),
+  ]);
   const sameSubject = (
     a: Statement | null | undefined,
     b: Statement,
@@ -2581,6 +2605,18 @@ function FvStatementsTooltipBody({
           );
         })}
       </div>
+      {evidence ? (
+        <div className="mt-1 pt-1 border-t border-slate-600 space-y-0.5 max-w-sm">
+          {evidence.map((e, i) => (
+            <div key={i} className="text-[10px] leading-snug whitespace-normal">
+              <span className="text-slate-400">
+                Evidence: {evidenceSourceMeta(e.source, e.location).label}
+              </span>{" "}
+              <span className="font-mono text-slate-100">{e.quote}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

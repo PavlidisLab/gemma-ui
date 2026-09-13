@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
 import { Term } from "@/components/ui/Term";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { asFindingEvidence } from "@/api/justification";
 import type { Tag } from "@/features/experiment/types";
 import {
   useDatasetSubsetGroups,
@@ -397,14 +399,19 @@ function SubsetList({
               {label}
             </span>
             {s.characteristics.map((c, i) => (
-              <Term
+              <span
                 key={`${c.id ?? i}`}
-                uri={c.value_uri ?? null}
-                asLink={false}
-                title={c.category ? `${c.category}` : undefined}
+                className="inline-flex items-baseline gap-1"
               >
-                {c.value || "(unlabeled)"}
-              </Term>
+                <Term
+                  uri={c.value_uri ?? null}
+                  asLink={false}
+                  title={c.category ? `${c.category}` : undefined}
+                >
+                  {c.value || "(unlabeled)"}
+                </Term>
+                <EvidenceTrigger evidence={asFindingEvidence(c.supporting_evidence)} />
+              </span>
             ))}
             {s.rows > 1 ? (
               <span className="text-[11px] text-amber-700 dark:text-amber-300">

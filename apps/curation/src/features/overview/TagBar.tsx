@@ -31,6 +31,7 @@ import { AuditDot } from "@/features/audit/AuditDot";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { tagRefId } from "@/features/provenance/refs";
 import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import type { FindingEvidence } from "@/api/justification";
 import { augmentInferredFromBiomaterials } from "./augmentInferred";
 import { augmentInferredFromFactors } from "./augmentFactorTags";
 import { isProtectedTagCategory } from "@/features/experiment/types";
@@ -48,6 +49,7 @@ import {
 } from "@/features/design/mutations";
 import { buildConstancyIndex, isVariableInferredTag } from "./constantAnnotations";
 import {
+  buildCharEvidenceLookup,
   buildCharUriLookup,
   characteristicValues,
 } from "@/features/experiment/characteristicValues";
@@ -490,6 +492,11 @@ export function TagBar({
   const charUriLookup = useMemo(() => buildCharUriLookup(biomaterials), [
     biomaterials,
   ]);
+  // Same keys, for the evidence an inherited chip shows beside its value.
+  const charEvidenceLookup = useMemo(
+    () => buildCharEvidenceLookup(biomaterials),
+    [biomaterials],
+  );
 
   // Build a (category-label, fv-label) → URI lookup from the draft's
   // factor value statements. FV-synth tags have comma-joined value
@@ -1059,6 +1066,7 @@ export function TagBar({
                 tags={nonFvInferredSorted}
                 variant="inferred"
                 charUriLookup={charUriLookup}
+                charEvidenceLookup={charEvidenceLookup}
                 fvUriLookup={fvUriLookup}
                 baselineLookup={baselineLookup}
                 experimentId={experimentId}
@@ -1146,6 +1154,10 @@ interface TagValue {
   uri: string | null;
   /** Stable key for React. */
   key: string;
+  /** A tag's own evidence; on a chip inherited from sample
+   *  characteristics, the evidence those characteristics carry for
+   *  THIS value. */
+  evidence?: FindingEvidence[];
 }
 
 // ``buildCharUriLookup`` moved to
@@ -1159,12 +1171,23 @@ function splitTagValues(
   charUriLookup: Map<string, string>,
   fvUriLookup: Map<string, string>,
   baselineLookup: Set<string>,
+  charEvidenceLookup?: Map<string, FindingEvidence[]>,
 ): TagValue[] {
   const catKey = (category.label || "").trim().toLowerCase();
   const out: TagValue[] = [];
   for (const t of tags) {
     const label = (t.value.label || "").trim();
     if (!label) continue;
+    // Only a chip projected from sample characteristics borrows their
+    // evidence. A direct tag and a characteristic with the same value
+    // are different annotations, and one's evidence is not the other's.
+    const fromCharacteristics =
+      t.inferred && t.inferred_source === "BioMaterial";
+    const evidenceFor = (value: string) =>
+      t.supporting_evidence ??
+      (fromCharacteristics
+        ? charEvidenceLookup?.get(`${catKey}|${value.toLowerCase()}`)
+        : undefined);
     const parts = label.split(",").map((s) => s.trim()).filter(Boolean);
     if (parts.length <= 1) {
       // Single value — prefer the tag's own URI; fall back to the
@@ -1180,7 +1203,7 @@ function splitTagValues(
         charUriLookup.get(`${catKey}|${label.toLowerCase()}`) ??
         fvUriLookup.get(`${catKey}|${label.toLowerCase()}`) ??
         null;
-      out.push({ label, uri, key: `${t.id}:${label}` });
+      out.push({ label, uri, key: `${t.id}:${label}`, evidence: evidenceFor(label) });
     } else {
       // Comma-joined synth value — the tag's own URI doesn't
       // carry to the parts. Look each part up against
@@ -1193,7 +1216,7 @@ function splitTagValues(
           charUriLookup.get(`${catKey}|${p.toLowerCase()}`) ??
           fvUriLookup.get(`${catKey}|${p.toLowerCase()}`) ??
           null;
-        out.push({ label: p, uri, key: `${t.id}:${i}:${p}` });
+        out.push({ label: p, uri, key: `${t.id}:${i}:${p}`, evidence: evidenceFor(p) });
       });
     }
   }
@@ -1367,6 +1390,7 @@ function TagGroups({
   baselineLookup,
   experimentId,
   hideFreeTextValues = false,
+  charEvidenceLookup,
 }: {
   tags: Tag[];
   variant: TagGroupVariant;
@@ -1375,6 +1399,7 @@ function TagGroups({
   baselineLookup: Set<string>;
   experimentId: number | string;
   hideFreeTextValues?: boolean;
+  charEvidenceLookup?: Map<string, FindingEvidence[]>;
 }) {
   if (tags.length === 0) return null;
   const groups = groupTagsByCategoryLabel(tags);
@@ -1387,6 +1412,7 @@ function TagGroups({
           tags={g.tags}
           variant={variant}
           charUriLookup={charUriLookup}
+          charEvidenceLookup={charEvidenceLookup}
           fvUriLookup={fvUriLookup}
           baselineLookup={baselineLookup}
           experimentId={experimentId}
@@ -2010,6 +2036,7 @@ export function EditableDirectGroupChip({
                   targetId={tagTarget(tag.category.label, tag.value.label)}
                 />
                 <ProvenanceDot refId={tagRefId(tag.id)} />
+                <EvidenceTrigger evidence={tag.supporting_evidence} />
                 {/* Delete affordance — same shape as the single-tag
                     chip above. Hover-reveal via ``group/chip``. The reviewer
                     2026-06-15: edit exposes delete, nothing else. */}
@@ -2139,6 +2166,7 @@ function TagGroupChip({
   baselineLookup,
   experimentId,
   hideFreeTextValues = false,
+  charEvidenceLookup,
 }: {
   category: Tag["category"];
   tags: Tag[];
@@ -2150,13 +2178,23 @@ function TagGroupChip({
   /** "Hide free-text" is checked — drop this group's unresolved
    *  VALUES, not just wholly-unresolved tags. */
   hideFreeTextValues?: boolean;
+  /** Per-value evidence from sample characteristics — see
+   *  `buildCharEvidenceLookup`. */
+  charEvidenceLookup?: Map<string, FindingEvidence[]>;
 }) {
   // Hide free-text bites per VALUE — one inherited tag renders N
   // chips, so the tag-level test alone let a mixed tag's ungrounded
   // values through a checked box. Rule + rationale in
   // ``tagFreeTextFilter.ts``.
   const values = visibleTagValues(
-    splitTagValues(tags, category, charUriLookup, fvUriLookup, baselineLookup),
+    splitTagValues(
+      tags,
+      category,
+      charUriLookup,
+      fvUriLookup,
+      baselineLookup,
+      charEvidenceLookup,
+    ),
     hideFreeTextValues,
   );
   const [showAllValues, setShowAllValues] = useState(false);
@@ -2297,6 +2335,7 @@ function TagGroupChip({
             demoted={hasUriValue && !v.uri}
             needsGrounding={variant === "direct" && !v.uri}
           />
+          <EvidenceTrigger evidence={v.evidence} />
         </span>
       ))}
       {hiddenCount > 0 ? (

@@ -9,6 +9,7 @@
  * free-text only; materialising a fix is always a curator click in
  * the UI.
  */
+import type { EvidenceSource } from "./justification";
 import type { OntologyTerm, Proposal, StatementProposal } from "./types";
 
 /** What an `AuditFinding` is *about*. ``"statement"`` is reserved for
@@ -83,12 +84,8 @@ export interface FindingEvidence {
   /** Full-sentence rendering. Whole sentences only — half-sentence
    *  fragments read as cherry-picked. */
   quote: string;
-  source:
-    | "paper"
-    | "preboarding"
-    | "sample_names"
-    | "geo_metadata"
-    | "characteristic";
+  /** Open — see `EvidenceSource`. */
+  source: EvidenceSource;
   /** Optional pointer back to the source — paper section, sample
    *  short_name list, characteristic key, etc. Empty when the source
    *  label itself is sufficient. */

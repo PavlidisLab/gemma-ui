@@ -14,6 +14,8 @@
  * inferred relations while appearing nowhere in the UI.
  */
 import { describe, expect, it } from "vitest";
+import { characteristicEvidence } from "@/features/experiment/characteristicValues";
+import { snakeify } from "./client";
 import {
   toExperimentTags,
   toPublications,
@@ -125,6 +127,65 @@ describe("toSampleBiomaterials — real gemma2 bytes", () => {
     // the bare `GSE324761_Biomat_1` — no pipe, so `parseShortName`
     // returns it whole and the two sides meet.
     expect(rows[0].short_name).toBe("GSE324761_Biomat_1");
+  });
+});
+
+describe("sample characteristic evidence — gemma2 eid 93451", () => {
+  // The characteristic is verbatim from `GET /datasets/93451/samples`
+  // (authenticated; the dataset is not public), its neighbour and the
+  // assay around them are not. Run through `snakeify` the way
+  // `client.ts` does: spelled by hand, a casing slip here reads the same
+  // as "no evidence".
+  const rows = toSampleBiomaterials(
+    snakeify([
+      {
+        id: 1,
+        name: "assay",
+        accession: { accession: "GSM1" },
+        sample: {
+          id: 2,
+          name: "GSE_bioMaterial_1|GSM1",
+          characteristics: [
+            {
+              id: 56960916,
+              category: "strain",
+              categoryUri: null,
+              value: "C57BL/6",
+              valueUri: null,
+              originalValue: "strain: C57BL/6",
+              supportingEvidence: [
+                { source: "legacy_note", quote: "likely genetic background" },
+              ],
+            },
+            {
+              id: 56960917,
+              category: "sex",
+              categoryUri: null,
+              value: "male",
+              valueUri: null,
+            },
+          ],
+        },
+      },
+    ]) as Parameters<typeof toSampleBiomaterials>[0],
+  );
+
+  it("carries the evidence beside the characteristic it belongs to", () => {
+    expect(rows[0].characteristic_value_uris.strain[0].supporting_evidence).toEqual([
+      { source: "legacy_note", quote: "likely genetic background" },
+    ]);
+  });
+
+  it("adds no key to a characteristic without evidence", () => {
+    expect(rows[0].characteristic_value_uris.sex[0]).not.toHaveProperty(
+      "supporting_evidence",
+    );
+  });
+
+  it("is what the sample table reads", () => {
+    expect(characteristicEvidence(rows[0], "strain")).toEqual([
+      { source: "legacy_note", quote: "likely genetic background" },
+    ]);
   });
 });
 

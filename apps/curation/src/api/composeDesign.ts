@@ -33,6 +33,7 @@ import type {
   Statement,
   Tag,
 } from "@/features/experiment/types";
+import type { FindingEvidence } from "@/api/justification";
 
 // ─── Gemma 2.0 wire shapes (post-snakeify) ───────────────────────
 
@@ -73,6 +74,8 @@ interface G2FactorValue {
   is_baseline?: boolean | null;
   characteristics?: G2Term[];
   statements?: G2Statement[];
+  /** Absent when Gemma has none — see `FactorValue.supporting_evidence`. */
+  supporting_evidence?: unknown;
 }
 
 interface G2ExperimentalFactor {
@@ -96,6 +99,8 @@ interface G2ExperimentalFactor {
    *  of them — see `Factor.subset_relevance`. */
   subset_relevance?: string | null;
   subset_relevance_reason?: string | null;
+  /** Absent when Gemma has none — see `Factor.supporting_evidence`. */
+  supporting_evidence?: unknown;
 }
 
 interface G2BioMaterialAssignment {
@@ -131,6 +136,7 @@ interface LegacyBiomaterial {
       value: string;
       category_uri?: string | null;
       value_uri?: string | null;
+      supporting_evidence?: FindingEvidence[];
     }>
   >;
   bio_assays?: Array<{
@@ -667,6 +673,14 @@ function composeFactor(
       numeric_value: v.is_measurement
         ? parseNumeric(v.value ?? v.summary ?? "")
         : null,
+      // Absent stays absent, as on a statement. See
+      // `FactorValue.supporting_evidence`.
+      ...(v.supporting_evidence === undefined
+        ? {}
+        : {
+            supporting_evidence:
+              v.supporting_evidence as FactorValue["supporting_evidence"],
+          }),
     };
   });
   return {
@@ -685,6 +699,12 @@ function composeFactor(
     ...(ef.subset_relevance_reason == null
       ? {}
       : { subset_relevance_reason: ef.subset_relevance_reason }),
+    ...(ef.supporting_evidence === undefined
+      ? {}
+      : {
+          supporting_evidence:
+            ef.supporting_evidence as Factor["supporting_evidence"],
+        }),
   };
 }
 

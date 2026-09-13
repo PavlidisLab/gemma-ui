@@ -67,6 +67,9 @@ export interface SubsetCharacteristic {
   category_uri?: string | null;
   value?: string | null;
   value_uri?: string | null;
+  /** Gemma's `CharacteristicValueObject.supportingEvidence`; absent when
+   *  the row has none. Rendered through `asFindingEvidence`. */
+  supporting_evidence?: unknown;
 }
 
 /** One row of `/datasets/{id}/subSets`, post-`snakeify`. */

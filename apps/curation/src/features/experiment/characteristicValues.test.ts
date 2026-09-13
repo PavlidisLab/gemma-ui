@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildCharEvidenceLookup,
   buildCharUriLookup,
+  characteristicEvidence,
   characteristicValues,
 } from "./characteristicValues";
 import type { Biomaterial } from "./types";
@@ -153,6 +155,86 @@ describe("characteristicValues", () => {
     };
     expect(characteristicValues(bm)).toEqual([]);
   });
+
+  it("reads the decomposition beside a characteristic recorded with no value", () => {
+    // The fold keeps a valueless characteristic as its own row and joins
+    // nothing for it, so re-joining the rows must skip it too. Before,
+    // this fell back to the category map, which holds the EMPTY row's
+    // URIs because it came first.
+    const CHEBI = "http://purl.obolibrary.org/obo/CHEBI_80630";
+    const bm: Biomaterial = {
+      short_name: "s1",
+      name: "s1",
+      characteristics: { treatment: "Topotecan" },
+      characteristic_uris: { treatment: { category_uri: null, value_uri: null } },
+      characteristic_value_uris: {
+        treatment: [
+          { value: "", category_uri: null, value_uri: null },
+          { value: "Topotecan", category_uri: null, value_uri: CHEBI },
+        ],
+      },
+    };
+    expect(characteristicValues(bm)).toEqual([
+      { category: "treatment", label: "Topotecan", category_uri: null, value_uri: CHEBI },
+    ]);
+  });
+});
+
+describe("characteristicEvidence", () => {
+  const NOTE = { source: "legacy_note", quote: "likely genetic background" };
+
+  function strainSample(value: string): Biomaterial {
+    return {
+      short_name: "s1",
+      name: "s1",
+      characteristics: { strain: value },
+      characteristic_value_uris: {
+        strain: [
+          {
+            value: "C57BL/6",
+            category_uri: null,
+            value_uri: null,
+            supporting_evidence: [NOTE],
+          },
+        ],
+      },
+    };
+  }
+
+  it("returns the characteristic's own evidence", () => {
+    expect(characteristicEvidence(strainSample("C57BL/6"), "strain")).toEqual([
+      NOTE,
+    ]);
+  });
+
+  it("returns nothing once a curator has typed over the value", () => {
+    expect(characteristicEvidence(strainSample("BALB/c"), "strain")).toBeUndefined();
+  });
+
+  it("returns nothing for a category with no decomposition", () => {
+    const bm: Biomaterial = {
+      short_name: "s1",
+      name: "s1",
+      characteristics: { strain: "C57BL/6" },
+    };
+    expect(characteristicEvidence(bm, "strain")).toBeUndefined();
+  });
+
+  it("lists both characteristics' evidence under a shared category, each item once", () => {
+    const other = { source: "inferred", quote: "treatment arm from the title" };
+    const bm = sample8959("GSM1", "Topotecan");
+    bm.characteristic_value_uris!["molecular entity"][0].supporting_evidence = [NOTE];
+    bm.characteristic_value_uris!["molecular entity"][1].supporting_evidence = [
+      NOTE,
+      other,
+    ];
+    expect(characteristicEvidence(bm, "molecular entity")).toEqual([NOTE, other]);
+    // And each value still carries only its own.
+    expect(
+      characteristicValues(bm).find((v) => v.label === "polyA RNA extract")
+        ?.supporting_evidence,
+    ).toEqual([NOTE]);
+  });
 });
 
 describe("buildCharUriLookup", () => {
@@ -180,5 +262,24 @@ describe("buildCharUriLookup", () => {
     expect(lookup.get("cell line|mcf7 cell")).toBe(
       "http://purl.obolibrary.org/obo/CLO_0007606",
     );
+  });
+});
+
+describe("buildCharEvidenceLookup", () => {
+  const NOTE = { source: "legacy_note", quote: "likely genetic background" };
+
+  it("keys per value and lists an item the cohort shares once", () => {
+    const cohort = [
+      sample8959("GSM1", "Topotecan"),
+      sample8959("GSM2", "Vehicle"),
+    ];
+    for (const bm of cohort) {
+      bm.characteristic_value_uris!["molecular entity"][1].supporting_evidence = [NOTE];
+    }
+    const lookup = buildCharEvidenceLookup(cohort);
+    expect(lookup.get("molecular entity|topotecan")).toEqual([NOTE]);
+    expect(lookup.get("molecular entity|vehicle")).toEqual([NOTE]);
+    // The grounded value beside them carries none of its own.
+    expect(lookup.has("molecular entity|polya rna extract")).toBe(false);
   });
 });

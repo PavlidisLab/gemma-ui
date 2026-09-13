@@ -10,6 +10,8 @@ import { FACTOR_TEMPLATES, type FactorTemplate } from "./factorTemplates";
 import { AuditDot, GemmaMatchDot } from "@/features/audit/AuditDot";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { factorRefId } from "@/features/provenance/refs";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { asFindingEvidence } from "@/api/justification";
 import { factorTarget } from "@/features/audit/targetIds";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
 import type {
@@ -284,6 +286,7 @@ export function FactorList({
                         curator runs "populate provenance", and nothing
                         after it for a factor with no recorded trace. */}
                     <ProvenanceDot refId={factorRefId(f.id)} />
+                    <EvidenceTrigger evidence={asFindingEvidence(f.supporting_evidence)} />
                     <GemmaMatchDot factorLabel={f.category?.label || ""} />
                     <SubsetChip
                       livery={subsetLiveryFor(f, design, subsetUsedFactorIds)}

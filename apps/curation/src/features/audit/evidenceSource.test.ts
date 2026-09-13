@@ -53,9 +53,28 @@ describe("evidenceSourceMeta", () => {
     // Wire could carry a source the UI doesn't model yet (or an empty
     // string). Defaulting to the authoritative "sample characteristic"
     // misrepresents unknown provenance (design review 2026-06-19); stay neutral.
-    const unknown = evidenceSourceMeta("totally_new_source" as never);
-    expect(unknown.label).toBe("source");
+    const unknown = evidenceSourceMeta("totally_new_source");
     expect(unknown.label).not.toBe("sample characteristic");
-    expect(evidenceSourceMeta("" as never).label).toBe("source");
+    expect(unknown.borderCls).toBe(evidenceSourceMeta("").borderCls);
+    expect(evidenceSourceMeta("").label).toBe("source");
+    expect(evidenceSourceMeta("").description).toBe(
+      "Provenance not specified by the producer.",
+    );
+  });
+
+  it("names a source it has no entry for by what was recorded", () => {
+    // Every evidence row Gemma stores uses one of these, and all of them
+    // used to read "Provenance not specified by the producer".
+    expect(evidenceSourceMeta("legacy_note").label).toBe("legacy note");
+    expect(evidenceSourceMeta("curator_ruling").label).toBe("curator ruling");
+    expect(evidenceSourceMeta("inferred").description).toBe(
+      "Source recorded as “inferred”.",
+    );
+    // Stays neutral: naming it is not vouching for it.
+    expect(evidenceSourceMeta("audit").borderCls).toMatch(/slate/);
+  });
+
+  it("does not resolve inherited object keys as sources", () => {
+    expect(evidenceSourceMeta("toString").label).toBe("toString");
   });
 });

@@ -16,6 +16,8 @@ import { shortenUri } from "@/lib/curie";
 import { cn } from "@/lib/cn";
 import { ProvenanceDot } from "@/features/provenance/ProvenanceDot";
 import { publicationRefId } from "@/features/provenance/refs";
+import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
+import { asFindingEvidence } from "@/api/justification";
 import { publicationTarget } from "@/features/audit/targetIds";
 import { AuditDot } from "@/features/audit/AuditDot";
 import { useAuditOptional, useFocusFinding } from "@/features/audit/AuditContext";
@@ -360,6 +362,9 @@ export function PublicationRow({
               identifiers, not the title: it speaks to the LINK, not to
               the paper. */}
           <ProvenanceDot refId={publicationRefId(publication)} />
+          <EvidenceTrigger
+            evidence={asFindingEvidence(publication.association?.supporting_evidence)}
+          />
           {/* Is this actually the right paper? — the publication-
               provenance audit's verdict. Renders nothing until a
               provenance audit has run against this dataset; this was

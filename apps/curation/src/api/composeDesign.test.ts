@@ -401,3 +401,37 @@ describe("composeCurationDesign — taxon from either wire shape", () => {
     expect(compose(null).taxon).toBe("");
   });
 });
+
+describe("supportingEvidence on a factor and a factor value", () => {
+  // Hand-built: no factor on production carried evidence when gembro
+  // counted (2026-09-12), so there are no live bytes to pin.
+  const EV = [{ source: "curator_ruling", quote: "treatment arm named in the title" }];
+  const g2 = {
+    experimental_factors: [
+      {
+        id: 1,
+        name: "treatment",
+        type: "categorical",
+        category: { category: "treatment", category_uri: null },
+        supporting_evidence: EV,
+        values: [
+          { id: 10, value: "DMSO", supporting_evidence: EV, statements: [] },
+          { id: 11, value: "UZH2", statements: [] },
+        ],
+      },
+    ],
+    bio_material_assignments: [],
+  } as unknown as G2Design;
+  const design = composeCurationDesign(g2, 1, "GSE1");
+
+  it("carries each as read", () => {
+    expect(design.factors[0].supporting_evidence).toEqual(EV);
+    expect(design.factors[0].factor_values[0].supporting_evidence).toEqual(EV);
+  });
+
+  it("adds no key where Gemma sent none", () => {
+    expect(design.factors[0].factor_values[1]).not.toHaveProperty(
+      "supporting_evidence",
+    );
+  });
+});
