@@ -43,34 +43,16 @@ export const COPY = {
   },
 } as const;
 
-/** Three-column "general info" block shown by default just below
- *  the recently-updated ticker on the home page. Folded away by
- *  curators / API users who already know what Gemma is and want
- *  the stats / breakdowns below directly.
+/** Two-column "general info" block on the home page, below the
+ *  stats row.
  *
- *  Each column has a distinct accent colour (orange / blue /
- *  emerald) — visual anchor without crowding the brutalist
- *  palette. Item shapes are structured so the UI can lead with a
+ *  Item shapes are structured so the UI can lead with a
  *  bold "lead" / chip and follow with a muted "body" / hint —
  *  scanability over prose.
  */
 export const GENERAL_INFO = {
-  idea: {
-    title: "What Gemma is",
-    accent: "orange",
-    /** One-line essence — rendered large + bold at the top. */
-    lead: "Curated and re-analyzed gene-expression data — human, mouse, and rat.",
-    /** Supporting paragraphs, rendered as separate <p> elements
-     *  so each idea has its own block of breathing room. */
-    body: [
-      "A repository of public gene-expression studies, re-analyzed end-to-end so the data is actually usable for meta-analysis.",
-      "We re-process raw sequencing and array data, then harmonize sample-level annotations against community ontologies.",
-      "Results are published through this website, a REST API, and the gemma.R / gemmapy clients.",
-    ],
-  },
   provide: {
     title: "What we provide",
-    accent: "blue", // data + analysis blue
     /** Two-column ``<dl>``: <dt>lead</dt> <dd>body</dd>. Bodies
      *  trimmed to ~1 line each so the panel reads as a tight
      *  reference table, not a wall of text. */
@@ -84,7 +66,6 @@ export const GENERAL_INFO = {
   },
   how: {
     title: "How to access",
-    accent: "emerald", // action / how-to colour
     /** Each item: <mono tag chip> <link label> — <hint>. */
     items: [
       { tag: "WEB", label: "Browse the corpus", hint: "search + filter UI", href: "/browser", external: false },

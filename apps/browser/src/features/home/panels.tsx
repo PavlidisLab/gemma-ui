@@ -13,22 +13,11 @@ import type React from "react";
 import { Link } from "@tanstack/react-router";
 import { Tooltip } from "@/components/ui/Tooltip";
 
-/** The hard-bordered frame every home-page block sits in. */
-export function Panel({
-  children,
-  minHeight = true,
-}: {
-  children: React.ReactNode;
-  /** The floor that keeps two side-by-side panels on the home row from
-   *  sitting at different heights. Off inside the plots popup, where
-   *  each block is shown alone and the slack just reads as a gap. */
-  minHeight?: boolean;
-}) {
+/** The hard-bordered frame each block in the plots popup sits in. */
+export function Panel({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col h-full border border-stone-950 bg-stone-100">
-      <div className={`flex-1 ${minHeight ? "min-h-[15rem]" : ""}`}>
-        {children}
-      </div>
+      <div className="flex-1">{children}</div>
     </div>
   );
 }

@@ -4,13 +4,15 @@
  * Design intent (v4 — fixed panels + plots popup, 2026-08-21):
  *   - Hero stats row: Datasets, Platforms, Samples, Result sets
  *     (DEA), Ontology terms — each in its own block.
- *   - "What Gemma is / provide / how to access", collapsible.
+ *   - "What we provide" and "How to access", side by side.
  *   - One row of two panels that hold still: annotation coverage,
  *     and recent activity (the week's counts, then one worked
  *     example). Each block fills progressively as its query
  *     resolves — no whole-page block-on-slowest.
  *   - Everything distributional lives behind "More plots".
- *   - Hard 1px borders, no rounded corners, no shadows.
+ *   - White page. Annotation coverage and recent activity sit on
+ *     shaded blocks, not outlines; elsewhere subtle grey dividers and
+ *     whitespace. No rounded corners, no shadows.
  *   - Single accent (blue-700) for hover affordances only.
  */
 
@@ -26,8 +28,10 @@ import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLockup } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
+import { museumUrl } from "@/lib/gemmaConfig";
+import museumArt from "../museum-human-cell-cycle.png";
 import { tintForIndex } from "@/lib/valueTint";
-import { InfoBadge, Panel } from "../panels";
+import { InfoBadge } from "../panels";
 import { MorePlotsModal, GENOTYPE_CATEGORY_URI } from "../MorePlotsModal";
 import {
   useGemmaSummary,
@@ -39,13 +43,10 @@ import {
 
 export function HomeBrutalist() {
   const s = useGemmaSummary();
-  // General-info section starts expanded on first load (per design review);
-  // power users can fold it away once they know what Gemma is.
-  const [infoOpen, setInfoOpen] = useState(true);
   const [plotsOpen, setPlotsOpen] = useState(false);
   return (
     <div
-      className="h-full overflow-y-auto bg-stone-100 text-stone-950"
+      className="h-full overflow-y-auto bg-white text-stone-950"
       style={{ fontFamily: '"Inter", ui-sans-serif, system-ui, sans-serif' }}
     >
       <div className="max-w-6xl mx-auto px-6 py-8 space-y-px">
@@ -63,39 +64,35 @@ export function HomeBrutalist() {
         {/* Hero stats — 5 metrics + about column */}
         <StatsRow s={s} />
 
-        {/* General info — three columns. Collapsible so curators /
-            API users can fold it away and focus on the breakdowns
-            and charts below. */}
-        <GeneralInfo open={infoOpen} onToggle={() => setInfoOpen((v) => !v)} />
+        {/* General info — what we provide, how to access it, and the
+            museum card. */}
+        <GeneralInfo />
 
-        {/* Two fixed panels, one row: annotation coverage on the left,
-            the recent-activity panel on the right. This replaced a
-            pair of auto-rotating carousels — two showcases cycling
-            beside each other meant nothing on the row held still long
-            enough to read. The distribution plots they used to hide
-            now live behind "More plots", where they can be looked at
-            deliberately. */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-px">
-          <Panel>
+        {/* One row of two shaded blocks, no outlines: annotation
+            coverage (with the "More plots" entry point under it), then
+            recent activity across the last two columns. The distribution
+            plots live behind "More plots". */}
+        <div className={`grid grid-cols-1 md:grid-cols-2 ${THREE_COLUMNS} gap-3 pt-6`}>
+          <div className="bg-stone-100 py-4">
             <AnnotationCoverageBreakdown s={s} />
-          </Panel>
-          <Panel>
+            <button
+              type="button"
+              onClick={() => setPlotsOpen(true)}
+              className="mt-4 mx-5 text-[11px] text-stone-600 hover:text-blue-700 focus:outline-none focus:ring-1 focus:ring-stone-600"
+            >
+              More plots →
+            </button>
+          </div>
+          <div className="lg:col-span-2 bg-stone-100 py-4">
             <RecentActivityCard
               items={s.recentDatasets}
               updatedThisWeek={s.updatedThisWeek}
               added={s.added}
               updatedSince={s.updatedSince}
             />
-          </Panel>
+          </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setPlotsOpen(true)}
-          className="w-full border border-stone-950 border-t-0 bg-stone-100 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-stone-600 hover:bg-stone-200 hover:text-stone-900 focus:outline-none focus:ring-1 focus:ring-stone-600"
-        >
-          More plots →
-        </button>
         <MorePlotsModal
           open={plotsOpen}
           onClose={() => setPlotsOpen(false)}
@@ -114,6 +111,37 @@ export function HomeBrutalist() {
             individual tiles, which is where it was most useful. */}
       </div>
     </div>
+  );
+}
+
+/** Column template shared by the info row (what we provide · how to
+ *  access · museum card) and the shaded-card row (annotation coverage ·
+ *  recent activity across the last two), so the column edges line up
+ *  from one row to the next. */
+const THREE_COLUMNS =
+  "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,15rem)]";
+
+/** Card linking out to the Museum of Gene Expression, with one of its
+ *  exhibits in miniature. The image is the canvas art of the exhibit
+ *  "The human cell cycle" (key ``whitfield2002``), rendered by the
+ *  museum's own drawHeatmap and exported without its frame or dark
+ *  margin (2026-09-14). */
+function MuseumCard() {
+  return (
+    <a
+      href={museumUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block px-5 py-4 hover:no-underline"
+    >
+      <div className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-900 font-semibold group-hover:text-blue-700">
+        Visit the Museum of Gene Expression
+        <span aria-hidden className="ml-1 font-normal text-stone-500 group-hover:text-blue-700">
+          ↗
+        </span>
+      </div>
+      <img src={museumArt} alt="" className="block w-full h-auto" />
+    </a>
   );
 }
 
@@ -155,7 +183,7 @@ function StatsRow({ s }: { s: GemmaSummary }) {
   })();
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-10 gap-px bg-stone-950">
+    <div className="grid grid-cols-2 md:grid-cols-10 md:divide-x md:divide-stone-200">
       <StatBlock
         label="Datasets"
         value={fmtCount(s.datasets, "full", homeLoading)}
@@ -299,20 +327,23 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
     ],
   ];
   return (
-    <div className="bg-stone-100">
-      <div className="px-5 py-3 border-b border-stone-300 text-[10px] uppercase tracking-[0.2em] text-stone-600">
-        Annotation coverage · distinct ontology terms in use
+    <div>
+      <div className="flex items-baseline justify-between gap-3 px-5 pb-2 text-[10px] uppercase tracking-[0.2em] text-stone-600">
+        <span className="text-stone-900 font-semibold">Annotation coverage</span>
+        <span className="normal-case tracking-normal text-[11px] text-stone-500 text-right">
+          distinct ontology terms in use
+        </span>
       </div>
-      <div className="grid grid-cols-2 gap-px bg-stone-300">
+      <div className="grid grid-cols-2 gap-x-8 px-5">
         {columns.map((col, ci) => (
-          <table key={ci} className="w-full text-sm bg-stone-100">
+          <table key={ci} className="w-full text-sm">
             <tbody>
               {col.map((r) => (
                 <tr
                   key={r.label}
                   className="border-t border-stone-200 first:border-t-0"
                 >
-                  <td className="px-4 py-2 text-stone-800">
+                  <td className="py-2 text-stone-800">
                     <span className="inline-flex items-center">
                       {r.cat ? (
                         <Link
@@ -332,7 +363,7 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
                       <InfoBadge hint={r.hint} />
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-right tabular-nums font-semibold text-stone-950">
+                  <td className="py-2 text-right tabular-nums font-semibold text-stone-950">
                     {fmtCount(r.value, "full", loadingOf(r.value))}
                   </td>
                 </tr>
@@ -445,11 +476,10 @@ function RecentActivityCard({
 
   return (
     <div
-      className="bg-stone-100"
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
     >
-      <div className="flex items-baseline justify-between gap-3 px-5 py-3 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300">
+      <div className="flex items-baseline justify-between gap-3 px-5 pb-2 text-[10px] uppercase tracking-[0.2em] text-stone-600">
         <span className="text-stone-900 font-semibold">Recent activity</span>
         <Link
           to="/browser"
@@ -459,7 +489,7 @@ function RecentActivityCard({
           see all →
         </Link>
       </div>
-      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-3 border-b border-stone-300">
+      <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 px-5 py-2">
         <WeekStat
           count={updatedThisWeek}
           noun="updated this week"
@@ -482,7 +512,7 @@ function RecentActivityCard({
           "the" recently updated dataset rather than one of many. The
           arrows say the rest out loud — the card used to rotate on its
           own with nothing on screen offering a way to steer it. */}
-      <div className="flex items-center justify-between gap-3 px-5 pt-3 pb-1 text-[10px] uppercase tracking-[0.2em] text-stone-500">
+      <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-1 text-[10px] uppercase tracking-[0.2em] text-stone-500">
         <span>Recently updated</span>
         {ready ? (
           <span className="flex items-center gap-1">
@@ -719,7 +749,7 @@ function Masthead() {
     /* `pb-1` is clearance for the mark, which hangs below the wordmark
        baseline the rest of the row aligns on — without it the bottom arc
        lands flush on the border. */
-    <div className="border-b border-stone-950 bg-stone-100 pb-1">
+    <div className="border-b border-stone-950 pb-1">
       {/* One shared baseline across the wordmark, the tagline and the
           right-side controls — `last baseline` on this row, resolved by the
           browser from the face that actually rendered. */}
@@ -802,156 +832,92 @@ function Masthead() {
   );
 }
 
-function GeneralInfo({
-  open,
-  onToggle,
-}: {
-  open: boolean;
-  onToggle: () => void;
-}) {
+function GeneralInfo() {
   return (
-    <div className="my-3 border-2 border-stone-950 bg-stone-100">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-controls="general-info-body"
-        className="w-full flex items-baseline gap-2 px-5 py-2.5 text-[10px] uppercase tracking-[0.2em] text-stone-600 border-b border-stone-300 hover:bg-stone-50"
-      >
-        <span className="text-stone-900 font-semibold">About Gemma</span>
-        <span className="text-blue-700 normal-case tracking-normal text-[11px] font-medium">
-          {open ? "▾ hide" : "▸ show"}
-        </span>
-      </button>
-      {open ? (
-        <div
-          id="general-info-body"
-          className="grid grid-cols-1 md:grid-cols-3 gap-px bg-stone-300"
-        >
-          {/* Column 1 — identity / mission. */}
-          <InfoColumn
-            title={GENERAL_INFO.idea.title}
-            accent={GENERAL_INFO.idea.accent}
-          >
-            <p className="text-[15px] font-semibold text-stone-900 leading-snug mb-3">
-              {GENERAL_INFO.idea.lead}
-            </p>
-            <div className="space-y-2 text-sm text-stone-600 leading-relaxed">
-              {GENERAL_INFO.idea.body.map((para) => (
-                <p key={para}>{para}</p>
-              ))}
+    <div className={`my-3 grid grid-cols-1 md:grid-cols-2 ${THREE_COLUMNS} md:gap-x-3`}>
+      {/* Column 1 — data + analysis catalogue. Two-column
+          definition list: bold lead on the left, muted body on
+          the right. Bullets dropped — the typography +
+          grid alignment carry enough structure on their own. */}
+      <InfoColumn title={GENERAL_INFO.provide.title}>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm leading-snug">
+          {GENERAL_INFO.provide.items.map((item) => (
+            <div key={item.lead} className="contents">
+              <dt className="font-semibold text-stone-900 whitespace-nowrap">
+                {item.lead}
+              </dt>
+              <dd className="text-stone-600">{item.body}</dd>
             </div>
-          </InfoColumn>
+          ))}
+        </dl>
+      </InfoColumn>
 
-          {/* Column 2 — data + analysis catalogue. Two-column
-              definition list: bold lead on the left, muted body on
-              the right. Bullets dropped — the typography +
-              grid alignment carry enough structure on their own. */}
-          <InfoColumn
-            title={GENERAL_INFO.provide.title}
-            accent={GENERAL_INFO.provide.accent}
-          >
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm leading-snug">
-              {GENERAL_INFO.provide.items.map((item) => (
-                <div key={item.lead} className="contents">
-                  <dt className="font-semibold text-stone-900 whitespace-nowrap">
-                    {item.lead}
-                  </dt>
-                  <dd className="text-stone-600">{item.body}</dd>
-                </div>
-              ))}
-            </dl>
-          </InfoColumn>
-
-          {/* Column 3 — access surfaces. Same compact dl pattern
-              as Column 2: tag column on the left, link in the
-              middle, muted hint on the right. Tight rows, no
-              heavy filled chips — outlined tag at the same scale
-              as the body text. */}
-          <InfoColumn
-            title={GENERAL_INFO.how.title}
-            accent={GENERAL_INFO.how.accent}
-          >
-            <ul className="grid grid-cols-[2.5rem_auto_1fr] gap-x-3 gap-y-1 text-sm leading-snug">
-              {GENERAL_INFO.how.items.map((item) => {
-                const labelEl = (
-                  <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
-                    {item.label}
-                  </span>
-                );
-                return (
-                  <li key={item.label} className="contents">
+      {/* Column 2 — access surfaces. Same compact dl pattern
+          as Column 1: tag column on the left, link in the
+          middle, muted hint on the right. Tight rows, no
+          heavy filled chips — outlined tag at the same scale
+          as the body text. */}
+      <InfoColumn title={GENERAL_INFO.how.title}>
+        <ul className="grid grid-cols-[2.5rem_auto_1fr] gap-x-3 gap-y-1 text-sm leading-snug">
+          {GENERAL_INFO.how.items.map((item) => {
+            const labelEl = (
+              <span className="font-semibold text-stone-900 group-hover:text-emerald-700 group-hover:underline">
+                {item.label}
+              </span>
+            );
+            return (
+              <li key={item.label} className="contents">
+                <span
+                  aria-hidden="true"
+                  className="text-[10px] font-mono font-semibold tracking-wide text-stone-500 self-baseline"
+                >
+                  {item.tag}
+                </span>
+                {item.external ? (
+                  <a
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group inline-block"
+                  >
+                    {labelEl}
                     <span
-                      aria-hidden="true"
-                      className="text-[10px] font-mono font-semibold tracking-wide text-stone-500 self-baseline"
+                      aria-hidden
+                      className="ml-0.5 text-[0.85em] opacity-60 font-normal text-stone-500"
                     >
-                      {item.tag}
+                      ↗
                     </span>
-                    {item.external ? (
-                      <a
-                        href={item.href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="group inline-block"
-                      >
-                        {labelEl}
-                        <span
-                          aria-hidden
-                          className="ml-0.5 text-[0.85em] opacity-60 font-normal text-stone-500"
-                        >
-                          ↗
-                        </span>
-                      </a>
-                    ) : (
-                      <Link to={item.href} className="group inline-block">
-                        {labelEl}
-                      </Link>
-                    )}
-                    <span className="text-stone-500 text-xs self-baseline truncate">
-                      {item.hint}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </InfoColumn>
-        </div>
-      ) : null}
+                  </a>
+                ) : (
+                  <Link to={item.href} className="group inline-block">
+                    {labelEl}
+                  </Link>
+                )}
+                <span className="text-stone-500 text-xs self-baseline truncate">
+                  {item.hint}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </InfoColumn>
+
+      <MuseumCard />
     </div>
   );
 }
 
-/** Per-column accent — small coloured bar on the left edge +
- *  matching tinted title dot. Anchors the column visually
- *  without competing with the body content. Three accents:
- *  orange (identity), blue (data), emerald (action). */
 function InfoColumn({
   title,
-  accent,
   children,
 }: {
   title: string;
-  accent: "orange" | "blue" | "emerald";
   children: React.ReactNode;
 }) {
-  const accentClass =
-    accent === "orange"
-      ? "bg-orange-500"
-      : accent === "blue"
-        ? "bg-blue-700"
-        : "bg-emerald-600";
   return (
-    <div className="bg-stone-100 relative pl-5 pr-5 py-4">
-      <span
-        aria-hidden="true"
-        className={`absolute left-0 top-0 bottom-0 w-1 ${accentClass}`}
-      />
-      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-600 mb-3 flex items-center gap-2">
-        <span
-          aria-hidden="true"
-          className={`inline-block w-2 h-2 ${accentClass}`}
-        />
-        <span className="text-stone-900 font-semibold">{title}</span>
+    <div className="px-5 py-4">
+      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-900 font-semibold mb-3">
+        {title}
       </div>
       {children}
     </div>
@@ -995,7 +961,7 @@ function StatBlock({
   // PERTURBED") or whether a tile has a footnote at all. mt-auto
   // on the footnote slot pins it to the bottom of the flex column
   // so empty-footnote tiles match the height of populated ones.
-  const baseCls = `${cols} bg-stone-100 px-5 py-4 flex flex-col`;
+  const baseCls = `${cols} px-5 py-4 flex flex-col`;
   const linkCls = `${baseCls} cursor-pointer transition-colors hover:bg-stone-50 group focus:outline-none focus:ring-1 focus:ring-stone-900`;
   const body = (
     <>

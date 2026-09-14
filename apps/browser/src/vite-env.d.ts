@@ -9,6 +9,8 @@ interface ImportMetaEnv {
    *  unset falls back to this page's origin. */
   readonly VITE_GEMMA_PUBLIC_URL?: string;
   readonly VITE_CURATION_URL?: string;
+  /** Home-page museum card link — see museumUrl in gemmaConfig.ts. */
+  readonly VITE_MUSEUM_URL?: string;
 }
 
 interface ImportMeta {
