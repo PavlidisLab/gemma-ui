@@ -35,6 +35,7 @@ import { Term } from "@/components/ui/Term";
 import { StatementSequence } from "@/components/ui/StatementSequence";
 import { useToast } from "@/components/ui/Toast";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { CommitChangeSummary } from "@/features/design/CommitChangeSummary";
 import { FindingReasoningPanel } from "./findingReasoningPanel";
 import { blockedReasonOf } from "./actionLabels";
 import { InlineMarkdown } from "@/components/ui/MarkdownText";
@@ -111,6 +112,7 @@ import {
 } from "./factorComparison/adoptFactorPlan";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import { replaceStatementsDelta, resolveApplyAction } from "./applyHandlers";
+import { useOneClickApply } from "./oneClickApply";
 import { undoBatched } from "./appliedBatches";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 import { resolveEditInitial } from "./dispositionEdit";
@@ -1121,6 +1123,9 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   } = useAudit();
   const { apply: applyDraft, draft } = useDesignDraft();
   const toast = useToast();
+  // Remote mode + an action the agent executes: Accept goes to the
+  // agent's one-click route instead of the draft mutators below.
+  const oneClick = useOneClickApply(finding);
   // Match-downgrade signal: a stored ``*_match`` finding viewed
   // against a baseline that lacks the entity reads as an Add — same
   // computation as ``CompactFindingCard``'s ``goldEmptyForTitle``.
@@ -1239,7 +1244,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // Same goldEmpty signal — a downgraded match's labels read as Add.
   const dispoLabels = findingDispositionButtonLabels(finding, {
     goldEmpty: goldEmptyForTitle,
-    applyMutates: !!action?.mutates,
+    applyMutates: !!action?.mutates || oneClick.eligible,
   });
   // Judge says weak → reframe the action row so Dismiss is the primary
   // blue button and the structural-apply demotes to a small "override"
@@ -1546,6 +1551,82 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
   // does it. The payload fully determines it.
   const statementDelta = replaceStatementsDelta(finding, draft ?? null);
 
+  // One-click Accept. Greyed once the finding carries a ruling, the
+  // same rule the draft-apply button below follows.
+  const oneClickDone = oneClick.eligible && current !== "pending";
+  const oneClickButton = (
+    <button
+      ref={acceptBtnRef}
+      type="button"
+      data-testid="one-click-accept"
+      onClick={() => void oneClick.run()}
+      disabled={oneClick.running || dispositionSaving || oneClickDone}
+      title={
+        oneClickDone
+          ? "Already ruled on"
+          : (oneClick.blockedReason ??
+            "Commits this edit to Gemma through the agent, then records it as accepted.")
+      }
+      className={cn(
+        "text-[11px] px-2 py-0.5 rounded font-medium",
+        oneClick.running
+          ? "bg-emerald-200 text-emerald-800 cursor-progress"
+          : oneClickDone
+            ? "bg-slate-100 text-slate-500 border border-slate-200 cursor-not-allowed dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700"
+            : "bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50",
+      )}
+    >
+      {oneClick.running
+        ? "applying…"
+        : oneClickDone
+          ? dispoLabels.acceptDoneLabel
+          : `${dispoLabels.acceptLabel} →`}
+    </button>
+  );
+  // The dry run, on request: what the agent would commit, with Gemma's
+  // preflight tally. Nothing is written.
+  const previewData = oneClick.preview.data;
+  const oneClickPreview =
+    oneClick.eligible && current === "pending" ? (
+      <div className="text-[11px] leading-snug text-slate-600 dark:text-slate-300 space-y-1">
+        {oneClick.blockedReason ? (
+          <div className="text-amber-800 dark:text-amber-300">
+            {oneClick.blockedReason}
+          </div>
+        ) : null}
+        {previewData ? (
+          <div className="rounded border border-slate-200 px-2 py-1.5 space-y-1 dark:border-slate-700">
+            <div>
+              <span className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 dark:text-slate-400 mr-1.5">
+                {previewData.status === "ready"
+                  ? "Accept commits"
+                  : previewData.status === "already_present"
+                    ? "Already in Gemma"
+                    : "Refused"}
+              </span>
+              {previewData.detail}
+            </div>
+            <CommitChangeSummary report={previewData.preflight} />
+          </div>
+        ) : oneClick.preview.error ? (
+          <div className="text-rose-700 dark:text-rose-300">
+            Couldn't check with Gemma: {(oneClick.preview.error as Error).message}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void oneClick.preview.refetch()}
+            disabled={oneClick.preview.isFetching}
+            className="underline underline-offset-2 hover:no-underline disabled:opacity-50"
+          >
+            {oneClick.preview.isFetching
+              ? "checking with Gemma…"
+              : "what Accept commits"}
+          </button>
+        )}
+      </div>
+    ) : null;
+
   return (
     <div className="pl-1.5 pt-2 space-y-1.5 relative">
       {noFixReason ? (
@@ -1591,6 +1672,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
           ))}
         </div>
       ) : null}
+      {oneClickPreview}
       {useStructuredEditor ? (
         <FindingDetailsEditor
           finding={finding}
@@ -1627,6 +1709,25 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // follow-up queue. Only meaningful on an accept — a
             // dismiss/keep ignores resolved_at. Design review 2026-06-21.
             const needsWork = !!opts?.needsWork && status === "accepted";
+            // The curator took the agent's proposal whole, and the agent
+            // executes this kind: it commits the edit. A keep verdict, a
+            // partial adopt plan and per-row edits are a variant of the
+            // proposal the route cannot execute, so they stay on the
+            // draft path below.
+            if (
+              oneClick.eligible &&
+              status === "accepted" &&
+              opts?.verdict === "proposal" &&
+              !opts.adoptPlan &&
+              !(
+                typeof appliedFix !== "string" &&
+                appliedFix.kind === "details_edit" &&
+                (appliedFix.edits?.length ?? 0) > 0
+              )
+            ) {
+              await oneClick.run();
+              return;
+            }
             // Partial-adopt route: the curator went through "Choose
             // what to adopt" and ticked specific parts. Runs INSTEAD
             // of the canned whole-factor mutator below — that one
@@ -1867,6 +1968,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // finding has no per-row apply path (wrong_fv_partition
             // etc.). Mirrors the legacy action-row's standalone Agree
             // handler.
+            if (oneClick.eligible) {
+              void oneClick.run();
+              return;
+            }
             setAcceptOpen(true);
           }}
           onDismiss={() => setDismissOpen(true)}
@@ -1906,7 +2011,9 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
         />
       ) : (
         <div className="flex items-center gap-1 flex-wrap">
-          {action ? (
+          {oneClick.eligible ? (
+            oneClickButton
+          ) : action ? (
             (() => {
               // Mutating apply has already run when the disposition
               // moved off "pending" (current === "accepted" /
@@ -2011,7 +2118,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
           {/* Standalone Agree button — hidden when there's a mutating
               apply action, since the "Agree (add)/(remove) →" button
               above IS the agree affordance for those cases. */}
-          {action?.mutates || judgeWeak ? null : (
+          {action?.mutates || judgeWeak || oneClick.eligible ? null : (
             <button
               ref={acceptBtnRef}
               type="button"

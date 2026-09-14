@@ -221,6 +221,9 @@ interface AuditContextValue {
   dispositionSaving: boolean;
   /** PATCH error, if any. Cleared on the next successful patch. */
   dispositionError: string | null;
+  /** The signed-in curator — what a relayed write names as `onBehalfOf`.
+   *  Empty when nobody is signed in. */
+  reviewer: string;
 }
 
 // Exported so render-time tests (``*.render.test.tsx``) can wrap a
@@ -594,6 +597,7 @@ export function AuditProvider({
     dispositionError: patchDisposition.error
       ? (patchDisposition.error as Error).message
       : null,
+    reviewer,
   };
 
   return (

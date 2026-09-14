@@ -49,6 +49,7 @@ import type { FactorProposal } from "@/api/types";
 import type { Factor } from "@/features/experiment/types";
 
 import { useAudit } from "./AuditContext";
+import { useOneClickApply } from "./oneClickApply";
 import { factorTarget, parseTargetId } from "./targetIds";
 import { requestAuditFocus } from "@/lib/scrollToAuditTarget";
 import { useStickyState } from "@/lib/useStickyState";
@@ -528,6 +529,9 @@ export function ComparisonFactorCard({
   // useDesign-based read.
   void serverDesign;
   const toast = useToast();
+  // Remote mode + an action the agent executes: Accept goes to the
+  // agent's one-click route instead of the draft adopt below.
+  const oneClick = useOneClickApply(finding);
   // Card-level collapse — matches the chevron/collapse contract on
   // ``CompactFindingCard`` so a curator's "collapse all" button at
   // the top of the sidebar reaches these cards too. Per design review
@@ -1575,11 +1579,20 @@ export function ComparisonFactorCard({
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
-                disabled={busy}
+                data-testid={oneClick.eligible ? "one-click-accept" : undefined}
+                disabled={busy || oneClick.running}
                 onClick={() =>
-                  isMatchFamilyAdopt
-                    ? dispatchNearMatchAccept()
-                    : dispatch("accepted")
+                  oneClick.eligible
+                    ? void oneClick.run()
+                    : isMatchFamilyAdopt
+                      ? dispatchNearMatchAccept()
+                      : dispatch("accepted")
+                }
+                title={
+                  oneClick.eligible
+                    ? (oneClick.blockedReason ??
+                      "Commits this edit to Gemma through the agent, then records it as accepted.")
+                    : undefined
                 }
                 className="text-[11px] px-2 py-0.5 rounded font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
               >

@@ -15,7 +15,7 @@
  * this), and sending a local id as a `gemmaId` rewrites whatever
  * happens to hold that id in Gemma. See `buildCurationDocument`.
  */
-import { api } from "./client";
+import { api, ApiError } from "./client";
 import { commitConflictOf, type CommitConflict } from "./commitConflict";
 
 /** A term as the commit wire names it — label plus URI, nothing else. */
@@ -314,6 +314,87 @@ export function signCuration(
     `/curation-sign/${experimentId}${qs({ onBehalfOf })}`,
     body ?? {},
   );
+}
+
+/**
+ * What `POST /curation-apply` answers with, post-`snakeify`.
+ *
+ * The agent plans one audit finding's `apply_action` against the live
+ * design, and — unless it is a dry run — commits it as `gemmaAgent` on
+ * behalf of the curator, reads the dataset back, and records the
+ * disposition itself: `accepted` when the read-back shows the edit,
+ * `needs_more_info` with the reason when it does not.
+ */
+export interface FindingApplyResult {
+  dry_run: boolean;
+  experiment_id: number;
+  target_id: string;
+  kind: string;
+  /** `ready`: the plan changes the design. `already_present`: the
+   *  design already holds the edit, so nothing is committed. `refused`:
+   *  the plan cannot run — a dry run answers 200 with this, a real
+   *  apply answers 422 (see {@link applyRefusalOf}). */
+  status: "ready" | "already_present" | "refused";
+  /** What the edit does, or why it is refused. */
+  detail: string;
+  /** The `CurationDocument` the agent sends. Display only: it has been
+   *  through `snakeify`, so it is no longer spelled the way Gemma reads
+   *  it. */
+  document?: unknown;
+  expect?: {
+    tags_deleted?: number;
+    tags_created?: number;
+    factors_deleted?: number;
+  };
+  baseline_last_modified?: string | null;
+  /** Gemma's preflight report — dry run only. */
+  preflight?: CommitReport | null;
+  commit_report?: CommitReport | null;
+  verified?: boolean | null;
+  verify_detail?: string | null;
+  disposition?: unknown;
+}
+
+/**
+ * One-click Accept: the agent executes an audit finding and records the
+ * ruling, in one call. `dryRun` writes nothing and returns the plan with
+ * Gemma's preflight.
+ *
+ * `onBehalfOf` is required by the route. A 409 carries the same reason
+ * envelope as `/curation-commit` ({@link conflictOf}); the route never
+ * forces, so `REQUIRES_FORCE` means a sign-off.
+ */
+export function applyFinding(
+  annotationSetId: number | string,
+  findingId: string,
+  opts: {
+    onBehalfOf: string;
+    dryRun?: boolean;
+    baselineLastModified?: string;
+  },
+): Promise<FindingApplyResult> {
+  return api.post<FindingApplyResult>(
+    `/curation-apply/${annotationSetId}/${encodeURIComponent(findingId)}${qs({
+      onBehalfOf: opts.onBehalfOf,
+      dryRun: opts.dryRun ? true : undefined,
+      baselineLastModified: opts.baselineLastModified,
+    })}`,
+    {},
+  );
+}
+
+/** The agent's reason when a real apply was refused, or null when the
+ *  error is not that. A refusal is a 422 whose body is
+ *  `{detail: {error: "refused", detail, …}}` and writes nothing — no
+ *  commit, no disposition. */
+export function applyRefusalOf(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.status !== 422) return null;
+  const d = (err.body as { detail?: unknown } | undefined)?.detail;
+  if (d && typeof d === "object" && "error" in d && "detail" in d) {
+    const m = (d as { detail?: unknown }).detail;
+    if (typeof m === "string" && m) return m;
+  }
+  return null;
 }
 
 /** Tag deletions a commit asked for that Gemma did not make.

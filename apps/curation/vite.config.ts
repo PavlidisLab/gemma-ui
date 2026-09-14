@@ -539,6 +539,12 @@ export default defineConfig(({ mode }) => {
           target: PROPOSER_URL,
           changeOrigin: true,
         },
+        // One-click Accept: the agent plans, commits and records the
+        // disposition for one audit finding.
+        "/curation-apply": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         "/find-term": {
           target: PROPOSER_URL,
           changeOrigin: true,

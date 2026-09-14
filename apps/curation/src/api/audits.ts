@@ -462,15 +462,10 @@ export function usePatchDisposition(experimentId: number | string) {
         REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
         folder,
       );
-      qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
-      qc.invalidateQueries({
-        queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
-      });
       if (refreshed.audit_id) {
         qc.setQueryData(KEY.detail(refreshed.audit_id), refreshed);
       }
-      qc.invalidateQueries({ queryKey: KEY.inbox() });
-      invalidateChipCalibrationReport(qc, experimentId);
+      invalidateAuditCaches(qc, experimentId);
     },
   });
 }
@@ -491,6 +486,22 @@ function invalidateChipCalibrationReport(
   qc.invalidateQueries({
     queryKey: ["chip-calibration-report", experimentId],
   });
+}
+
+/** Refetch everything that shows a ruling on this experiment: the audit
+ *  and proposal-review lists, the inbox, and the chip-strip override.
+ *  Shared by a disposition PATCH and by the agent's one-click apply,
+ *  which records its disposition server-side. */
+export function invalidateAuditCaches(
+  qc: ReturnType<typeof useQueryClient>,
+  experimentId: number | string,
+): void {
+  qc.invalidateQueries({ queryKey: KEY.byExperiment(experimentId) });
+  qc.invalidateQueries({
+    queryKey: REVIEW_PROPOSAL_KEYS.byExperiment(experimentId),
+  });
+  qc.invalidateQueries({ queryKey: KEY.inbox() });
+  invalidateChipCalibrationReport(qc, experimentId);
 }
 
 /** Finalize an audit — the curator's "I'm done triaging this" press
