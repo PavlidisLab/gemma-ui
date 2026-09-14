@@ -35,6 +35,13 @@ describe("applyFinding — the one-click route", () => {
     );
   });
 
+  it("sends the curator's reason in the body, and an empty body without one", async () => {
+    await applyFinding(1, "f", { onBehalfOf: "a", reason: "well_evidenced: named in methods" });
+    await applyFinding(1, "f", { onBehalfOf: "a" });
+    expect(post.mock.calls[0][1]).toEqual({ reason: "well_evidenced: named in methods" });
+    expect(post.mock.calls[1][1]).toEqual({});
+  });
+
   it("🛑 never sends `force` — the route answers REQUIRES_FORCE with a 409", async () => {
     await applyFinding(1, "f", { onBehalfOf: "a" });
     expect(post.mock.calls[0][0]).not.toContain("force");

@@ -371,6 +371,9 @@ export function applyFinding(
     onBehalfOf: string;
     dryRun?: boolean;
     baselineLastModified?: string;
+    /** The curator's reason for the ruling the route records — the same
+     *  `"chip: notes"` text `/curation-disposition` carries. */
+    reason?: string;
   },
 ): Promise<FindingApplyResult> {
   return api.post<FindingApplyResult>(
@@ -379,7 +382,7 @@ export function applyFinding(
       dryRun: opts.dryRun ? true : undefined,
       baselineLastModified: opts.baselineLastModified,
     })}`,
-    {},
+    opts.reason ? { reason: opts.reason } : {},
   );
 }
 

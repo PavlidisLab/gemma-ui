@@ -129,6 +129,30 @@ describe("one-click Accept — every executing kind", () => {
   }
 });
 
+describe("one-click Accept — the curator's reason", () => {
+  it("an agent-extra asks why first, and the note travels with the apply", async () => {
+    const finding = {
+      ...findingFor("add_tag"),
+      issue_code: "calibration_agent_extra",
+    } as AuditFinding;
+    const { toast } = mount(finding);
+
+    fireEvent.click(screen.getByTestId("one-click-accept"));
+    expect(post).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByPlaceholderText("note (optional)"), {
+      target: { value: "named in the methods" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => expect(toast.show).toHaveBeenCalled());
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(String(post.mock.calls[0][0])).toContain("/curation-apply/123/");
+    expect(post.mock.calls[0][1]).toEqual({
+      reason: expect.stringContaining("named in the methods"),
+    });
+  });
+});
+
 describe("one-click Accept — when it does not run", () => {
   it("local mode keeps the existing path", () => {
     setMode("local");

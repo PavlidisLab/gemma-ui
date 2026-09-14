@@ -17,7 +17,8 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { AuditFinding, AuditReport } from "@/api/auditTypes";
-import { invalidateAuditCaches } from "@/api/audits";
+import { composeDispositionReason, invalidateAuditCaches } from "@/api/audits";
+import type { AuditFindingDispositionPatch } from "@/api/auditTypes";
 import {
   applyFinding,
   applyRefusalOf,
@@ -53,6 +54,20 @@ export function annotationSetIdOf(
   return id && /^\d+$/.test(id) ? id : null;
 }
 
+/** The reason a one-click ruling carries: the same `"chip: notes"` the
+ *  disposition relay composes, so both routes record a curator's words
+ *  identically. Undefined when there is neither. */
+export function oneClickReason(
+  chip: string | null | undefined,
+  notes: string | null | undefined,
+): string | undefined {
+  const reason = composeDispositionReason({
+    accept_reason: chip ?? undefined,
+    notes: notes ?? undefined,
+  } as AuditFindingDispositionPatch);
+  return reason || undefined;
+}
+
 /** Whether Accept on this finding goes to the agent's one-click route. */
 export function oneClickEligible(
   finding: AuditFinding,
@@ -70,7 +85,8 @@ export interface OneClickApply {
   /** Why a click would not run, stated before the click. */
   blockedReason: string | null;
   running: boolean;
-  run: () => Promise<void>;
+  /** `reason` is the curator's `"chip: notes"` for the recorded ruling. */
+  run: (opts?: { reason?: string }) => Promise<void>;
   /** The dry run, fetched on demand (`preview.refetch()`). */
   preview: ReturnType<typeof useQuery<FindingApplyResult>>;
 }
@@ -107,7 +123,7 @@ export function useOneClickApply(finding: AuditFinding): OneClickApply {
     staleTime: 30_000,
   });
 
-  async function run(): Promise<void> {
+  async function run(opts: { reason?: string } = {}): Promise<void> {
     if (!eligible || running) return;
     if (blockedReason) {
       toast.show(blockedReason, "warn", 6000);
@@ -117,6 +133,7 @@ export function useOneClickApply(finding: AuditFinding): OneClickApply {
     try {
       const res = await applyFinding(setId, findingId, {
         onBehalfOf: reviewer,
+        reason: opts.reason,
       });
       // 🛑 Refetch, never `reload()` the draft. `reload()` nulls the
       // draft until `saved` changes, and an apply that changes nothing

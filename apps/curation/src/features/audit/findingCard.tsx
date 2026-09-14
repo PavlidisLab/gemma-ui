@@ -112,7 +112,7 @@ import {
 } from "./factorComparison/adoptFactorPlan";
 import { markFirstSeen, consumeFirstSeen } from "./firstSeen";
 import { replaceStatementsDelta, resolveApplyAction } from "./applyHandlers";
-import { useOneClickApply } from "./oneClickApply";
+import { oneClickReason, useOneClickApply } from "./oneClickApply";
 import { undoBatched } from "./appliedBatches";
 import { applyDetailsEditsToDesign } from "./applyDetailsEdits";
 import { resolveEditInitial } from "./dispositionEdit";
@@ -1496,6 +1496,10 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
 
   async function handleAcceptConfirm(tag: string | null, notes: string) {
     setAcceptOpen(false);
+    if (oneClick.eligible) {
+      await oneClick.run({ reason: oneClickReason(tag, notes) });
+      return;
+    }
     // Mutating findings (e.g. calibration_agent_extra → add tag) route
     // through handleApply so the draft mutation runs alongside the
     // disposition stamp. Non-mutating findings (calibration_factor_match,
@@ -1559,7 +1563,15 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
       ref={acceptBtnRef}
       type="button"
       data-testid="one-click-accept"
-      onClick={() => void oneClick.run()}
+      onClick={() => {
+        // Same rule as the draft apply below: adding what only the agent
+        // proposed asks why first, and the dialog's confirm runs it.
+        if (finding.issue_code === "calibration_agent_extra") {
+          setAcceptOpen(true);
+          return;
+        }
+        void oneClick.run();
+      }}
       disabled={oneClick.running || dispositionSaving || oneClickDone}
       title={
         oneClickDone
@@ -1725,7 +1737,7 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
                 (appliedFix.edits?.length ?? 0) > 0
               )
             ) {
-              await oneClick.run();
+              await oneClick.run({ reason: oneClickReason(null, notes) });
               return;
             }
             // Partial-adopt route: the curator went through "Choose
@@ -1967,11 +1979,8 @@ export function FindingActionRow({ finding }: { finding: AuditFinding }) {
             // so the curator can attach a reason chip + note when the
             // finding has no per-row apply path (wrong_fv_partition
             // etc.). Mirrors the legacy action-row's standalone Agree
-            // handler.
-            if (oneClick.eligible) {
-              void oneClick.run();
-              return;
-            }
+            // handler. A one-click finding takes the same dialog; its
+            // confirm hands the reason to the agent.
             setAcceptOpen(true);
           }}
           onDismiss={() => setDismissOpen(true)}
