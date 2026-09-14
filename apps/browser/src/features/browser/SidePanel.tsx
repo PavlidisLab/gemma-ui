@@ -84,7 +84,16 @@ export function SidePanel({
     (settings.query ? 1 : 0);
 
   return (
-    <aside className="w-[360px] shrink-0 border-r border-gemma-grid bg-white overflow-y-auto p-3">
+    // Stacked above the results below ``lg``, so the width and the
+    // right-hand rule are both column-form only. ``max-h-[40vh]`` is what
+    // keeps the stack usable: without it the filters are a full screen of
+    // scrolling before the first experiment row, which reads as the list
+    // still being missing.
+    <aside
+      className="w-full lg:w-[360px] lg:shrink-0 max-h-[40vh] lg:max-h-none
+                 border-b lg:border-b-0 lg:border-r border-gemma-grid
+                 bg-white overflow-y-auto p-3"
+    >
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-medium inline-flex items-center gap-1.5">
           Search & filter

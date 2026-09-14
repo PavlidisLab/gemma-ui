@@ -10,3 +10,9 @@ export declare function buildFaviconSvg(
   markSvg: string,
   variant?: FaviconVariant,
 ): string;
+export declare function buildAppIconSvg(markSvg: string): string;
+export declare const APP_ICON: {
+  SIZE: number;
+  MARGIN_RATIO: number;
+  BACKGROUND: string;
+};

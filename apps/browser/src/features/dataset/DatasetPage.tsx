@@ -1244,6 +1244,8 @@ function FactorCard({
         <span className="text-sm font-semibold text-slate-800">
           {factor.name || categoryLabel || `Factor ${factor.id}`}
         </span>
+        {/* No `asLink`: a factor's category is a categoryUri, and the
+            browse filter reads valueUri. */}
         {categoryLabel ? (
           <OntologyTermChip uri={categoryUri}>{categoryLabel}</OntologyTermChip>
         ) : null}
@@ -1356,7 +1358,7 @@ function FactorValueRow({
       ) : !value.isMeasurement && visibleChars.length > 0 ? (
         <div className="flex items-baseline gap-1 flex-wrap flex-1 min-w-0">
           {visibleChars.map((c, i) => (
-            <OntologyTermChip key={c.id ?? i} uri={c.valueUri ?? null}>
+            <OntologyTermChip key={c.id ?? i} uri={c.valueUri ?? null} asLink>
               {c.value ?? fallbackLabel}
             </OntologyTermChip>
           ))}
@@ -1396,8 +1398,12 @@ function StatementLine({ group }: { group: StatementGroup }) {
   const pairs = group.statements.filter(statementHasPair);
   return (
     <div className="flex items-baseline gap-1 flex-wrap text-[12px]">
+      {/* Only the subject browses. Gemma stores it in the value column
+          the browse filter reads; the predicate and the object sit in
+          their own columns, so a link on either answers a different
+          set of datasets — see `asLink` on OntologyTermChip. */}
       {hasSubject ? (
-        <OntologyTermChip uri={group.subjectUri ?? null}>
+        <OntologyTermChip uri={group.subjectUri ?? null} asLink>
           {group.subject ?? ""}
         </OntologyTermChip>
       ) : null}
@@ -1808,7 +1814,7 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
                             </td>
                             <td className="py-0.5 text-slate-800 break-words">
                               {c.valueUri ? (
-                                <OntologyTermChip uri={c.valueUri}>
+                                <OntologyTermChip uri={c.valueUri} asLink>
                                   {c.value}
                                 </OntologyTermChip>
                               ) : (
@@ -2330,7 +2336,7 @@ function ResultSetRow({
                 // otherwise run under the DE metric columns — cap the width
                 // so the label ellipsizes; the full term is on hover.
                 <span key={i} className="inline-flex min-w-0 max-w-[22rem]">
-                  <OntologyTermChip uri={t.uri} labelTitle={t.label}>
+                  <OntologyTermChip uri={t.uri} labelTitle={t.label} asLink>
                     {t.label}
                   </OntologyTermChip>
                 </span>
