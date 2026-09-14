@@ -78,7 +78,7 @@ export interface OneClickApply {
 export function useOneClickApply(finding: AuditFinding): OneClickApply {
   const { mode } = useGemmaMode();
   const { report, experimentId, reviewer } = useAudit();
-  const { diff, reload } = useDesignDraft();
+  const { diff } = useDesignDraft();
   const qc = useQueryClient();
   const toast = useToast();
   const [running, setRunning] = useState(false);
@@ -86,8 +86,9 @@ export function useOneClickApply(finding: AuditFinding): OneClickApply {
   const eligible = oneClickEligible(finding, report, mode);
   const setId = annotationSetIdOf(report) ?? "";
   const findingId = finding.finding_id ?? "";
-  // The apply commits to Gemma and the draft then re-reads it, so
-  // uncommitted edits in the draft would be dropped by that re-read.
+  // The draft must be clean. The apply commits to Gemma, and only a
+  // clean draft follows the refetched design; a dirty one would sit on
+  // top of a server state it was never diffed against.
   const blockedReason = !eligible
     ? null
     : !reviewer
@@ -117,10 +118,15 @@ export function useOneClickApply(finding: AuditFinding): OneClickApply {
       const res = await applyFinding(setId, findingId, {
         onBehalfOf: reviewer,
       });
+      // 🛑 Refetch, never `reload()` the draft. `reload()` nulls the
+      // draft until `saved` changes, and an apply that changes nothing
+      // (`already_present`, or a read-back that shows no edit) refetches
+      // an identical design, so the page sat on "loading overview…". The
+      // clean draft follows a changed design through the ordinary
+      // refetch sync.
       invalidateAfterDesignCommit(qc, experimentId);
       invalidateAuditCaches(qc, experimentId);
       qc.removeQueries({ queryKey: previewKey });
-      reload();
       if (res.status === "already_present") {
         toast.show("Already in Gemma; recorded as accepted.", "success", 4000);
       } else if (res.verified === false) {

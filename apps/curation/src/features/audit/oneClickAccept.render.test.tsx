@@ -109,12 +109,17 @@ afterEach(cleanup);
 describe("one-click Accept — every executing kind", () => {
   for (const kind of [...EXECUTING_KINDS].sort()) {
     it(`${kind}: one call to the route, no draft edit, no PATCH`, async () => {
-      const { setDisposition, applyDraft, reload } = mount(findingFor(kind));
+      const { setDisposition, applyDraft, reload, toast } = mount(
+        findingFor(kind),
+      );
 
       fireEvent.click(screen.getByTestId("one-click-accept"));
 
-      await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(toast.show).toHaveBeenCalledTimes(1));
       expect(post).toHaveBeenCalledTimes(1);
+      // Refetch, not reload: a reload waits for a CHANGED design and
+      // strands the page when the apply changed nothing.
+      expect(reload).not.toHaveBeenCalled();
       expect(post.mock.calls[0][0]).toBe(
         `/curation-apply/123/f-${kind}?onBehalfOf=alice`,
       );
@@ -150,12 +155,11 @@ describe("one-click Accept — when it does not run", () => {
         detail: { error: "refused", detail: "the finding names no pair to delete" },
       }),
     );
-    const { toast, reload } = mount(findingFor("drop_statements"));
+    const { toast } = mount(findingFor("drop_statements"));
     fireEvent.click(screen.getByTestId("one-click-accept"));
     await waitFor(() => expect(toast.show).toHaveBeenCalled());
     expect(String(toast.show.mock.calls[0][0])).toContain(
       "nothing written: the finding names no pair to delete",
     );
-    expect(reload).not.toHaveBeenCalled();
   });
 });
