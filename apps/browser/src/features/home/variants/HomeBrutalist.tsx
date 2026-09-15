@@ -27,8 +27,9 @@ import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLockup } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
-import { museumUrl } from "@/lib/gemmaConfig";
-import museumArt from "../museum-human-cell-cycle.png";
+// Museum card temporarily hidden 2026-09-15 — see MuseumCard below.
+// import { museumUrl } from "@/lib/gemmaConfig";
+// import museumArt from "../museum-human-cell-cycle.png";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge } from "../panels";
 import { MorePlotsModal, GENOTYPE_CATEGORY_URI } from "../MorePlotsModal";
@@ -124,25 +125,29 @@ const THREE_COLUMNS =
  *  exhibits in miniature. The image is the canvas art of the exhibit
  *  "The human cell cycle" (key ``whitfield2002``), rendered by the
  *  museum's own drawHeatmap and exported without its frame or dark
- *  margin (2026-09-14). */
-function MuseumCard() {
-  return (
-    <a
-      href={museumUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group block px-5 py-4 hover:no-underline"
-    >
-      <div className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-900 font-semibold group-hover:text-blue-700">
-        Visit the Museum of Gene Expression
-        <span aria-hidden className="ml-1 font-normal text-stone-500 group-hover:text-blue-700">
-          ↗
-        </span>
-      </div>
-      <img src={museumArt} alt="" className="block w-full h-auto" />
-    </a>
-  );
-}
+ *  margin (2026-09-14).
+ *
+ *  Temporarily hidden 2026-09-15. To restore: uncomment this function,
+ *  the museumUrl / museumArt imports at the top of the file, and the
+ *  <MuseumCard /> render in GeneralInfo. */
+// function MuseumCard() {
+//   return (
+//     <a
+//       href={museumUrl}
+//       target="_blank"
+//       rel="noopener noreferrer"
+//       className="group block px-5 py-4 hover:no-underline"
+//     >
+//       <div className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-900 font-semibold group-hover:text-blue-700">
+//         Visit the Museum of Gene Expression
+//         <span aria-hidden className="ml-1 font-normal text-stone-500 group-hover:text-blue-700">
+//           ↗
+//         </span>
+//       </div>
+//       <img src={museumArt} alt="" className="block w-full h-auto" />
+//     </a>
+//   );
+// }
 
 function StatsRow({ s }: { s: GemmaSummary }) {
   // 5 primary tiles. Samples nests a per-technology breakdown
@@ -888,7 +893,10 @@ function GeneralInfo() {
         </ul>
       </InfoColumn>
 
-      <MuseumCard />
+      {/* Museum of Gene Expression card temporarily hidden 2026-09-15.
+          The third THREE_COLUMNS track is left in place so the column
+          edges still line up with the shaded-card row below. */}
+      {/* <MuseumCard /> */}
     </div>
   );
 }
