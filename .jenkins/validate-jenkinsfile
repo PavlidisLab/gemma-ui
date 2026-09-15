@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Server-side syntax check of the Jenkinsfile. Run it before pushing a
+# change to this directory: a declarative-syntax error is otherwise only
+# reported by the first build that tries to run it, after the push.
+#
+# It validates syntax only — it does not run the pipeline, and it says
+# nothing about whether a step, plugin, credential or agent exists.
+#
+# It authenticates because it has to: jenkins.pavlab has no anonymous
+# read, and an unauthenticated /crumbIssuer answers 403 with an HTML
+# error page, which is then passed to `curl -H` as the crumb header and
+# reports nothing useful (checked 2026-09-15).
+#
+# Credentials, in order:
+#   1. $JENKINS_USER + $JENKINS_API_TOKEN, if already exported.
+#   2. The OS credential store, via secret-tool. Store the token once:
+#        secret-tool store --label='Jenkins API token' \
+#            service jenkins.pavlab.msl.ubc.ca username "$USER"
+#      (Create the token at $JENKINS_URL/user/$USER/configure →
+#      "API Token". A password will not do — Jenkins rejects it.)
+# Never put the token in a file in this repo.
+set -euo pipefail
+
+JENKINS_URL=${JENKINS_URL:-https://jenkins.pavlab.msl.ubc.ca}
+JENKINS_USER=${JENKINS_USER:-$USER}
+
+if [ -z "${JENKINS_API_TOKEN:-}" ]; then
+    JENKINS_API_TOKEN=$(secret-tool lookup service jenkins.pavlab.msl.ubc.ca username "$JENKINS_USER" 2>/dev/null || true)
+fi
+if [ -z "${JENKINS_API_TOKEN:-}" ]; then
+    echo "ERROR: no Jenkins API token for '$JENKINS_USER'." >&2
+    echo "       Store one in the credential store:" >&2
+    echo "         secret-tool store --label='Jenkins API token' \\" >&2
+    echo "             service jenkins.pavlab.msl.ubc.ca username \"\$USER\"" >&2
+    echo "       (get the token from $JENKINS_URL/user/$JENKINS_USER/configure)" >&2
+    echo "       or export JENKINS_USER / JENKINS_API_TOKEN for this shell." >&2
+    exit 2
+fi
+
+AUTH="$JENKINS_USER:$JENKINS_API_TOKEN"
+
+# The crumb has to be fetched on the same session it is used with, hence
+# the shared cookie jar. --fail turns an auth failure into a non-zero
+# exit here instead of a mystery header two lines down.
+COOKIES=$(mktemp)
+trap 'rm -f "$COOKIES"' EXIT
+
+CRUMB=$(curl -sS --fail -u "$AUTH" -c "$COOKIES" \
+    "$JENKINS_URL/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,\":\",//crumb)")
+
+curl -sS --fail -u "$AUTH" -b "$COOKIES" -X POST -H "$CRUMB" \
+    -F "jenkinsfile=<$(dirname "${BASH_SOURCE[0]}")/Jenkinsfile" \
+    "$JENKINS_URL/pipeline-model-converter/validate"
+echo

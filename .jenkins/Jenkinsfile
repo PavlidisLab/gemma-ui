@@ -1,0 +1,259 @@
+//file:noinspection GrUnresolvedAccess
+//
+// CI/CD for apps/browser: check the repo, then publish the static build
+// with scripts/deploy-browser.sh.
+//
+// Branch → deploy target:
+//
+//   main (or master)   production      → https://gemma.msl.ubc.ca/
+//   development        staging         → https://staging-gemma.msl.ubc.ca/
+//                      gemma2testing   → https://gemma2.msl.ubc.ca/
+//   anything else      no deploy, checks only
+//
+// The two development targets are separate deployments, not one build
+// copied twice: each is its own Vite mode reading its own .env.<target>,
+// so they are built and published one after the other.
+//
+// Everything a target means lives in apps/browser/.env.<target>, not
+// here — the deploy script takes a bare target name and reads the rest
+// out of that file. Adding a fourth deployment is a new env file plus
+// one line in targetsForBranch() below.
+
+def deployTargets = []
+
+void setBuildStatus(String context, String message, String state) {
+    step([
+        $class            : "GitHubCommitStatusSetter",
+        reposSource       : [$class: "ManuallyEnteredRepositorySource", url: "https://github.com/PavlidisLab/gemma-ui"],
+        contextSource     : [$class: "ManuallyEnteredCommitContextSource", context: context],
+        errorHandlers     : [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+        statusResultSource: [$class: "ConditionalStatusResultSource", results: [[$class: "AnyBuildResult", message: message, state: state]]]
+    ])
+}
+
+// The whole branch → target map. The repo's default branch is 'main' and
+// no 'master' exists; 'master' is accepted alongside it only so this
+// keeps working through a rename.
+List<String> targetsForBranch(String branch) {
+    if (branch == 'main' || branch == 'master') {
+        return ['production']
+    }
+    if (branch == 'development') {
+        return ['staging', 'gemma2testing']
+    }
+    return []
+}
+
+pipeline {
+    agent any
+    options {
+        // Two builds of one branch would rsync the same docroot at the
+        // same time, and rsync --delete makes that a race over which
+        // build's assets survive. The per-target lock() below also
+        // covers the cross-branch case (a forced deploy).
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+    environment {
+        // There is no node on the agent's PATH and none under /space/opt
+        // as of 2026-09-15, so this has to be provisioned once — see the
+        // 'Toolchain' stage, which fails with the exact commands.
+        // /space/opt is shared NFS every agent reads, which is why the
+        // installation goes there rather than into a home directory.
+        //
+        // The alternative is the Jenkins NodeJS plugin — configure a
+        // "Node 22" tool installation in Global Tool Configuration, then
+        // replace this NODE_HOME/PATH pair with a top-level
+        //     tools { nodejs 'Node 22' }
+        // and delete the Toolchain stage's provisioning branch. Do one or
+        // the other: a tools block and an environment PATH both write
+        // PATH and would fight over it.
+        NODE_HOME = "${params.NODE_HOME}"
+        PATH = "${NODE_HOME}/bin:${PATH}"
+        // Silences npm's update nag and progress bars in a non-tty log.
+        CI = 'true'
+    }
+    parameters {
+        string(name: 'NODE_HOME', defaultValue: '/space/opt/node-v22.20.0-linux-x64', description: 'Node.js installation used for the build. Must be >= 20.12 (root package.json "engines").')
+        // A deploy from a branch that has no mapping, or a re-deploy of
+        // one target when the branch maps to two. '(none)' means "use the
+        // branch map", which is every scheduled/webhook build.
+        choice(name: 'FORCE_DEPLOY_TARGET', choices: ['(none)', 'staging', 'gemma2testing', 'production'], description: 'Deploy this target instead of whatever the branch maps to. Manual builds only.')
+        booleanParam(name: 'DRY_RUN', defaultValue: false, description: 'Build and run rsync --dry-run: report what would change, publish nothing. Use it to exercise this job without touching a docroot.')
+    }
+    stages {
+        stage('Checkout scm') {
+            steps {
+                checkout scm
+                script {
+                    if (params.FORCE_DEPLOY_TARGET != '(none)') {
+                        deployTargets = [params.FORCE_DEPLOY_TARGET]
+                        echo "FORCE_DEPLOY_TARGET is set: deploying ${params.FORCE_DEPLOY_TARGET} from ${env.BRANCH_NAME}, ignoring the branch map."
+                    } else {
+                        deployTargets = targetsForBranch(env.BRANCH_NAME)
+                    }
+                    if (deployTargets.isEmpty()) {
+                        echo "${env.BRANCH_NAME} deploys nothing; running checks only."
+                    } else {
+                        echo "${env.BRANCH_NAME} deploys: ${deployTargets.join(', ')}${params.DRY_RUN ? ' (dry run)' : ''}"
+                    }
+                    // Fail before spending a build on it. An env file is
+                    // the whole definition of a target, so a missing one
+                    // means the deploy would abort at the very end.
+                    for (target in deployTargets) {
+                        if (!fileExists("apps/browser/.env.${target}")) {
+                            error("No apps/browser/.env.${target} — that target has no deployment config in this branch.")
+                        }
+                    }
+                }
+            }
+        }
+        stage('Toolchain') {
+            steps {
+                // A receipt in the log of which node and npm this build
+                // got, and a comprehensible failure when there is none.
+                sh '''
+                    set -eu
+                    if ! command -v node >/dev/null 2>&1; then
+                        echo "ERROR: no node on PATH (looked for $NODE_HOME/bin/node)." >&2
+                        echo "" >&2
+                        echo "Provision it once on shared NFS, where every agent" >&2
+                        echo "can read it:" >&2
+                        echo "" >&2
+                        echo "  cd /space/opt" >&2
+                        echo "  curl -fsSLO https://nodejs.org/dist/v22.20.0/node-v22.20.0-linux-x64.tar.xz" >&2
+                        echo "  tar -xJf node-v22.20.0-linux-x64.tar.xz" >&2
+                        echo "  chmod -R g+rX node-v22.20.0-linux-x64" >&2
+                        echo "" >&2
+                        echo "or point the NODE_HOME build parameter at an existing" >&2
+                        echo "installation, or configure the Jenkins NodeJS plugin (see" >&2
+                        echo "the comment on NODE_HOME in .jenkins/Jenkinsfile)." >&2
+                        exit 1
+                    fi
+                    node -v
+                    npm -v
+                    # engines.node in the root package.json. Checked here
+                    # rather than left to npm, which only warns.
+                    node -e '
+                        const [maj, min] = process.versions.node.split(".").map(Number);
+                        if (maj < 20 || (maj === 20 && min < 12)) {
+                            console.error(`ERROR: node ${process.versions.node} is below the required >=20.12.0.`);
+                            process.exit(1);
+                        }
+                    '
+                '''
+            }
+        }
+        stage('Install dependencies') {
+            steps {
+                // ci, not install: it installs exactly package-lock.json
+                // and fails if the lockfile and package.json disagree,
+                // which is what a build machine wants. Root install only
+                // — npm workspaces pulls both apps and packages/*.
+                sh 'npm ci --no-audit --no-fund'
+            }
+        }
+        stage('Check') {
+            // Deliberately scoped to apps/browser, which is all this job
+            // deploys: a red in apps/curation must not stand between a
+            // browser fix and production. The repo-wide gate is
+            // .husky/pre-commit, which runs both apps before a commit
+            // exists at all.
+            //
+            // `npm run lint` is NOT here on purpose. It reports 7 errors
+            // and 123 warnings against the tree as of 2026-09-15, so
+            // gating on it would fail every build from the first one.
+            // Add it once that is zero.
+            parallel {
+                stage('Typecheck') {
+                    steps {
+                        setBuildStatus "Typecheck", "Typecheck for build #${env.BUILD_NUMBER} has started...", 'PENDING'
+                        // vitest STRIPS types rather than checking them,
+                        // so this catches what the test stage cannot.
+                        sh 'npm run typecheck:browser'
+                    }
+                    post {
+                        success {
+                            setBuildStatus "Typecheck", "Typecheck for build #${env.BUILD_NUMBER} passed.", 'SUCCESS'
+                        }
+                        unsuccessful {
+                            setBuildStatus "Typecheck", "Typecheck for build #${env.BUILD_NUMBER} failed.", 'FAILURE'
+                        }
+                    }
+                }
+                stage('Unit tests') {
+                    steps {
+                        setBuildStatus "Tests", "Tests for build #${env.BUILD_NUMBER} have started...", 'PENDING'
+                        sh 'npm run test:browser'
+                    }
+                    post {
+                        success {
+                            setBuildStatus "Tests", "Tests for build #${env.BUILD_NUMBER} passed.", 'SUCCESS'
+                        }
+                        unsuccessful {
+                            setBuildStatus "Tests", "Tests for build #${env.BUILD_NUMBER} failed.", 'FAILURE'
+                        }
+                    }
+                }
+            }
+        }
+        stage('Build') {
+            // Only for branches that deploy nothing. A deploy rebuilds
+            // per target anyway (each target is its own Vite mode), so
+            // running this first on those branches would build the app
+            // twice for no added signal. On a PR branch it is the only
+            // thing that would catch a break that tsc does not see.
+            when {
+                expression { deployTargets.isEmpty() }
+            }
+            steps {
+                setBuildStatus "Build", "Build #${env.BUILD_NUMBER} has started...", 'PENDING'
+                sh 'npm run build:browser'
+            }
+            post {
+                success {
+                    setBuildStatus "Build", "Build #${env.BUILD_NUMBER} succeeded.", 'SUCCESS'
+                }
+                unsuccessful {
+                    setBuildStatus "Build", "Build #${env.BUILD_NUMBER} failed.", 'FAILURE'
+                }
+            }
+        }
+        stage('Deploy') {
+            when {
+                expression { !deployTargets.isEmpty() }
+            }
+            steps {
+                setBuildStatus "Deploy", "Deployment for build #${env.BUILD_NUMBER} has started...", 'PENDING'
+                script {
+                    for (target in deployTargets) {
+                        // One lock per target rather than per branch: a
+                        // forced deploy from another branch publishes to
+                        // the same docroot, and rsync --delete on a tree
+                        // another rsync is writing leaves a half-built
+                        // site being served.
+                        lock("gemma-ui-browser-${target}") {
+                            sh "./scripts/deploy-browser.sh ${target}${params.DRY_RUN ? ' --dry-run' : ''}"
+                        }
+                    }
+                }
+            }
+            post {
+                success {
+                    setBuildStatus "Deploy", "Deployment for build #${env.BUILD_NUMBER} succeeded.", 'SUCCESS'
+                }
+                unsuccessful {
+                    setBuildStatus "Deploy", "Deployment for build #${env.BUILD_NUMBER} failed.", 'FAILURE'
+                }
+            }
+        }
+    }
+    post {
+        fixed {
+            slackSend color: 'good', message: "${env.JOB_NAME} - #${env.BUILD_NUMBER} Back to normal (<${env.BUILD_URL}|Open>)"
+        }
+        unsuccessful {
+            slackSend color: 'danger', message: "${env.JOB_NAME} - #${env.BUILD_NUMBER} Failure (<${env.BUILD_URL}|Open>)"
+        }
+    }
+}
