@@ -114,10 +114,11 @@ export function HomeBrutalist() {
   );
 }
 
-/** Column template shared by the info row (what we provide · how to
- *  access · museum card) and the shaded-card row (annotation coverage ·
- *  recent activity across the last two), so the column edges line up
- *  from one row to the next. */
+/** Column template for the shaded-card row: annotation coverage, then
+ *  recent activity across the last two tracks.
+ *
+ *  The info row above used to share it, back when a third card (the
+ *  museum) filled the 15rem track — see GeneralInfo. */
 const THREE_COLUMNS =
   "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,15rem)]";
 
@@ -825,7 +826,18 @@ function Masthead() {
 
 function GeneralInfo() {
   return (
-    <div className={`my-3 grid grid-cols-1 md:grid-cols-2 ${THREE_COLUMNS} md:gap-x-3`}>
+    // Two equal columns, spanning the full row. This used to carry
+    // THREE_COLUMNS so its edges lined up with the shaded-card row
+    // below, but the third track held the museum card — hidden
+    // 2026-09-15 — and an empty 15rem track is not alignment, it is a
+    // hole: it squeezed both columns to ~420px at max-w-6xl while the
+    // row below spent the same 15rem on recent activity. The two
+    // columns now split it, ~546px each, and "how to access" stops
+    // truncating its hints.
+    //
+    // Restoring <MuseumCard /> means putting ${THREE_COLUMNS} back here
+    // so the card gets its track.
+    <div className="my-3 grid grid-cols-1 md:grid-cols-2 md:gap-x-3">
       {/* Column 1 — data + analysis catalogue. Two-column
           definition list: bold lead on the left, muted body on
           the right. Bullets dropped — the typography +
@@ -894,8 +906,7 @@ function GeneralInfo() {
       </InfoColumn>
 
       {/* Museum of Gene Expression card temporarily hidden 2026-09-15.
-          The third THREE_COLUMNS track is left in place so the column
-          edges still line up with the shaded-card row below. */}
+          Its grid track went with it — see the note on this row. */}
       {/* <MuseumCard /> */}
     </div>
   );
