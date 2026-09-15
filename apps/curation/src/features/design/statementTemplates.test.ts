@@ -79,6 +79,9 @@ describe("STATEMENT_TEMPLATES", () => {
       "genotype-ko", // §6 gene plus zygosity
       "baseline-has-role", // §7 reference roles
       "dea-subset-axis", // §8 has role names the sub-experiment
+      "cell-line-hook", // §9b a free-text line hooked to a grounded object
+      "treatment-deprivation", // §25 a substance withheld
+      "disease-onset", // §26 onset is a quality of the disease
     ]) {
       expect(ids.has(id), `missing template ${id}`).toBe(true);
     }

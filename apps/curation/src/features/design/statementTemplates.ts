@@ -107,6 +107,8 @@ const PATO = {
   resistant_to: { label: "resistant to", uri: "http://purl.obolibrary.org/obo/PATO_0001178" },
   sensitive_toward: { label: "sensitive toward", uri: "http://purl.obolibrary.org/obo/PATO_0000516" },
   response_to: { label: "response to", uri: "http://purl.obolibrary.org/obo/PATO_0000077" },
+  // 13_statement_templates §25, the deprivation shape's default subject.
+  decreased_amount: { label: "decreased amount", uri: "http://purl.obolibrary.org/obo/PATO_0001997" },
 };
 // TGEMO lives on Gemma's own namespace, not the OBO purl base.
 const TGEMO = {
@@ -243,9 +245,11 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     category: "genotype",
     label: "gene + has_genotype + (allele notation)",
     description:
-      "Preferred for a specific allele: allele notation names the mutant " +
-      "allele over wild-type and implies zygosity — e.g. mHTT/+, K23L/+, " +
-      "exon 3 deletion. Use this instead of a bare zygosity term.",
+      "Allele notation as the has_genotype object — e.g. mHTT/+, K23L/K23L; " +
+      "`[mut]/?` makes an unknown second allele explicit rather than " +
+      "guessing. Not invalid, but no longer the preferred home for a " +
+      "specific allele: name it with `has_allele`, or as the genotype value " +
+      "itself when the allele has its own MGI term.",
     subjectHint: "gene (NCBI_GENE)",
     objectHint: "allele notation (free text, e.g. mHTT/+)",
     build: (cat) =>
@@ -298,7 +302,12 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       "independent statements about the same gene and are often both right: " +
       "`Atxn1 + has_allele + CAG expansion mutation (154Q)` says which " +
       "allele, `Atxn1 + has_genotype + heterozygous` says how many copies. " +
-      "🛑 Not `has modifier`, which would erase which allele.",
+      "🛑 Not `has modifier`, which would erase which allele. " +
+      "🛑 An allele with its own term (an MGI allele) is not an object " +
+      "here — it is the genotype VALUE, with zygosity as a statement on it: " +
+      "Gemma reaches a disease-model relation only from annotation values, " +
+      "and a has_allele object reaches nothing. has_allele is for an allele " +
+      "with no term of its own (a point mutation, a lab-named line).",
     subjectHint: "gene (NCBI_GENE)",
     objectHint: "the allele (e.g. R521H)",
     build: (cat) =>
@@ -355,7 +364,12 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "treatment-duration",
     category: "treatment",
     label: "drug + delivered for duration + (free-text)",
-    description: "Duration as a predicate on a Treatment FV.",
+    description:
+      "How long a treatment or exposure ran — JQ1 + delivered for duration " +
+      "+ 6 h (TGEMO_00167). The duration is free text, never its own EFC. " +
+      "🛑 Not for an instantaneous event: a single injection, a surgery or " +
+      "an injury has no duration, and the time since it is `sampled after`. " +
+      "A 6-hour exposure sampled at 24 h is two different statements.",
     subjectHint: "drug (CHEBI)",
     objectHint: "time (free text, e.g. 24 h)",
     build: (cat) =>
@@ -369,9 +383,13 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "treatment-delivered-to",
     category: "treatment",
     label: "drug + delivered to + organism part",
-    description: "Site-specific delivery — drug + delivered to + UBERON / CL / CLO.",
+    description:
+      "Where the treatment was administered, when that is not the profiled " +
+      "material itself — drug + delivered to (TGEMO_00183) + tissue or cell, " +
+      "or free text. E.g. valproic acid + delivered to + mother, for a " +
+      "prenatal exposure where the treated subject is not the sampled one.",
     subjectHint: "drug (CHEBI)",
-    objectHint: "organism part (UBERON)",
+    objectHint: "tissue (UBERON), cell (CL) or free text (e.g. mother)",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },
@@ -433,6 +451,30 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       withCategory(cat, {
         subject: { ...CHEBI.protein },
         predicate: { ...DELIVERED_AT_DOSE },
+        object: { label: "" },
+      }),
+  },
+  {
+    id: "treatment-deprivation",
+    category: "treatment",
+    label: "decreased amount + towards + withheld substance",
+    description:
+      "Deprivation — a substance withheld from the medium, diet or " +
+      "environment (charcoal-stripped serum, serum starvation, glucose " +
+      "withdrawal): decreased amount (PATO_0001997) + towards (RO_0002503) " +
+      "+ the substance. Use `absent` (PATO_0000462) instead only when the " +
+      "protocol states complete removal. When nutrition generally is " +
+      "withheld, the value is `starvation` (EFO_0022074) with no statement. " +
+      "🛑 The deprived arm is the perturbation; `reference substance role` " +
+      "goes on the replete arm. 🛑 Not a gene knockdown or knockout, and not " +
+      "an antagonist or blocking antibody — putting a blocking agent IN is a " +
+      "chemical treatment with a dose.",
+    subjectHint: "(filled) decreased amount (PATO_0001997)",
+    objectHint: "the withheld substance (CHEBI)",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { ...PATO.decreased_amount },
+        predicate: { ...TOWARD },
         object: { label: "" },
       }),
   },
@@ -559,11 +601,56 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
         object: { label: "" },
       }),
   },
+  {
+    id: "disease-onset",
+    category: "disease",
+    label: "disease + has modifier + onset",
+    description:
+      "A cohort grouped by when the illness began: disease (MONDO) + has " +
+      "modifier (RO_0002573) + an onset term (HP, under onset HP_0003674 — " +
+      "e.g. adult onset). Onset is a quality of the disease, not a " +
+      "developmental stage of the sample. 🛑 There is no onset predicate — " +
+      "don't invent one. Age at diagnosis is a number on a continuous " +
+      "factor (category `age at diagnosis`, not yet in the category list), " +
+      "not a statement, and a bare `age` means age at sampling.",
+    subjectHint: "disease (MONDO)",
+    objectHint: "onset term (HP) — e.g. adult onset",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...HAS_MODIFIER },
+        object: { label: "" },
+      }),
+  },
 
   // -- Origin: what the material IS, and where it came FROM -------------
   // 13_statement_templates §1-§3. Each of these collapses a pair of flat
   // annotations into one annotation that carries the relationship — the
   // arrangement that retains more, which is the one to prefer.
+  {
+    id: "cell-line-hook",
+    category: "cell line",
+    label: "line name (free text) + derives from cell line cell + parent line",
+    description:
+      "An ungroundable lab line keeps its name as FREE TEXT and gets its " +
+      "grounding from the object: WTC-11 + derives from cell line cell " +
+      "(CLO_0037210) + induced pluripotent stem cell line cell. Pick the " +
+      "hook by what the record names, most specific first: a parent line " +
+      "(this one), the donor's disease (`derives from patient having " +
+      "disease`), the tissue (`derives from part of`), the origin cell type " +
+      "(`derives from cell`), and only last the line CLASS. 🛑 Never bind " +
+      "the name to the object's URI. 🛑 For an experiment TAG the hook is " +
+      "required — with nothing to ground the object, don't add the tag. A " +
+      "factor value or characteristic is not gated this way.",
+    subjectHint: "the lab's line name — free text, no URI",
+    objectHint: "parent line (CLO), or the line class as a last resort",
+    build: (cat) =>
+      withCategory(cat, {
+        subject: { label: "" },
+        predicate: { ...DERIVES_FROM_CELL_LINE },
+        object: { label: "" },
+      }),
+  },
   {
     id: "cell-type-from-tissue",
     category: "cell type",
@@ -683,8 +770,14 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "marker-positive",
     category: "cell type",
     label: "cell type + positive for product of gene + gene",
-    description: "Marker-positive cell — CL + positive for product of gene + NCBI_GENE.",
-    subjectHint: "cell type (CL)",
+    description:
+      "Marker-defined population — cell type (CL) + positive for product of " +
+      "gene (TGEMO_00169) + gene, e.g. a CD133+ sorted fraction. The marker " +
+      "qualifies what the cells are; it is not the cell type or a genotype. " +
+      "Also a receptor status on a disease — carcinoma + positive for " +
+      "product of gene + ESR1 — where a second receptor takes the second " +
+      "slot, so an ER × PR design keeps both.",
+    subjectHint: "cell type (CL), or a disease for a receptor status",
     objectHint: "gene (NCBI_GENE)",
     build: (cat) =>
       withCategory(cat, {
@@ -697,8 +790,11 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "marker-negative",
     category: "cell type",
     label: "cell type + negative for product of gene + gene",
-    description: "Marker-negative cell — CL + negative for product of gene + NCBI_GENE.",
-    subjectHint: "cell type (CL)",
+    description:
+      "Marker-negative population — cell type (CL) + negative for product " +
+      "of gene (TGEMO_00170) + gene. Also a negative receptor status on a " +
+      "disease: carcinoma + negative for product of gene + ESR1.",
+    subjectHint: "cell type (CL), or a disease for a receptor status",
     objectHint: "gene (NCBI_GENE)",
     build: (cat) =>
       withCategory(cat, {
@@ -803,8 +899,14 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     id: "timepoint-sampled-after",
     category: "timepoint",
     label: "treatment + sampled after + (time)",
-    description: "Time after a treatment / disease event — TGEMO_00202.",
-    subjectHint: "treatment / disease",
+    description:
+      "Time from an event to sampling — differentiation day, days " +
+      "post-infection, time since injury: neural stem cell + sampled after " +
+      "+ 33 d (TGEMO_00202). Includes the time since an instantaneous event " +
+      "(a single injection, a surgery, an injury), which has no duration. " +
+      "🛑 Distinct from `delivered for duration`, which is how long an " +
+      "exposure ran.",
+    subjectHint: "treatment / disease / cell type / timepoint",
     objectHint: "time (free text)",
     build: (cat) =>
       withCategory(cat, {
@@ -818,9 +920,12 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
   {
     id: "dev-stage-with-age",
     category: "developmental stage",
-    label: "UBERON stage + has developmental stage + (age)",
-    description: "UBERON stage + has developmental stage (TGEMO_00168) + free-text age.",
-    subjectHint: "stage (UBERON)",
+    label: "stage + has developmental stage + (age)",
+    description:
+      "A specific age under a coarser ontology stage — infant stage + has " +
+      "developmental stage (TGEMO_00168) + P10. The grounded stage carries " +
+      "the biology; the free-text age carries the precision.",
+    subjectHint: "coarse stage (UBERON / EFO)",
     objectHint: "exact age (free text, e.g. P5)",
     build: (cat) =>
       withCategory(cat, {
@@ -862,7 +967,9 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       "Generic baseline pattern — object + has role + control / wild type / " +
       "reference / initial time point. KEEP the named value and add the role " +
       "to it: `C57BL/6 + has role + control`, never a bare `control` token, " +
-      "which loses the strain the curator recorded.",
+      "which loses the strain the curator recorded. 🛑 Not on a disease " +
+      "subject: a disease brought about by an agent is `induced by` " +
+      "(diabetes + induced by + streptozotocin), not `has role`.",
     subjectHint: "the FV's own value — keep it, don't replace it",
     objectHint: "control / wild type genotype / reference role / initial time point",
     build: (cat) =>
