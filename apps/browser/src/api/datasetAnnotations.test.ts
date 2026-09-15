@@ -70,6 +70,7 @@ describe("normalizeDatasetAnnotation", () => {
   it("never yields undefined where the type promises a string", () => {
     const a = normalizeDatasetAnnotation({});
     expect(a).toEqual({
+      id: null,
       statements: [],
       objectClass: "",
       className: "",

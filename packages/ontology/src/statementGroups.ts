@@ -61,7 +61,9 @@ function isBlank(t: StatementTermLike | null | undefined): boolean {
   return !(t?.label ?? "").trim() && !(t?.uri ?? "").trim();
 }
 
-function sameSubject(a: SubjectGroupable, b: SubjectGroupable): boolean {
+/** The rule {@link groupStatementsBySharedSubject} groups by, for
+ *  callers that bucket on something more than the subject. */
+export function statementsShareSubject(a: SubjectGroupable, b: SubjectGroupable): boolean {
   if (isBlank(a.subject) || isBlank(b.subject)) return false;
   if (!isBlank(a.category) && !isBlank(b.category)) {
     if (!sameStatementTerm(a.category, b.category)) return false;
@@ -78,7 +80,7 @@ export function groupStatementsBySharedSubject<T extends SubjectGroupable>(
   const groups: SubjectGroup<T>[] = [];
   (statements ?? []).forEach((s, i) => {
     if (!s) return;
-    const g = groups.find((grp) => sameSubject(grp.statements[0], s));
+    const g = groups.find((grp) => statementsShareSubject(grp.statements[0], s));
     if (g) {
       g.statements.push(s);
       g.indices.push(i);

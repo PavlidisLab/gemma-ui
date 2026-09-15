@@ -6,10 +6,12 @@
  * <token>` via the `apiGet` / `apiPost` wrappers in
  * `apps/browser/src/api/client.ts`.
  *
- * On success the modal closes; the AppBar's `/me` query re-fires
- * under the new token and the "Sign in" pill flips to "Signed in
- * as X". On failure the username/password fields stay populated
- * and the form shows the server error inline.
+ * Opened from the footer's "Internal" link and the admin gate's CTA.
+ * On success the modal closes; `/me` re-fires under the new token,
+ * the AppBar / masthead show "Signed in as X", and the footer swaps
+ * "Internal" for the signed-in links. On failure the
+ * username/password fields stay populated and the form shows the
+ * server error inline.
  */
 
 import { useEffect, useState } from "react";
@@ -19,9 +21,10 @@ import { ApiError } from "@/api/client";
 /**
  * Fill + hover for every "Sign in" affordance in the app.
  *
- * Signing in is ONE action, so it wears one colour wherever it is offered:
- * the home masthead, the AppBar on every other route, the admin gate's CTA,
- * and this dialog's submit. They used to disagree — the masthead was
+ * Signing in is ONE action, so it wears one colour wherever it is offered
+ * as a button: the admin gate's CTA and this dialog's submit. When the home
+ * masthead and the AppBar also carried Sign in pills (replaced 2026-09-15 by
+ * the footer's plain "Internal" link), the four disagreed — the masthead was
  * stone-900 while the AppBar was `bg-gemma-accent` and the other two were
  * `bg-blue-600`, so the same button changed colour as you moved between
  * routes, and clicking a black pill opened a dialog with a blue one.
@@ -31,9 +34,8 @@ import { ApiError } from "@/api/client";
  * header), so a solid accent-filled button was already off-intent.
  *
  * COLOUR ONLY — size, padding and layout stay at the call site, because the
- * four buttons are legitimately different shapes (a chrome pill, a baseline-
- * aligned masthead pill, a full-width CTA, a dialog submit). Disabled states
- * stay local too, for the same reason.
+ * buttons are legitimately different shapes (a full-width CTA, a dialog
+ * submit). Disabled states stay local too, for the same reason.
  */
 export const SIGN_IN_BUTTON_COLOR =
   "bg-stone-900 text-stone-50 hover:bg-stone-800";

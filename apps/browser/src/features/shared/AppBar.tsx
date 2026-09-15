@@ -3,7 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
-import { LoginModal, SIGN_IN_BUTTON_COLOR } from "./LoginModal";
+import { VisibilityChip } from "@/components/VisibilityChip";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
 import { gemmaLockup } from "@gemma/assets";
@@ -12,7 +12,6 @@ export function AppBar() {
   const me = useMe();
   const user = me.data;
   const logout = useLogout();
-  const [loginOpen, setLoginOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   // Hide the AppBar search box once the curator is on /browser —
   // the unified search + filter input lives in the page itself
@@ -45,13 +44,38 @@ export function AppBar() {
       <nav className="flex items-center gap-1 ml-4">
         <NavTab to="/browser">Datasets</NavTab>
         <NavTab to="/platforms">Platforms</NavTab>
-        <NavTab to="/genes">Genes</NavTab>
-        {/* Cross-app link into the curator dashboard. The curation
-            app is a separate vite build on a different origin (see
-            ``lib/appLinks.ts``). TODO: gate this tab on an admin /
-            curator role flag once /me exposes one — for now it's
-            visible to everyone per design review 2026-05-26. */}
-        <ExternalNavTab href={curationUrl()}>Curation</ExternalNavTab>
+        {/* Genes and Curation are shown only when signed in, and
+            marked so. Curation is a cross-app link into the curator
+            dashboard, a separate vite build on a different origin (see
+            ``lib/appLinks.ts``). */}
+        {user ? (
+          <>
+            <NavTab
+              to="/genes"
+              badge={
+                <VisibilityChip
+                  tone="restricted"
+                  label="signed in"
+                  title="Visitors who are not signed in don't see this tab."
+                />
+              }
+            >
+              Genes
+            </NavTab>
+            <ExternalNavTab
+              href={curationUrl()}
+              badge={
+                <VisibilityChip
+                  tone="restricted"
+                  label="signed in"
+                  title="Visitors who are not signed in don't see this tab."
+                />
+              }
+            >
+              Curation
+            </ExternalNavTab>
+          </>
+        ) : null}
         {/* Administration — gated on GROUP_ADMIN authority (exposed
             on /me as of gemma-rest 4a9605c23f). Hidden for anonymous
             users AND for logged-in non-admins; SystemMonitoringPage's
@@ -75,28 +99,24 @@ export function AppBar() {
       ) : null}
       <ExtAnchor href="https://pavlidislab.github.io/Gemma/">Docs</ExtAnchor>
 
-      {/* Auth surface — in-app sign-in modal posts directly to
-          /rest/v2/login and stashes the bearer token. Sign-out
-          POSTs /rest/v2/logout + clears the local copy. */}
+      {/* Signed-in identity + sign-out. Signing IN is the footer's
+          "Internal" link. Sign-out POSTs /rest/v2/logout + clears the
+          local copy. */}
       <AuthControls
         user={user}
         loading={me.isPending && !me.data}
-        onSignIn={() => setLoginOpen(true)}
         onSignOut={() => logout.mutate()}
         signingOut={logout.isPending}
       />
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </header>
   );
 }
 
 /**
- * Auth controls: "Sign in" link when anonymous, "Signed in as X ·
- * Sign out" pair when authenticated. Both targets are the legacy
- * Gemma webapp (login.jsp / j_spring_security_logout); we don't
- * own a login form yet. After sign-in the curator returns to this
- * tab and the session cookie carries through.
+ * Auth controls: "Signed in as X · Sign out" when authenticated,
+ * nothing when anonymous — signing in is the footer's "Internal"
+ * link.
  *
  * While the /users/me probe is in flight the slot is blank — no
  * placeholder shimmer so the AppBar doesn't jitter on every page
@@ -105,13 +125,11 @@ export function AppBar() {
 function AuthControls({
   user,
   loading,
-  onSignIn,
   onSignOut,
   signingOut,
 }: {
   user: { userName?: string | null; email?: string | null } | null | undefined;
   loading: boolean;
-  onSignIn: () => void;
   onSignOut: () => void;
   signingOut: boolean;
 }) {
@@ -138,16 +156,7 @@ function AuthControls({
       </div>
     );
   }
-  return (
-    <button
-      type="button"
-      onClick={onSignIn}
-      className={`text-sm px-2.5 py-1 rounded border border-transparent hover:no-underline ${SIGN_IN_BUTTON_COLOR}`}
-      title="sign in to Gemma"
-    >
-      Sign in
-    </button>
-  );
+  return null;
 }
 
 /** Plain anchor variant of NavTab — used when the target leaves the
@@ -158,9 +167,12 @@ function AuthControls({
 function ExternalNavTab({
   href,
   children,
+  badge,
 }: {
   href: string;
   children: ReactNode;
+  /** Rendered after the label and glyph — e.g. a VisibilityChip. */
+  badge?: ReactNode;
 }) {
   return (
     <a
@@ -169,6 +181,7 @@ function ExternalNavTab({
     >
       {children}
       <ExtGlyph />
+      {badge ? <span className="ml-1">{badge}</span> : null}
     </a>
   );
 }
@@ -228,7 +241,16 @@ function NavButton({
 /** Pill-style nav tab. Uses TanStack Router's data-status attribute
  *  (via `activeProps`) so the active route gets the filled treatment
  *  without us threading the current path manually. */
-function NavTab({ to, children }: { to: string; children: ReactNode }) {
+function NavTab({
+  to,
+  children,
+  badge,
+}: {
+  to: string;
+  children: ReactNode;
+  /** Rendered after the label — e.g. a VisibilityChip. */
+  badge?: ReactNode;
+}) {
   return (
     <Link
       to={to}
@@ -239,6 +261,7 @@ function NavTab({ to, children }: { to: string; children: ReactNode }) {
       }}
     >
       {children}
+      {badge ? <span className="ml-1">{badge}</span> : null}
     </Link>
   );
 }

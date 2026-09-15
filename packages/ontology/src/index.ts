@@ -18,6 +18,7 @@ export {
 export {
   groupStatementsBySharedSubject,
   sameStatementTerm,
+  statementsShareSubject,
   type StatementTermLike,
   type SubjectGroupable,
   type SubjectGroup,

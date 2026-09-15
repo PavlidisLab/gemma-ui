@@ -1,5 +1,5 @@
 /**
- * Bottom-of-page footer. Surfaces:
+ * Bottom-of-page footer. For a signed-in viewer it surfaces:
  *   - upstream Gemma host the dev proxy is fronting,
  *   - UI build SHA (baked in at vite build time),
  *   - server-side gemma-rest build (version + commit) via
@@ -10,8 +10,13 @@
  * check — UI SHA tells you which curation-UI build you're on,
  * server build tells you which gemma-rest deployment you're
  * talking to.
+ *
+ * Signed-out visitors see none of the stamps and no Curation link;
+ * they get "Internal" in that slot, which opens the sign-in dialog.
+ * Signing in lives here, not in the AppBar or the home masthead.
  */
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { apiGet, ApiError } from "@/api/client";
@@ -19,6 +24,8 @@ import { restUrl } from "@/api/base";
 import { baseUrl, resolveApiTarget } from "@/lib/gemmaConfig";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
+import { VisibilityChip } from "@/components/VisibilityChip";
+import { LoginModal } from "./LoginModal";
 
 /** Compact age of a build ("45s", "3m", "2h", "6d"), shown in
  *  parentheses after each SHA. Pure; caller renders the absolute ISO
@@ -51,7 +58,7 @@ interface ServerInfo {
   uptime?: { startTimeMillis?: number; uptimeMillis?: number } | null;
 }
 
-function useServerInfo() {
+function useServerInfo(enabled: boolean) {
   return useQuery<ServerInfo | null>({
     queryKey: ["server", "info"],
     queryFn: async () => {
@@ -69,6 +76,7 @@ function useServerInfo() {
         throw e;
       }
     },
+    enabled,
     staleTime: 5 * 60_000,
     retry: false,
   });
@@ -76,6 +84,91 @@ function useServerInfo() {
 
 export function Footer() {
   const me = useMe();
+  const signedIn = !!me.data;
+  // Until /me answers, neither "Internal" nor the signed-in links —
+  // otherwise a signed-in page flashes "Internal" on every load.
+  const authKnown = !(me.isPending && !me.data);
+  const [loginOpen, setLoginOpen] = useState(false);
+
+  const info = useServerInfo(signedIn);
+
+  return (
+    <footer
+      className="shrink-0 flex items-center gap-3 px-3 py-1 text-[11px] border-t border-gemma-grid bg-surface text-gemma-subtle flex-wrap"
+      style={{ flex: "0 0 auto" }}
+    >
+      {signedIn ? <BuildStamps info={info.data ?? null} /> : null}
+
+      <span className="ml-auto inline-flex items-center gap-3 flex-wrap">
+        {/* App-level surfaces. Render in the footer so the home page
+            (which hides the AppBar) still has a way into Curation +
+            Administration. Administration is gated on GROUP_ADMIN
+            authority (exposed on /me by gemma-rest 4a9605c23f). */}
+        {!authKnown ? null : signedIn ? (
+          <span className="inline-flex items-center gap-1">
+            <a href={curationUrl()} className="hover:underline">
+              Curation
+            </a>
+            <VisibilityChip
+              tone="restricted"
+              label="signed in"
+              title="Visitors who are not signed in don't see this link."
+            />
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setLoginOpen(true)}
+            className="hover:underline bg-transparent border-none p-0 cursor-pointer"
+            title="Sign in to Gemma"
+          >
+            Internal
+          </button>
+        )}
+        {me.data?.authorities?.includes("GROUP_ADMIN") ? (
+          <Link to="/admin/system" className="hover:underline">
+            Administration
+          </Link>
+        ) : null}
+        <span className="opacity-40" aria-hidden>·</span>
+        <ExtLink href="https://pavlidislab.github.io/Gemma/">Docs</ExtLink>
+        <ExtLink href="https://gemma.msl.ubc.ca/resources/restapidocs/">
+          REST
+        </ExtLink>
+        <ExtLink href="https://github.com/PavlidisLab">GitHub</ExtLink>
+        <ExtLink href="https://pavlidislab.github.io/Gemma/terms.html">
+          Terms
+        </ExtLink>
+        <ExtLink
+          href="https://pavlidislab.github.io/Gemma/terms.html#cookies"
+          title="Essential cookies only — sign-in session + UI preferences."
+        >
+          Cookies
+        </ExtLink>
+        <span className="opacity-60 uppercase tracking-[0.16em] text-[10px]">
+          <ExtLink
+            href="https://pavlab.msl.ubc.ca"
+            className="hover:underline hover:opacity-100"
+          >
+            Pavlidis Lab
+          </ExtLink>
+          {" · "}
+          <ExtLink
+            href="https://www.ubc.ca"
+            className="hover:underline hover:opacity-100"
+          >
+            UBC
+          </ExtLink>
+        </span>
+      </span>
+      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
+    </footer>
+  );
+}
+
+/** API target, UI build and gemma-rest build — the signed-in half of
+ *  the footer. */
+function BuildStamps({ info }: { info: ServerInfo | null }) {
   // Where the API calls actually go — which is not the same question in
   // dev and in prod, and answering it with one value got it wrong in
   // prod.
@@ -113,16 +206,17 @@ export function Footer() {
   const uiBuiltAt =
     typeof __GEMMA_BUILD_TIME__ === "string" ? __GEMMA_BUILD_TIME__ : "";
 
-  const info = useServerInfo();
-  const serverVersion = info.data?.build?.version;
-  const serverGitHash = info.data?.build?.gitHash;
-  const serverBuiltAt = info.data?.build?.timestamp;
+  const serverVersion = info?.build?.version;
+  const serverGitHash = info?.build?.gitHash;
+  const serverBuiltAt = info?.build?.timestamp;
 
   return (
-    <footer
-      className="shrink-0 flex items-center gap-3 px-3 py-1 text-[11px] border-t border-gemma-grid bg-surface text-gemma-subtle flex-wrap"
-      style={{ flex: "0 0 auto" }}
-    >
+    <>
+      <VisibilityChip
+        tone="restricted"
+        label="signed in"
+        title="Visitors who are not signed in don't see the API host or the build stamps."
+      />
       <span className="inline-flex items-center gap-1">
         <span
           className={
@@ -188,7 +282,7 @@ export function Footer() {
       </span>
 
       {/* Server build stamp — gemma-rest version + commit. */}
-      {info.data?.build ? (
+      {info?.build ? (
         <>
           <span className="opacity-60">·</span>
           <span
@@ -222,52 +316,7 @@ export function Footer() {
           </span>
         </>
       ) : null}
-
-      <span className="ml-auto inline-flex items-center gap-3 flex-wrap">
-        {/* App-level surfaces. Render in the footer so the home page
-            (which hides the AppBar) still has a way into Curation +
-            Administration. Administration is gated on GROUP_ADMIN
-            authority (exposed on /me by gemma-rest 4a9605c23f). */}
-        <a href={curationUrl()} className="hover:underline">
-          Curation
-        </a>
-        {me.data?.authorities?.includes("GROUP_ADMIN") ? (
-          <Link to="/admin/system" className="hover:underline">
-            Administration
-          </Link>
-        ) : null}
-        <span className="opacity-40" aria-hidden>·</span>
-        <ExtLink href="https://pavlidislab.github.io/Gemma/">Docs</ExtLink>
-        <ExtLink href="https://gemma.msl.ubc.ca/resources/restapidocs/">
-          REST
-        </ExtLink>
-        <ExtLink href="https://github.com/PavlidisLab">GitHub</ExtLink>
-        <ExtLink href="https://pavlidislab.github.io/Gemma/terms.html">
-          Terms
-        </ExtLink>
-        <ExtLink
-          href="https://pavlidislab.github.io/Gemma/terms.html#cookies"
-          title="Essential cookies only — sign-in session + UI preferences."
-        >
-          Cookies
-        </ExtLink>
-        <span className="opacity-60 uppercase tracking-[0.16em] text-[10px]">
-          <ExtLink
-            href="https://pavlab.msl.ubc.ca"
-            className="hover:underline hover:opacity-100"
-          >
-            Pavlidis Lab
-          </ExtLink>
-          {" · "}
-          <ExtLink
-            href="https://www.ubc.ca"
-            className="hover:underline hover:opacity-100"
-          >
-            UBC
-          </ExtLink>
-        </span>
-      </span>
-    </footer>
+    </>
   );
 }
 

@@ -170,11 +170,18 @@ export function gemma1Url(path: string): string {
 }
 
 /** Where the home page's "Visit the Museum of Gene Expression" card
- *  links. ``VITE_MUSEUM_URL`` overrides; empty counts as unset, as for
- *  ``VITE_GEMMA_WEB_URL`` above. */
+ *  links. Defaults to the copy this app serves itself:
+ *  ``public/museum/index.html``, which Vite copies into ``dist`` so it
+ *  publishes at ``<base>museum/index.html``. ``VITE_MUSEUM_URL``
+ *  overrides; empty counts as unset, as for ``VITE_GEMMA_WEB_URL``
+ *  above.
+ *
+ *  🛑 The full ``museum/index.html``, never ``museum/``: the dev server
+ *  answers ``/museum/`` with the app shell through its SPA fallback, and
+ *  only the full path reaches the file. */
 export const museumUrl: string =
   import.meta.env.VITE_MUSEUM_URL ||
-  "https://claude.ai/code/artifact/ab7b27b1-4189-4fa2-9cd0-45da09656bd9";
+  `${import.meta.env.BASE_URL}museum/index.html`;
 
 export const excludedCategories: string[] = [
   "http://mged.sourceforge.net/ontologies/MGEDOntology.owl#BioSourceType",
