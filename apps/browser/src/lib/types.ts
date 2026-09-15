@@ -626,6 +626,10 @@ export interface User {
 }
 
 export interface DatasetAnnotation {
+  /** Gemma's id for the row. For a FactorValue row it is the statement
+   *  id, which the design endpoint also carries, so the row can be traced
+   *  to its factor value. Null when the server sends none. */
+  id?: number | null;
   objectClass: string;
   className: string;
   classUri: string | null;

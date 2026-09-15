@@ -45,6 +45,10 @@ import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { splitBySampleScope } from "@/lib/annotationScope";
+import {
+  factorValueIdByStatementId,
+  overviewAnnotations,
+} from "@/lib/overviewAnnotations";
 import { AnnotationStatementChip } from "@/components/AnnotationStatementChip";
 import { tintForIndex, compareValuesNatural, compareSortColumn } from "@/lib/valueTint";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
@@ -603,10 +607,28 @@ function OverviewTab({ dataset }: { dataset: Dataset }) {
     queryKey: ["datasetPublications", dataset.id],
     queryFn: ({ signal }) => getDatasetPublications(dataset.id, signal),
   });
+  // The design traces each factor-value annotation to its value, so
+  // statements on one value can share a chip. Same key as the Design
+  // tab, so the two tabs share one request.
+  const design = useQuery({
+    queryKey: ["datasetDesign", dataset.id],
+    queryFn: ({ signal }) => getDatasetDesign(dataset.id, signal),
+  });
+  const fvIdByStatementId = useMemo(
+    () => factorValueIdByStatementId(design.data),
+    [design.data],
+  );
   return (
     <>
       <DescriptionSection dataset={dataset} />
-      <AnnotationsSection annotations={ann.data?.data ?? []} loading={ann.isLoading} />
+      <AnnotationsSection
+        annotations={ann.data?.data ?? []}
+        // Wait for the design too, so joined chips don't render split
+        // first and then snap together. A failed design fetch just
+        // means nothing is joined.
+        loading={ann.isLoading || design.isLoading}
+        fvIdByStatementId={fvIdByStatementId}
+      />
       <PublicationsSection publications={pubs.data ?? []} loading={pubs.isLoading} failed={pubs.isError} />
     </>
   );
@@ -627,7 +649,15 @@ function DescriptionSection({ dataset }: { dataset: Dataset }) {
   );
 }
 
-function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnnotation[]; loading: boolean }) {
+function AnnotationsSection({
+  annotations,
+  loading,
+  fvIdByStatementId,
+}: {
+  annotations: DatasetAnnotation[];
+  loading: boolean;
+  fvIdByStatementId: ReadonlyMap<number, number>;
+}) {
   // Two filters, in order.
   //
   // Experiment tags and factor values are statements about the study;
@@ -640,13 +670,20 @@ function AnnotationsSection({ annotations, loading }: { annotations: DatasetAnno
   // subject role" etc.) — they mark a factor's control level in
   // curation and carry nothing for a browsing reader. Same rule the
   // Design tab uses.
+  //
+  // Last, trim for an overview: quantities (dose, duration) out, and
+  // one chip per subject on a factor value — see `overviewAnnotations`.
   const { experimentLevel, perSample } = useMemo(
     () => splitBySampleScope(annotations),
     [annotations],
   );
   const visible = useMemo(
-    () => experimentLevel.filter((a) => !isBaselineTerm(a.termName, a.termUri)),
-    [experimentLevel],
+    () =>
+      overviewAnnotations(
+        experimentLevel.filter((a) => !isBaselineTerm(a.termName, a.termUri)),
+        fvIdByStatementId,
+      ),
+    [experimentLevel, fvIdByStatementId],
   );
   const grouped = useMemo(() => {
     const m = new Map<string, DatasetAnnotation[]>();

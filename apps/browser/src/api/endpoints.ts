@@ -998,6 +998,7 @@ export function normalizeDatasetAnnotation(
     }
   }
   return {
+    id: typeof a.id === "number" ? a.id : null,
     objectClass: a.objectClass ?? "",
     className: a.category ?? a.className ?? "",
     classUri: a.categoryUri ?? a.classUri ?? null,

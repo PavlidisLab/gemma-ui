@@ -3,6 +3,7 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
+import { VisibilityChip } from "@/components/VisibilityChip";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
 import { gemmaLockup } from "@gemma/assets";
@@ -43,13 +44,38 @@ export function AppBar() {
       <nav className="flex items-center gap-1 ml-4">
         <NavTab to="/browser">Datasets</NavTab>
         <NavTab to="/platforms">Platforms</NavTab>
-        <NavTab to="/genes">Genes</NavTab>
-        {/* Cross-app link into the curator dashboard. The curation
-            app is a separate vite build on a different origin (see
-            ``lib/appLinks.ts``). TODO: gate this tab on an admin /
-            curator role flag once /me exposes one — for now it's
-            visible to everyone per design review 2026-05-26. */}
-        <ExternalNavTab href={curationUrl()}>Curation</ExternalNavTab>
+        {/* Genes and Curation are shown only when signed in, and
+            marked so. Curation is a cross-app link into the curator
+            dashboard, a separate vite build on a different origin (see
+            ``lib/appLinks.ts``). */}
+        {user ? (
+          <>
+            <NavTab
+              to="/genes"
+              badge={
+                <VisibilityChip
+                  tone="restricted"
+                  label="signed in"
+                  title="Visitors who are not signed in don't see this tab."
+                />
+              }
+            >
+              Genes
+            </NavTab>
+            <ExternalNavTab
+              href={curationUrl()}
+              badge={
+                <VisibilityChip
+                  tone="restricted"
+                  label="signed in"
+                  title="Visitors who are not signed in don't see this tab."
+                />
+              }
+            >
+              Curation
+            </ExternalNavTab>
+          </>
+        ) : null}
         {/* Administration — gated on GROUP_ADMIN authority (exposed
             on /me as of gemma-rest 4a9605c23f). Hidden for anonymous
             users AND for logged-in non-admins; SystemMonitoringPage's
@@ -141,9 +167,12 @@ function AuthControls({
 function ExternalNavTab({
   href,
   children,
+  badge,
 }: {
   href: string;
   children: ReactNode;
+  /** Rendered after the label and glyph — e.g. a VisibilityChip. */
+  badge?: ReactNode;
 }) {
   return (
     <a
@@ -152,6 +181,7 @@ function ExternalNavTab({
     >
       {children}
       <ExtGlyph />
+      {badge ? <span className="ml-1">{badge}</span> : null}
     </a>
   );
 }
@@ -211,7 +241,16 @@ function NavButton({
 /** Pill-style nav tab. Uses TanStack Router's data-status attribute
  *  (via `activeProps`) so the active route gets the filled treatment
  *  without us threading the current path manually. */
-function NavTab({ to, children }: { to: string; children: ReactNode }) {
+function NavTab({
+  to,
+  children,
+  badge,
+}: {
+  to: string;
+  children: ReactNode;
+  /** Rendered after the label — e.g. a VisibilityChip. */
+  badge?: ReactNode;
+}) {
   return (
     <Link
       to={to}
@@ -222,6 +261,7 @@ function NavTab({ to, children }: { to: string; children: ReactNode }) {
       }}
     >
       {children}
+      {badge ? <span className="ml-1">{badge}</span> : null}
     </Link>
   );
 }
