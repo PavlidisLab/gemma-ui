@@ -23,7 +23,6 @@ import { Link } from "@tanstack/react-router";
 import { GENERAL_INFO } from "../copy";
 import { useMe, useLogout } from "@/api/auth";
 import { getDatasetAnnotations } from "@/api/endpoints";
-import { LoginModal, SIGN_IN_BUTTON_COLOR } from "@/features/shared/LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLockup } from "@gemma/assets";
@@ -742,7 +741,6 @@ function Masthead() {
   const me = useMe();
   const user = me.data;
   const logout = useLogout();
-  const [loginOpen, setLoginOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
 
   return (
@@ -786,7 +784,8 @@ function Masthead() {
 
           <div className="flex-1 min-w-0" />
 
-          {/* About + auth — same baseline as the tagline. */}
+          {/* About + signed-in identity — same baseline as the tagline.
+              Signing in is the footer's "Internal" link. */}
           <div className="flex items-baseline gap-4">
             <button
               type="button"
@@ -795,7 +794,7 @@ function Masthead() {
             >
               About
             </button>
-            {me.isPending && !me.data ? null : user ? (
+            {user ? (
               <span className="text-[12px] text-stone-600 inline-flex items-baseline gap-2">
                 <span className="opacity-70">Signed in as</span>
                 <span className="font-medium text-stone-900">
@@ -810,23 +809,10 @@ function Masthead() {
                   {logout.isPending ? "Signing out…" : "Sign out"}
                 </button>
               </span>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setLoginOpen(true)}
-                // `leading-none -mb-1` cancels the button's below-baseline
-                // padding (mirrors `py-1`) so, in the shared baseline row,
-                // its padded box doesn't drag the tagline's baseline up off
-                // the wordmark. Visual padding is unchanged.
-                className={`text-[12px] leading-none -mb-1 px-2.5 py-1 rounded ${SIGN_IN_BUTTON_COLOR}`}
-              >
-                Sign in
-              </button>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );

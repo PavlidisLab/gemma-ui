@@ -3,7 +3,6 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
-import { LoginModal, SIGN_IN_BUTTON_COLOR } from "./LoginModal";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
 import { gemmaLockup } from "@gemma/assets";
@@ -12,7 +11,6 @@ export function AppBar() {
   const me = useMe();
   const user = me.data;
   const logout = useLogout();
-  const [loginOpen, setLoginOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   // Hide the AppBar search box once the curator is on /browser —
   // the unified search + filter input lives in the page itself
@@ -75,28 +73,24 @@ export function AppBar() {
       ) : null}
       <ExtAnchor href="https://pavlidislab.github.io/Gemma/">Docs</ExtAnchor>
 
-      {/* Auth surface — in-app sign-in modal posts directly to
-          /rest/v2/login and stashes the bearer token. Sign-out
-          POSTs /rest/v2/logout + clears the local copy. */}
+      {/* Signed-in identity + sign-out. Signing IN is the footer's
+          "Internal" link. Sign-out POSTs /rest/v2/logout + clears the
+          local copy. */}
       <AuthControls
         user={user}
         loading={me.isPending && !me.data}
-        onSignIn={() => setLoginOpen(true)}
         onSignOut={() => logout.mutate()}
         signingOut={logout.isPending}
       />
-      <LoginModal open={loginOpen} onClose={() => setLoginOpen(false)} />
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </header>
   );
 }
 
 /**
- * Auth controls: "Sign in" link when anonymous, "Signed in as X ·
- * Sign out" pair when authenticated. Both targets are the legacy
- * Gemma webapp (login.jsp / j_spring_security_logout); we don't
- * own a login form yet. After sign-in the curator returns to this
- * tab and the session cookie carries through.
+ * Auth controls: "Signed in as X · Sign out" when authenticated,
+ * nothing when anonymous — signing in is the footer's "Internal"
+ * link.
  *
  * While the /users/me probe is in flight the slot is blank — no
  * placeholder shimmer so the AppBar doesn't jitter on every page
@@ -105,13 +99,11 @@ export function AppBar() {
 function AuthControls({
   user,
   loading,
-  onSignIn,
   onSignOut,
   signingOut,
 }: {
   user: { userName?: string | null; email?: string | null } | null | undefined;
   loading: boolean;
-  onSignIn: () => void;
   onSignOut: () => void;
   signingOut: boolean;
 }) {
@@ -138,16 +130,7 @@ function AuthControls({
       </div>
     );
   }
-  return (
-    <button
-      type="button"
-      onClick={onSignIn}
-      className={`text-sm px-2.5 py-1 rounded border border-transparent hover:no-underline ${SIGN_IN_BUTTON_COLOR}`}
-      title="sign in to Gemma"
-    >
-      Sign in
-    </button>
-  );
+  return null;
 }
 
 /** Plain anchor variant of NavTab — used when the target leaves the
