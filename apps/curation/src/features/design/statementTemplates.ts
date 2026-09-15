@@ -744,23 +744,28 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
       }),
   },
   {
-    id: "anatomy-located-in",
+    id: "anatomy-direction",
     category: "organism part",
-    label: "structure + located in + sub-region / axis",
+    label: "structure + has modifier + direction",
     description:
       "A finer position the ontology doesn't carry as its own class — a " +
-      "hemisphere, a dorsoventral level, a cortical layer: structure " +
-      "(UBERON) + located in (RO_0001025) + the sub-region. 🛑 The subject " +
-      "is an ANATOMICAL structure or a disease, NEVER a gene. `<gene> " +
-      "located in <cell type>` is the conditional-knockout case wearing " +
-      "the wrong predicate — it says where the gene sits, not where the " +
-      "alteration acts; that one is `targeted to`.",
-    subjectHint: "structure (UBERON)",
-    objectHint: "sub-region or axis (e.g. ventral, left hemisphere)",
+      "dorsoventral level, a side, a medial or lateral part. Search for the " +
+      "sub-region's own UBERON term first (medial prefrontal cortex, " +
+      "UBERON_4450000); only when none exists: structure (UBERON) + has " +
+      "modifier (RO_0002573) + the direction, grounded — dorsal " +
+      "EFO_0001656, ventral EFO_0001662, medial EFO_0001660, lateral " +
+      "EFO_0001657, proximal EFO_0001661, distal EFO_0001655, caudal " +
+      "EFO_0001908, left PATO_0000366, right PATO_0000367. 🛑 Not `located " +
+      "in` (ruling, 2026-09-14): that takes a place, a tissue or organ. " +
+      "Not the relational `medial to` / `lateral to`, which need a second " +
+      "structure. The subject is an ANATOMICAL structure, NEVER a gene — " +
+      "a gene confined to a cell type is `targeted to`.",
+    subjectHint: "structure (UBERON) — e.g. Ammon's horn",
+    objectHint: "direction (EFO geometric modifier / PATO left, right) — e.g. ventral",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },
-        predicate: { ...LOCATED_IN },
+        predicate: { ...HAS_MODIFIER },
         object: { label: "" },
       }),
   },
