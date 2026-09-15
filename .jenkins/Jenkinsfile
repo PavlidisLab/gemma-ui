@@ -110,37 +110,58 @@ pipeline {
         }
         stage('Toolchain') {
             steps {
-                // A receipt in the log of which node and npm this build
-                // got, and a comprehensible failure when there is none.
+                // A receipt in the log of which node and npm this build got,
+                // and a comprehensible failure when it is not good enough.
                 sh '''
                     set -eu
-                    if ! command -v node >/dev/null 2>&1; then
-                        echo "ERROR: no node on PATH (looked for $NODE_HOME/bin/node)." >&2
+
+                    # Say WHERE node came from. NODE_HOME is a build parameter
+                    # naming an installation that need not exist; when it does
+                    # not, the PATH prefix is a silent no-op and whatever node
+                    # the agent has system-wide is used instead. The agent's
+                    # own node is v16.20.2 (2026-09-15), far below the floor,
+                    # so a build that quietly falls back has to say so.
+                    if [ -x "$NODE_HOME/bin/node" ]; then
+                        echo "node from NODE_HOME=$NODE_HOME"
+                    else
+                        echo "NOTE: $NODE_HOME/bin/node does not exist - falling back to node on PATH"
+                    fi
+
+                    # Both failure paths below print this. The version gate is
+                    # the one that actually fires on this agent, and it used to
+                    # print the bare version with no remedy.
+                    node_help() {
                         echo "" >&2
-                        echo "Provision it once on shared NFS, where every agent" >&2
-                        echo "can read it:" >&2
+                        echo "Provision a current Node on shared NFS, which every agent" >&2
+                        echo "reads and which is group-writable by pavlab:" >&2
                         echo "" >&2
                         echo "  cd /space/opt" >&2
                         echo "  curl -fsSLO https://nodejs.org/dist/v22.20.0/node-v22.20.0-linux-x64.tar.xz" >&2
                         echo "  tar -xJf node-v22.20.0-linux-x64.tar.xz" >&2
                         echo "  chmod -R g+rX node-v22.20.0-linux-x64" >&2
                         echo "" >&2
-                        echo "or point the NODE_HOME build parameter at an existing" >&2
-                        echo "installation, or configure the Jenkins NodeJS plugin (see" >&2
-                        echo "the comment on NODE_HOME in .jenkins/Jenkinsfile)." >&2
+                        echo "That path is the NODE_HOME parameter default, so no further" >&2
+                        echo "change is needed. Alternatively point NODE_HOME at another" >&2
+                        echo "installation, or configure the Jenkins NodeJS plugin - see" >&2
+                        echo "the comment on NODE_HOME in .jenkins/Jenkinsfile." >&2
+                    }
+
+                    if ! command -v node >/dev/null 2>&1; then
+                        echo "ERROR: no node on PATH, and none at $NODE_HOME/bin/node." >&2
+                        node_help
                         exit 1
                     fi
-                    node -v
-                    npm -v
-                    # engines.node in the root package.json. Checked here
-                    # rather than left to npm, which only warns.
-                    node -e '
-                        const [maj, min] = process.versions.node.split(".").map(Number);
-                        if (maj < 20 || (maj === 20 && min < 12)) {
-                            console.error(`ERROR: node ${process.versions.node} is below the required >=20.12.0.`);
-                            process.exit(1);
-                        }
-                    '
+
+                    echo "node $(node -v) from $(command -v node)"
+                    echo "npm  $(npm -v)"
+
+                    # engines.node in the root package.json. Checked here rather
+                    # than left to npm, which only warns.
+                    if ! node -e \'const [maj, min] = process.versions.node.split(".").map(Number); process.exit(maj > 20 || (maj === 20 && min >= 12) ? 0 : 1)\'; then
+                        echo "ERROR: node $(node -v) is below the required >=20.12.0 (engines.node)." >&2
+                        node_help
+                        exit 1
+                    fi
                 '''
             }
         }

@@ -43,33 +43,44 @@ file plus one line in `targetsForBranch()`.
 
 ## One-time setup in Jenkins
 
-1. **Node on the agent.** There is no `node` on the agent's `PATH` and
-   none under `/space/opt` (checked 2026-09-15), so the first build
-   fails in the `Toolchain` stage with the commands to fix it:
+1. **Node on the agent.** ✅ Done 2026-09-15:
+   `/space/opt/node-v22.20.0-linux-x64` (v22.20.0 / npm 10.9.3), the
+   `NODE_HOME` parameter default. `/space/opt` is shared NFS every agent
+   reads, which is why it goes there.
+
+   The agent's own `node` is **v16.20.2**, well below the `>=20.12.0`
+   floor in `engines.node`, and it is on `PATH` — so a `NODE_HOME` that
+   does not exist does not fail loudly, it silently falls back to v16.
+   The `Toolchain` stage prints which node it got and why, and fails with
+   install instructions. To replace the installation:
 
    ```bash
    cd /space/opt
-   curl -fsSLO https://nodejs.org/dist/v22.20.0/node-v22.20.0-linux-x64.tar.xz
-   tar -xJf node-v22.20.0-linux-x64.tar.xz
-   chmod -R g+rX node-v22.20.0-linux-x64
+   curl -fsSLO https://nodejs.org/dist/v<VERSION>/node-v<VERSION>-linux-x64.tar.xz
+   curl -fsSL https://nodejs.org/dist/v<VERSION>/SHASUMS256.txt \
+       | grep 'node-v<VERSION>-linux-x64.tar.xz$' | sha256sum -c -
+   tar -xJf node-v<VERSION>-linux-x64.tar.xz
+   chmod -R g+rX node-v<VERSION>-linux-x64
    ```
 
-   `/space/opt` is shared NFS every agent reads, which is why it goes
-   there. The alternative is the Jenkins **NodeJS plugin** — see
-   the comment on `NODE_HOME` in the `Jenkinsfile` for the swap.
+   then update the `NODE_HOME` default in the `Jenkinsfile`. The
+   alternative is the Jenkins **NodeJS plugin** — see the comment on
+   `NODE_HOME` there for the swap.
 
-2. **Docroot permissions.** The deploy writes to `/space/web/gemma-ui/<target>`
-   as the Jenkins user. As of 2026-09-15 only `production` is
-   group-writable; `staging` and `gemma2testing` are `drwxr-xr-x`, so a
-   deploy of either fails on permissions. Jenkins must be in the
-   `pavlab` group and:
+2. **Docroot permissions.** ✅ Done 2026-09-15: all three of
+   `/space/web/gemma-ui/{production,staging,gemma2testing}` are now
+   `drwxrwxr-x` and owned by group `pavlab`, which is the `jenkins`
+   user's primary group — `staging` and `gemma2testing` were
+   `drwxr-xr-x`, so a deploy of either would have failed on permissions.
 
    ```bash
    chmod -R g+w /space/web/gemma-ui/staging /space/web/gemma-ui/gemma2testing
    ```
 
-   (The deploy itself publishes with `--chmod=D775,F664`, so the tree
-   stays group-writable afterwards.)
+   The deploy publishes with `--chmod=D775,F664`, so the tree stays
+   group-writable afterwards. Note the **parent** `/space/web/gemma-ui`
+   is still `drwxr-xr-x`: adding a new target means creating its docroot
+   by hand first, since the deploy's `mkdir -p` runs as `jenkins`.
 
 3. **The job.** A **multibranch pipeline** named e.g. `gemma-ui`, branch
    source GitHub → `PavlidisLab/gemma-ui`, script path
