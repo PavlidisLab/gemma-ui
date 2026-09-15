@@ -658,14 +658,13 @@ export interface TicketCreateBody {
  *  considered and declined — a second name for one category is how two
  *  vocabularies start drifting.
  *
- *  **`SCREENING` is being added verbatim** (`a97999db15`), so it stays
- *  refused only until that reaches the host this app is pointed at.
- *  `TicketType` is `@Enumerated(STRING)`, so no migration gates it. */
+ *  **`SCREENING` passes through verbatim.** Gemma's `TicketType` has
+ *  carried it since `a97999db15`, alongside `AUDIT` and `SCRATCHPAD`;
+ *  gemma2 and staging-gemma both list it in their OpenAPI enums
+ *  (checked 2026-09-14). */
 const TYPE_TRANSLATION: Partial<Record<TicketType, TicketType>> = {
   REVIEW: "CURATION",
 };
-
-const TYPES_GEMMA_LACKS = new Set<TicketType>(["SCREENING"]);
 
 /** Target types Gemma's `TicketTargetType` enum does not have.
  *  `GEO_ACCESSION` is the store's synthetic triage target — a row for
@@ -723,13 +722,6 @@ export function gemmaTargets(
 export function gemmaCreateBody(
   body: TicketCreateBody,
 ): Record<string, unknown> {
-  if (TYPES_GEMMA_LACKS.has(body.type)) {
-    throw new Error(
-      `Cannot create a ${body.type} ticket in Gemma yet: the type is being ` +
-        `added (a97999db15) but is not on this host. Until it deploys, ` +
-        `raise it on the curation store.`,
-    );
-  }
   const type = TYPE_TRANSLATION[body.type] ?? body.type;
   const out: Record<string, unknown> = {
     type,

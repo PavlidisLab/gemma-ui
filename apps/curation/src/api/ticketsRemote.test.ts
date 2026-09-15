@@ -170,19 +170,6 @@ describe("gemmaCreateBody", () => {
     ).toBe("CURATION");
   });
 
-  it("refuses SCREENING only until the host carries it", () => {
-    // Added verbatim on Gemma's side (a97999db15) but not deployed to
-    // gemma2 yet. When it lands, this refusal comes out — the test
-    // should then assert SCREENING passes through unchanged.
-    expect(() =>
-      gemmaCreateBody({
-        type: "SCREENING",
-        title: "t",
-        targets: [{ target_type: "EXPRESSION_EXPERIMENT", target_id: 1 }],
-      }),
-    ).toThrow(/SCREENING/);
-  });
-
   it("refuses a GEO_ACCESSION target — the store's synthetic triage row", () => {
     expect(() =>
       gemmaCreateBody({
@@ -200,6 +187,8 @@ describe("gemmaCreateBody", () => {
       "QUALITY_REVIEW",
       "PRELOAD",
       "CURATION",
+      "SCREENING",
+      "SCRATCHPAD",
       "GENERIC",
     ] as const) {
       expect(
