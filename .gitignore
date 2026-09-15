@@ -25,3 +25,4 @@ playwright-report/
 # Gemma REST API spec, pulled down for reference when wiring endpoints.
 # Regenerable from the running server; not ours to version.
 openapi.json
+.Rproj.user
