@@ -19,14 +19,11 @@ import { BrowserPage } from "@/features/browser/BrowserPage";
 import { PlatformsPage } from "@/features/platforms/PlatformsPage";
 import { PlatformDetailPage } from "@/features/platforms/PlatformDetailPage";
 import { ProbePage } from "@/features/platforms/ProbePage";
-import { HeatmapDemo } from "@/features/heatmap-demo/HeatmapDemo";
-import { HeatmapDemoV2 } from "@/features/heatmap-demo/HeatmapDemoV2";
 import { DatasetPage } from "@/features/dataset/DatasetPage";
 import { GenePage } from "@/features/gene/GenePage";
 import { GeneRedirect } from "@/features/gene/GeneRedirect";
 import { GenesPage } from "@/features/gene/GenesPage";
 import { McpPage } from "@/features/mcp/McpPage";
-import { ExtjsMockup } from "@/features/mockup-extjs/ExtjsMockup";
 import { SystemMonitoringPage } from "@/features/admin/SystemMonitoringPage";
 import { NotFound } from "@/features/shared/NotFound";
 import { AppShell } from "@/features/shared/AppShell";
@@ -107,18 +104,6 @@ const probeRoute = createRoute({
 // HomeDashboard variant. With only one home layout, the route was
 // indistinguishable from "/".
 
-const heatmapDemoRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/heatmap-demo",
-  component: () => <HeatmapDemo />,
-});
-
-const heatmapDemoV2Route = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/heatmap-demo-v2",
-  component: () => <HeatmapDemoV2 />,
-});
-
 // Public expression-experiment page. Accepts either numeric id or
 // short-name (GSE...) — getDatasetById takes both.
 const datasetRoute = createRoute({
@@ -155,15 +140,6 @@ const mcpRoute = createRoute({
   component: () => <McpPage />,
 });
 
-// Skin mockup — ExtJS-classic re-skin of the public surfaces. Static
-// data, no API. Lives behind a hidden route so a stylesheet pass
-// doesn't leak into the main app while the look is under review.
-const extjsMockupRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/mockup-extjs",
-  component: () => <ExtjsMockup />,
-});
-
 // Systems Monitoring — admin-only diagnostics dashboard (replaces
 // the legacy systemStats.jsp + activeUsers.jsp). Gates client-side
 // on the first 401/403 from /admin/system; auth comes via the
@@ -184,13 +160,10 @@ export const routeTree = rootRoute.addChildren([
   platformsRoute,
   platformDetailRoute,
   probeRoute,
-  heatmapDemoRoute,
-  heatmapDemoV2Route,
   datasetRoute,
   genesRoute,
   geneRoute,
   geneLegacyRoute,
   mcpRoute,
-  extjsMockupRoute,
   adminSystemRoute,
 ]);
