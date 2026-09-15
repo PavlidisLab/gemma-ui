@@ -14,7 +14,11 @@
 import { useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import type { AnnotationTerm, Platform, CategoryWithChildren } from "@/lib/types";
-import { TECH_SUBGROUPS, TOP_TECHNOLOGY_TYPES } from "@/lib/platformConstants";
+import {
+  platformNameForList,
+  TECH_SUBGROUPS,
+  TOP_TECHNOLOGY_TYPES,
+} from "@/lib/platformConstants";
 import { formatNumber } from "@/lib/utils";
 
 const ASSAY_CATEGORY_URI = "http://purl.obolibrary.org/obo/OBI_0000070";
@@ -343,16 +347,24 @@ export function TechnologyTypeSelector({
                             show an unticked list under a group that
                             says nothing is selected. */}
                         {visible.map((p) => (
-                          <li key={p.id} className="flex items-center gap-2 py-0.5">
+                          <li key={p.id} className="flex items-start gap-2 py-0.5">
                             <input
                               type="checkbox"
                               checked={selectedPlatformIds.has(p.id)}
                               disabled={disabled}
                               onChange={() => togglePlatform(p)}
-                              className="h-3.5 w-3.5 accent-gemma-accent"
+                              className="h-3.5 w-3.5 mt-px accent-gemma-accent"
                             />
-                            <span className="flex-1 truncate text-xs" title={p.name ?? ""}>
-                              {p.shortName || p.name || `#${p.id}`}
+                            <span
+                              className="flex-1 min-w-0 text-xs break-words"
+                              title={[p.shortName, p.name].filter(Boolean).join(" — ")}
+                            >
+                              <span className="font-mono text-gemma-subtle">
+                                {p.shortName || `#${p.id}`}
+                              </span>
+                              {p.name && p.name !== p.shortName ? (
+                                <> {platformNameForList(p.name)}</>
+                              ) : null}
                             </span>
                             <span className="text-gemma-subtle text-xs tabular-nums">
                               {formatNumber(p.numberOfExpressionExperiments ?? 0)}

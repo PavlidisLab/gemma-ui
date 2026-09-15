@@ -4,7 +4,11 @@
 
 import { apiGet, ApiError, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
-import { negativeCategoryClause, quoteIfNecessary } from "@/lib/filter";
+import {
+  negativeCategoryClause,
+  quoteIfNecessary,
+  withoutLibraryStrategyClause,
+} from "@/lib/filter";
 import type { PlatformAnnotationFileType } from "@/lib/platformConstants";
 import { excludedCategories, excludedTerms } from "@/lib/gemmaConfig";
 import type {
@@ -828,6 +832,26 @@ export async function getGenericPlatforms(
 export interface TaxaArgs {
   query?: string;
   filter: string[][];
+}
+
+/** Datasets carrying any of `values` as a library strategy, under the
+ *  rest of the browse filter. gemma-rest has no facet route for library
+ *  strategy, so the Type section asks once per row. */
+export async function getLibraryStrategyCount(
+  values: readonly string[],
+  args: TaxaArgs,
+  signal?: AbortSignal,
+): Promise<number> {
+  const mFilter = [
+    ...withoutLibraryStrategyClause(args.filter),
+    [`bioAssays.libraryStrategy in (${values.join(",")})`],
+  ];
+  const params: Params = {
+    filter: await compressFilter(mFilter),
+    query: args.query,
+  };
+  const r = await apiGet<{ data?: number }>(`${BASE}/datasets/count`, { params, signal });
+  return r.data ?? 0;
 }
 
 export async function getTaxa(args: TaxaArgs, signal?: AbortSignal) {

@@ -27,6 +27,7 @@ import {
 } from "./searchSettingsState";
 import {
   useDatasets,
+  useLibraryStrategyCounts,
   usePlatforms,
   useTaxa,
   useCategories,
@@ -107,6 +108,7 @@ export function BrowserPage() {
   const datasets = useDatasets(browsing);
   const taxa = useTaxa({ query: settings.query, filter });
   const platforms = usePlatforms({ query: settings.query, filter });
+  const libraryStrategies = useLibraryStrategyCounts({ query: settings.query, filter });
   // A selected category is never excluded from its own facet — see
   // CategoriesArgs.keepCategories. Sorted so the query key is stable
   // across re-orderings of the same selection.
@@ -226,9 +228,10 @@ export function BrowserPage() {
       ["datasets", datasets.error],
       ["taxa", taxa.error],
       ["platforms", platforms.error],
+      ["types", libraryStrategies.error],
       ["annotations", categories.error],
     ],
-    [datasets.error, taxa.error, platforms.error, categories.error],
+    [datasets.error, taxa.error, platforms.error, libraryStrategies.error, categories.error],
   );
   const failures = useMemo(
     () => browseQueries.flatMap(([name, e]) => (e ? [[name, e] as [string, Error]] : [])),
@@ -257,6 +260,8 @@ export function BrowserPage() {
         taxa={taxaList}
         platforms={platformList}
         annotations={annotationList}
+        libraryStrategyCounts={libraryStrategies.counts}
+        loadingLibraryStrategies={libraryStrategies.isFetching}
         loadingTaxa={taxa.isFetching}
         loadingPlatforms={platforms.isFetching}
         loadingAnnotations={categories.isFetching}
@@ -270,6 +275,7 @@ export function BrowserPage() {
             datasets.isFetching ||
             taxa.isFetching ||
             platforms.isFetching ||
+            libraryStrategies.isFetching ||
             categories.isFetching
               ? "busy"
               : ""

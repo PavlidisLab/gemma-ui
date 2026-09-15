@@ -139,6 +139,19 @@ export interface BioAssay {
   predictedOutlier?: boolean;
   userFlaggedOutlier?: boolean;
   processingDate?: string | null;
+  /** GeoLibraryStrategy constant name (`RNA_SEQ`), or
+   *  `MICROARRAY_ONE_COLOR` / `MICROARRAY_TWO_COLOR` by channel count.
+   *  Absent when unrecorded — gemma2 omits null fields. */
+  libraryStrategy?: string | null;
+  /** GEO's library_selection, e.g. `cDNA`. */
+  librarySelection?: string | null;
+  /** ExtractedMolecule constant: totalRNA, polyARNA, cytoplasmicRNA,
+   *  nuclearRNA, genomicDNA, protein, other. */
+  extractedMolecule?: string | null;
+  sequencePairedReads?: boolean | null;
+  sequenceReadCount?: number | null;
+  sequenceReadLength?: number | null;
+  numberOfCells?: number | null;
 }
 
 // ─── Quantitation types ───────────────────────────────────────────────────────

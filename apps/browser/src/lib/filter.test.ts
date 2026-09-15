@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { generateFilter, generateFilterDescription, generateFilterSummary } from "./filter";
+import {
+  generateFilter,
+  generateFilterDescription,
+  generateFilterSummary,
+  withoutLibraryStrategyClause,
+} from "./filter";
 import { emptySearchSettings } from "./types";
 import type { AnnotationTerm, Category, SearchSettings } from "./types";
 
@@ -331,5 +336,17 @@ describe("generateFilter — library strategy", () => {
     const s = settings({ libraryStrategies: ["MICROARRAY_TWO_COLOR"] });
     expect(generateFilterSummary(s)).toBe("Filters applied: library strategy");
     expect(generateFilterDescription(s)).toBe("Library strategy: Two-colour microarray");
+  });
+});
+
+describe("withoutLibraryStrategyClause", () => {
+  it("drops only the library-strategy clause", () => {
+    const f = generateFilter(
+      settings({
+        libraryStrategies: ["MICROARRAY_TWO_COLOR"],
+        taxon: [{ id: 2 }] as SearchSettings["taxon"],
+      }),
+    );
+    expect(withoutLibraryStrategyClause(f)).toEqual([["taxon.id = 2"]]);
   });
 });

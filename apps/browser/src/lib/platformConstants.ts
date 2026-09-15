@@ -18,7 +18,12 @@ export const TOP_TECHNOLOGY_TYPES: TopTechGroup[] = [
 
 /**
  * Labels for `BioAssay.libraryStrategy` values. A value missing here is
- * shown as its raw enum name.
+ * shown as its raw name.
+ *
+ * Gemma stores a sequencing sample's value as the `GeoLibraryStrategy`
+ * constant name (`RNA_SEQ`, not GEO's `RNA-Seq`) and a microarray
+ * sample's as its channel count, `MICROARRAY_ONE_COLOR` or
+ * `MICROARRAY_TWO_COLOR`. The sequencing labels are GEO's spellings.
  *
  * 🛑 Two-channel is a library strategy, not a technology type. On
  * gemma2, 2026-09-14: `libraryStrategy = MICROARRAY_TWO_COLOR` matches
@@ -26,12 +31,103 @@ export const TOP_TECHNOLOGY_TYPES: TopTechGroup[] = [
  * DUALMODE platforms split 416 two-colour / 768 one-colour.
  */
 export const LIBRARY_STRATEGY_LABELS: Record<string, string> = {
-  MICROARRAY_TWO_COLOR: "Two-colour microarray",
+  RNA_SEQ: "RNA-Seq",
   MICROARRAY_ONE_COLOR: "One-colour microarray",
+  MICROARRAY_TWO_COLOR: "Two-colour microarray",
+  SSRNA_SEQ: "ssRNA-seq",
+  MIRNA_SEQ: "miRNA-Seq",
+  NCRNA_SEQ: "ncRNA-Seq",
+  RIBO_SEQ: "Ribo-Seq",
+  RIP_SEQ: "RIP-Seq",
+  SCRNA_SEQ: "scRNA-Seq",
+  SNRNA_SEQ: "snRNA-Seq",
+  CHIP_SEQ: "ChIP-Seq",
+  OTHER: "Other",
 };
+
+/**
+ * The values the side panel's Type section counts — every value with
+ * at least one dataset on gemma2, 2026-09-14:
+ *
+ *   RNA_SEQ 12,492 · MICROARRAY_ONE_COLOR 10,291 · MICROARRAY_TWO_COLOR 659
+ *   OTHER 47 · SSRNA_SEQ 42 · MIRNA_SEQ 17 · RIBO_SEQ 9 · CHIP_SEQ 3
+ *   NCRNA_SEQ 2 · RIP_SEQ 1
+ *
+ * The other GeoLibraryStrategy names counted 0. 23,517 of 23,545 public
+ * datasets carry some value. There is no facet route for this property,
+ * so each value costs one `/datasets/count`, and each group below one
+ * more; a value added upstream shows up here only when it is added to
+ * this list.
+ */
+export const LIBRARY_STRATEGY_FACET: readonly string[] = [
+  "RNA_SEQ",
+  "MICROARRAY_ONE_COLOR",
+  "MICROARRAY_TWO_COLOR",
+  "OTHER",
+  "SSRNA_SEQ",
+  "MIRNA_SEQ",
+  "RIBO_SEQ",
+  "CHIP_SEQ",
+  "NCRNA_SEQ",
+  "RIP_SEQ",
+];
+
+export interface LibraryStrategyGroup {
+  /** Row key; prefixed so it can never equal a strategy value. */
+  id: string;
+  label: string;
+  /** Labels here are the short form shown under the parent. */
+  members: ReadonlyArray<{ value: string; label: string }>;
+}
+
+/**
+ * How the Type section nests LIBRARY_STRATEGY_FACET. A value in no group
+ * is a top-level row.
+ *
+ * A group's count is its own `in (...)` count, never the sum of its
+ * rows: on gemma2, 2026-09-14, 21 datasets carry more than one
+ * RNA-seq-family value (12,542 counted, 12,563 summed). The two
+ * microarray values share no dataset (10,950 either way).
+ */
+export const LIBRARY_STRATEGY_GROUPS: readonly LibraryStrategyGroup[] = [
+  {
+    id: "group:MICROARRAY",
+    label: "Microarray",
+    members: [
+      { value: "MICROARRAY_ONE_COLOR", label: "One-colour" },
+      { value: "MICROARRAY_TWO_COLOR", label: "Two-colour" },
+    ],
+  },
+  {
+    id: "group:RNA_SEQ",
+    label: "RNA-seq",
+    members: [
+      { value: "RNA_SEQ", label: "RNA-Seq (general)" },
+      { value: "SSRNA_SEQ", label: "ssRNA-seq" },
+      { value: "MIRNA_SEQ", label: "miRNA-Seq" },
+      { value: "RIBO_SEQ", label: "Ribo-Seq" },
+      { value: "NCRNA_SEQ", label: "ncRNA-Seq" },
+      { value: "RIP_SEQ", label: "RIP-Seq" },
+    ],
+  },
+];
 
 export function libraryStrategyLabel(raw: string): string {
   return LIBRARY_STRATEGY_LABELS[raw] ?? raw;
+}
+
+/**
+ * A platform name shortened for a narrow list row; the full name belongs
+ * in the tooltip.
+ *
+ * Agilent arrays come in pairs that differ only in a trailing
+ * `(Feature Number version)` / `(Probe Name version)` — GPL4133 and
+ * GPL6480 are the same 4x44K array — so that suffix is the part a row
+ * must not lose. The side panel wraps rows rather than truncating them:
+ * clamped to two lines, the suffix was cut from GPL4133's row entirely.
+ */
+export function platformNameForList(name: string): string {
+  return name.replace(/ \((Feature Number|Probe Name) version\)$/, " ($1)");
 }
 
 /** Category URI for the assay annotation — the one that says whether a

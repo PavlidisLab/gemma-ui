@@ -50,6 +50,7 @@ import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
   assayKindLabel,
+  libraryStrategyLabel,
   platformDisplay,
   platformRouteParam,
   technologyTypeLabel,
@@ -1700,6 +1701,27 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
     ? assay.processingDate.slice(0, 10)
     : null;
   const metadata = (assay.metadata ?? "").trim();
+  const library = [
+    assay.libraryStrategy ? libraryStrategyLabel(assay.libraryStrategy) : null,
+    assay.librarySelection ? `${assay.librarySelection} selection` : null,
+    assay.extractedMolecule
+      ? (EXTRACTED_MOLECULE_LABELS[assay.extractedMolecule] ?? assay.extractedMolecule)
+      : null,
+  ].filter(Boolean);
+  const sequencing = [
+    assay.sequenceReadCount != null
+      ? `${assay.sequenceReadCount.toLocaleString()} reads`
+      : null,
+    assay.sequenceReadLength != null ? `${assay.sequenceReadLength} bp` : null,
+    assay.sequencePairedReads != null
+      ? assay.sequencePairedReads
+        ? "paired-end"
+        : "single-end"
+      : null,
+    assay.numberOfCells != null
+      ? `${assay.numberOfCells.toLocaleString()} cells`
+      : null,
+  ].filter(Boolean);
 
   return (
     <>
@@ -1771,6 +1793,18 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
                     ) : null}
                   </SampleMetaField>
                 ) : null}
+                {library.length > 0 ? (
+                  <SampleMetaField label="Library">
+                    <span className="text-slate-800">{library.join(" · ")}</span>
+                  </SampleMetaField>
+                ) : null}
+                {sequencing.length > 0 ? (
+                  <SampleMetaField label="Sequencing">
+                    <span className="text-slate-700 tabular-nums">
+                      {sequencing.join(" · ")}
+                    </span>
+                  </SampleMetaField>
+                ) : null}
                 {processed ? (
                   <SampleMetaField label="Processed">
                     <span className="text-slate-700 tabular-nums">
@@ -1829,6 +1863,17 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
     </>
   );
 }
+
+/** Readable names for Gemma's ExtractedMolecule constants. */
+const EXTRACTED_MOLECULE_LABELS: Record<string, string> = {
+  totalRNA: "total RNA",
+  polyARNA: "poly(A)+ RNA",
+  cytoplasmicRNA: "cytoplasmic RNA",
+  nuclearRNA: "nuclear RNA",
+  genomicDNA: "genomic DNA",
+  protein: "protein",
+  other: "other molecule",
+};
 
 function SampleMetaField({
   label,

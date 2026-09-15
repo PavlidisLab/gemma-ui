@@ -15,6 +15,12 @@ import type { SearchAction } from "./searchSettingsState";
 import { TaxonSelector } from "./TaxonSelector";
 import { TechnologyTypeSelector } from "./TechnologyTypeSelector";
 import { AnnotationSelector } from "./AnnotationSelector";
+import { FacetSection, type FacetRow } from "./FacetSection";
+import {
+  LIBRARY_STRATEGY_FACET,
+  LIBRARY_STRATEGY_GROUPS,
+  libraryStrategyLabel,
+} from "@/lib/platformConstants";
 
 interface Props {
   settings: SearchSettings;
@@ -22,6 +28,9 @@ interface Props {
   taxa: Taxon[];
   platforms: Platform[];
   annotations: CategoryWithChildren[];
+  /** Datasets per library strategy; null while unknown. */
+  libraryStrategyCounts: Map<string, number | null>;
+  loadingLibraryStrategies?: boolean;
   loadingTaxa?: boolean;
   loadingPlatforms?: boolean;
   loadingAnnotations?: boolean;
@@ -35,6 +44,8 @@ export function SidePanel({
   taxa,
   platforms,
   annotations,
+  libraryStrategyCounts,
+  loadingLibraryStrategies,
   loadingTaxa,
   loadingPlatforms,
   loadingAnnotations,
@@ -84,6 +95,55 @@ export function SidePanel({
     (settings.negativeCategories.length > 0 ? 1 : 0) +
     (settings.query ? 1 : 0);
 
+  // Type rows. A row shows when it has datasets under the current filter
+  // or holds a selection — a `?s=` link can carry a value whose count is
+  // 0 here, or one outside LIBRARY_STRATEGY_FACET altogether.
+  const selectedStrategies = settings.libraryStrategies;
+  const countOf = (key: string) => libraryStrategyCounts.get(key) ?? null;
+  const shown = (r: FacetRow) => r.checked !== false || (r.count ?? 0) > 0;
+  const byCount = (a: FacetRow, b: FacetRow) => (b.count ?? 0) - (a.count ?? 0);
+  const leafRow = (value: string, label: string): FacetRow => ({
+    key: value,
+    label,
+    title: value,
+    count: countOf(value),
+    checked: selectedStrategies.includes(value),
+  });
+  const grouped = new Set(LIBRARY_STRATEGY_GROUPS.flatMap((g) => g.members.map((m) => m.value)));
+  const libraryStrategyRows: FacetRow[] = [
+    ...LIBRARY_STRATEGY_GROUPS.map((g): FacetRow => {
+      const picked = g.members.filter((m) => selectedStrategies.includes(m.value)).length;
+      return {
+        key: g.id,
+        label: g.label,
+        count: countOf(g.id),
+        checked: picked === 0 ? false : picked === g.members.length ? true : "partial",
+        children: g.members.map((m) => leafRow(m.value, m.label)).filter(shown).sort(byCount),
+      };
+    }),
+    ...[...new Set([...LIBRARY_STRATEGY_FACET, ...selectedStrategies])]
+      .filter((v) => !grouped.has(v))
+      .map((v) => leafRow(v, libraryStrategyLabel(v))),
+  ]
+    .filter(shown)
+    .sort(byCount);
+
+  function toggleLibraryStrategy(key: string) {
+    const group = LIBRARY_STRATEGY_GROUPS.find((g) => g.id === key);
+    let next: string[];
+    if (group) {
+      const members = group.members.map((m) => m.value);
+      next = members.every((m) => selectedStrategies.includes(m))
+        ? selectedStrategies.filter((v) => !members.includes(v))
+        : [...new Set([...selectedStrategies, ...members])];
+    } else {
+      next = selectedStrategies.includes(key)
+        ? selectedStrategies.filter((v) => v !== key)
+        : [...selectedStrategies, key];
+    }
+    dispatch({ type: "setLibraryStrategies", value: next });
+  }
+
   return (
     <aside className="w-[360px] shrink-0 border-r border-gemma-grid bg-white overflow-y-auto p-3">
       <div className="flex items-center justify-between mb-3">
@@ -93,7 +153,7 @@ export function SidePanel({
             label="Search & filter"
             body={
               "Free-text search runs against dataset titles, descriptions, and annotated terms." +
-              "\nFilters narrow the same corpus by taxon, platform / technology, and ontology annotations." +
+              "\nFilters narrow the same corpus by taxon, type (RNA-Seq, one- or two-colour microarray, …), platform / technology, and ontology annotations." +
               "\nAll filters compose as AND; multi-pick within a section is OR." +
               "\nA term matches only where it is annotated under the category you picked it from — not merely somewhere in the dataset."
             }
@@ -162,6 +222,16 @@ export function SidePanel({
         loading={loadingTaxa}
         disabled={loadingTaxa}
         onChange={(t) => dispatch({ type: "setTaxon", value: t })}
+      />
+
+      <FacetSection
+        title="Type"
+        rows={libraryStrategyRows}
+        showClear={selectedStrategies.length > 0}
+        loading={loadingLibraryStrategies}
+        emptyText="No types available"
+        onToggle={toggleLibraryStrategy}
+        onClear={() => dispatch({ type: "setLibraryStrategies", value: [] })}
       />
 
       <TechnologyTypeSelector

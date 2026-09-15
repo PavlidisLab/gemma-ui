@@ -43,6 +43,17 @@ export function quoteIfNecessary(s: string): string {
   return s;
 }
 
+const LIBRARY_STRATEGY_PROPERTY = "bioAssays.libraryStrategy";
+
+/** The filter without its library-strategy clause — what the Type
+ *  section counts against, so ticking one row doesn't zero the others.
+ *  Same move `getTaxa` makes for the taxon clause. */
+export function withoutLibraryStrategyClause(filter: string[][]): string[][] {
+  return filter
+    .map((c) => c.filter((sc) => !sc.startsWith(`${LIBRARY_STRATEGY_PROPERTY} `)))
+    .filter((c) => c.length > 0);
+}
+
 export function generateFilter(s: SearchSettings): string[][] {
   const filter: string[][] = [];
 
@@ -71,7 +82,7 @@ export function generateFilter(s: SearchSettings): string[][] {
   // Library strategy — its own ANDed clause, separate from technology
   // type (see LIBRARY_STRATEGY_LABELS).
   if (s.libraryStrategies.length > 0) {
-    filter.push([`bioAssays.libraryStrategy in (${s.libraryStrategies.join(",")})`]);
+    filter.push([`${LIBRARY_STRATEGY_PROPERTY} in (${s.libraryStrategies.join(",")})`]);
   }
 
   // Categories (whole-category include)
