@@ -169,6 +169,13 @@ export function gemma1Url(path: string): string {
   return gemma1BaseUrl + path;
 }
 
+/** Where the home page's "Visit the Museum of Gene Expression" card
+ *  links. ``VITE_MUSEUM_URL`` overrides; empty counts as unset, as for
+ *  ``VITE_GEMMA_WEB_URL`` above. */
+export const museumUrl: string =
+  import.meta.env.VITE_MUSEUM_URL ||
+  "https://claude.ai/code/artifact/ab7b27b1-4189-4fa2-9cd0-45da09656bd9";
+
 export const excludedCategories: string[] = [
   "http://mged.sourceforge.net/ontologies/MGEDOntology.owl#BioSourceType",
   "http://mged.sourceforge.net/ontologies/MGEDOntology.owl#LabelCompound",

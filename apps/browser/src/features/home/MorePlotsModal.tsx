@@ -103,10 +103,10 @@ export function MorePlotsModal({
         style={{ fontFamily: '"Inter", ui-sans-serif, system-ui, sans-serif' }}
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-px">
-          <Panel minHeight={false}>
+          <Panel>
             <TaxonBreakdown rows={s.byTaxon} />
           </Panel>
-          <Panel minHeight={false}>
+          <Panel>
             <TechnologyBreakdown
               rows={s.byTechnology}
               totalCells={s.totalCells}
@@ -148,7 +148,7 @@ function PlotDeck({
 
   return (
     <div>
-      <Panel minHeight={false}>{plots[idx].node}</Panel>
+      <Panel>{plots[idx].node}</Panel>
       <div className="flex items-center justify-between border border-t-0 border-stone-950 bg-stone-100 px-3 py-2">
         <button
           type="button"
