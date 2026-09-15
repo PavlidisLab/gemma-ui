@@ -28,7 +28,7 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "has phenotype", uri: "http://purl.obolibrary.org/obo/RO_0002200", description: "Phenotypic descriptor / gene product level. E.g. Foxp3 has phenotype increased gene product level." },
   { label: "adjacent to", uri: "http://purl.obolibrary.org/obo/RO_0002220", description: "Tissue is physically next to the entity of interest, or cell co-culturing. E.g. control adjacent to disease." },
   { label: "delivered at dose", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00166", description: "Dose attached to a treatment. E.g. drug delivered at dose 5 uM." },
-  { label: "delivered for duration", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00167", description: "Duration attached to a treatment. E.g. drug delivered for duration 24 h." },
+  { label: "delivered for duration", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00167", description: "How long a treatment or exposure ran; an instantaneous event (a single injection, a surgery, an injury) has no duration, and time since it is `sampled after`. E.g. drug delivered for duration 24 h." },
   { label: "delivered to", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00183", description: "Organism part / cell where the treatment was delivered. E.g. drug delivered to hippocampus." },
   { label: "derives from cell line cell", uri: "http://purl.obolibrary.org/obo/CLO_0037210", description: "Sample / cell line is derived from a named CLO cell line." },
   { label: "derives from cell", uri: "http://purl.obolibrary.org/obo/CLO_0037209", description: "Sample is derived from a CL cell type." },
@@ -43,15 +43,47 @@ export const PREDICATES: readonly PredicateDef[] = [
   { label: "located in", uri: "http://purl.obolibrary.org/obo/RO_0001025", description: "Localising a disease, genotype, or other FV. E.g. disease located in hippocampus." },
   { label: "positive for product of gene", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00169", description: "Marker-positive cell type/line. E.g. CD4 T cell positive for product of gene CD25." },
   { label: "negative for product of gene", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00170", description: "Marker-negative cell type/line." },
-  { label: "sampled after", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00202", description: "Timepoint sampled after a treatment / disease event." },
+  { label: "sampled after", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00202", description: "Time elapsed from a treatment / disease event to sampling, including after an instantaneous event (a single injection, a surgery, an injury); distinct from `delivered for duration`, which is how long an exposure ran." },
   { label: "towards", uri: "http://purl.obolibrary.org/obo/RO_0002503", description: "Direction of a phenotype response. E.g. response to + towards + treatment." },
   { label: "targeted to", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00215", description: "A genetic alteration of the SUBJECT gene was confined to the cell type or tissue named by the OBJECT, rather than made throughout the organism \u2014 conditional / Cre-lox KO, cell-type-specific knockdown, tissue-specific overexpression. OBJECT = a grounded CL cell type or UBERON tissue. \ud83d\uded1 Use it on a statement whose CATEGORY is genotype \u2014 the category is what scopes the claim to the subject's GENOTYPE rather than to the gene product, so under `genotype` this says the engineered alteration was confined there, not that the product localises there. It is NOT scoped by the other predicate/object pair and cannot be: Gemma's statements are flat, so `has_genotype` and this are two independent assertions about the same subject. State the perturbation alongside anyway \u2014 a target with no alteration named is a poor annotation. The target is INDEPENDENT of the cell type the experiment profiled. Labelled `targeted towards` when minted 2026-08-21 and renamed the same day: RO_0002503's own label is `towards`, so the two sat adjacent in the picker with one a suffix of the other. `targeted towards` and `restricted to cell type` remain exact synonyms in TGEMO." },
   { label: "has background", uri: "http://gemma.msl.ubc.ca/ont/TGEMO_00216", description: "The genetic background the SUBJECT line, strain or genotype sits on, when the background is constant and is not itself the property under study. E.g. Bmal1 knockout + has background + C57BL/6. Put it on the line or genotype, never as a bare strain annotation of the samples: a constant C57BL/6 on every sample of a knockout study is the background, not those animals' strain. OBJECT = a grounded strain term. Minted 2026-08-29 as TERM_LEVEL (a background belongs to the line whatever the experiment did with it) and SUBJECT_IMPLIES_OBJECT (a knockout line implies C57BL/6; C57BL/6 implies nothing about which line is in hand), so it licenses suppression downward only. Gemma stores two predicate/object pairs per statement and TRUNCATES a third silently, so on a subject already carrying two pairs -- a compound genotype, most often -- the background needs its OWN statement." },
 ] as const;
 
-export const KNOWN_PREDICATE_URIS: ReadonlySet<string> = new Set(
-  PREDICATES.map((p) => p.uri),
-);
+// Every predicate URI Gemma accepts, offered in the picker or not.
+export const KNOWN_PREDICATE_URIS: ReadonlySet<string> = new Set([
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00166",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00167",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00168",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00169",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00170",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00171",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00183",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00201",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00202",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00215",
+  "http://gemma.msl.ubc.ca/ont/TGEMO_00216",
+  "http://purl.obolibrary.org/obo/BFO_0000050",
+  "http://purl.obolibrary.org/obo/CLO_0000015",
+  "http://purl.obolibrary.org/obo/CLO_0000179",
+  "http://purl.obolibrary.org/obo/CLO_0037207",
+  "http://purl.obolibrary.org/obo/CLO_0037209",
+  "http://purl.obolibrary.org/obo/CLO_0037210",
+  "http://purl.obolibrary.org/obo/CLO_0037229",
+  "http://purl.obolibrary.org/obo/ENVO_01003004",
+  "http://purl.obolibrary.org/obo/GENO_0000222",
+  "http://purl.obolibrary.org/obo/GENO_0000413",
+  "http://purl.obolibrary.org/obo/RO_0000086",
+  "http://purl.obolibrary.org/obo/RO_0000087",
+  "http://purl.obolibrary.org/obo/RO_0001000",
+  "http://purl.obolibrary.org/obo/RO_0001025",
+  "http://purl.obolibrary.org/obo/RO_0002100",
+  "http://purl.obolibrary.org/obo/RO_0002200",
+  "http://purl.obolibrary.org/obo/RO_0002220",
+  "http://purl.obolibrary.org/obo/RO_0002503",
+  "http://purl.obolibrary.org/obo/RO_0002573",
+  "http://purl.obolibrary.org/obo/RO_0003301",
+  "http://purl.obolibrary.org/obo/RO_0016002",
+]);
 
 // Closed object vocabularies: allowedObject -> the URIs the object
 // may take. Mirrors design_constants.OBJECT_VOCABULARIES.
