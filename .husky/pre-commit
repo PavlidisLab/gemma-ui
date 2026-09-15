@@ -73,36 +73,106 @@ if [ -n "$nul_hits" ]; then
     exit 1
 fi
 
+# ─── which app's checks does this commit actually need? ──────────
+# A commit that touches one app pays for both, and a docs-only commit
+# pays for both plus a minute of Playwright. Decide per app from the
+# staged paths.
+#
+# The rule is deliberately coarse, because the dependency graph gives
+# nothing finer: apps/browser and apps/curation BOTH depend on all five
+# packages/* workspaces, so any packages/** change has to run both, and
+# working out which package changed buys nothing.
+#
+#   apps/<app>/**   that app
+#   anything on the inert list below   neither
+#   everything else                    both
+#
+# The fallback is "both" on purpose — an unrecognised path is a path
+# whose effect nobody has thought about yet, and a new top-level
+# directory must not silently switch the gate off. Only add to the inert
+# list what NO typecheck or test reads: root src/**, docker/**, scripts/**
+# and the like are not inert.
+#
+# Like the NUL scan, this reads the STAGED paths while the checks that
+# follow read the WORKING TREE. Under partial staging the two differ:
+# staging only a doc skips the checks even with unstaged source edits in
+# the tree. That is the right call for the commit being made — it
+# contains only the doc — but the next commit is what checks those edits.
+#
+# PRECOMMIT_ALL=1 git commit   forces the full gate.
+run_browser=0
+run_curation=0
+if [ "${PRECOMMIT_ALL:-0}" = "1" ]; then
+    run_browser=1
+    run_curation=1
+else
+    # No --diff-filter: a DELETED source file has to typecheck its app
+    # just as much as a modified one.
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        case "$f" in
+            # App patterns first, so a doc inside an app still counts as
+            # that app rather than matching *.md below.
+            apps/browser/*) run_browser=1 ;;
+            apps/curation/*) run_curation=1 ;;
+            # Inert: read by no build, no typecheck and no test.
+            *.md|docs/*|.jenkins/*|.github/*|.idea/*|.claude/*|.ai/*) ;;
+            LICENSE|.gitignore|.gitattributes) ;;
+            *) run_browser=1; run_curation=1 ;;
+        esac
+    done <<EOF
+$(git diff --cached --name-only)
+EOF
+fi
+
+if [ "$run_browser" = 0 ] && [ "$run_curation" = 0 ]; then
+    echo "[pre-commit] no app sources staged — skipping typecheck/tests"
+    echo "[pre-commit] (PRECOMMIT_ALL=1 git commit runs them anyway)"
+fi
+
 # ─── apps/browser ────────────────────────────────────────────────
 # Cheap (~7 s): typecheck plus pure-function unit tests. No DOM, no
 # Playwright — see apps/browser/vitest.config.ts.
-cd "$repo_root/apps/browser"
+if [ "$run_browser" = 1 ]; then
+    cd "$repo_root/apps/browser"
 
-echo "[pre-commit] browser: tsc --noEmit"
-npx tsc -p tsconfig.app.json --noEmit
+    echo "[pre-commit] browser: tsc --noEmit"
+    npx tsc -p tsconfig.app.json --noEmit
 
-echo "[pre-commit] browser: vitest run"
-npx vitest run --silent
+    echo "[pre-commit] browser: vitest run"
+    npx vitest run --silent
+else
+    echo "[pre-commit] browser: skipped (nothing staged that it reads)"
+fi
 
 # ─── apps/curation ───────────────────────────────────────────────
-cd "$repo_root/apps/curation"
+if [ "$run_curation" = 1 ]; then
+    cd "$repo_root/apps/curation"
 
-echo "[pre-commit] tsc --noEmit"
-npx tsc -p tsconfig.app.json --noEmit
+    echo "[pre-commit] tsc --noEmit"
+    npx tsc -p tsconfig.app.json --noEmit
 
-echo "[pre-commit] vitest run (unit + render)"
-npx vitest run --silent
+    echo "[pre-commit] vitest run (unit + render)"
+    npx vitest run --silent
 
-# Playwright @critical specs — only run if a Playwright browser is
-# already installed (curators / freshly-cloned dev shells without
-# Chromium shouldn't be blocked). The check is cheap.
-if [ -d "$HOME/Library/Caches/ms-playwright" ] || [ -d "$HOME/.cache/ms-playwright" ]; then
-    echo "[pre-commit] playwright @critical specs (mocked, no backend)"
-    npx playwright test --grep '@critical' --grep-invert '@live' --reporter=line || {
-        echo "[pre-commit] @critical e2e failed."
-        echo "[pre-commit] To bypass once: git commit --no-verify"
-        exit 1
-    }
+    # Playwright @critical specs — only run if a Playwright browser is
+    # already installed (curators / freshly-cloned dev shells without
+    # Chromium shouldn't be blocked). The check is cheap.
+    if [ -d "$HOME/Library/Caches/ms-playwright" ] || [ -d "$HOME/.cache/ms-playwright" ]; then
+        echo "[pre-commit] playwright @critical specs (mocked, no backend)"
+        npx playwright test --grep '@critical' --grep-invert '@live' --reporter=line || {
+            echo "[pre-commit] @critical e2e failed."
+            echo "[pre-commit] These specs drive a dev server this hook does NOT"
+            echo "[pre-commit] start. If every spec failed with ERR_CONNECTION_REFUSED,"
+            echo "[pre-commit] nothing is on :5175 and the failures say nothing about"
+            echo "[pre-commit] your change — start it and commit again:"
+            echo "[pre-commit]   npm --prefix apps/curation run dev -- --port 5175 --strictPort"
+            echo "[pre-commit] To bypass once: git commit --no-verify"
+            exit 1
+        }
+    else
+        echo "[pre-commit] skipping playwright @critical (no browser cache present)"
+    fi
 else
-    echo "[pre-commit] skipping playwright @critical (no browser cache present)"
+    echo "[pre-commit] curation: skipped (nothing staged that it reads)"
 fi

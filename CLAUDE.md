@@ -50,6 +50,19 @@ npm run build              # both apps
 Or `cd apps/<app>` and run scripts there directly — each app's
 scripts are unchanged from when it was a standalone repo.
 
+## Deploying apps/browser
+
+`scripts/deploy-browser.sh <target>` builds and publishes one
+deployment; a target is defined entirely by `apps/browser/.env.<target>`
+(production / staging / gemma2testing today).
+
+CI runs it: [`.jenkins/Jenkinsfile`](./.jenkins/Jenkinsfile) is a
+multibranch pipeline on jenkins.pavlab that checks apps/browser, then
+deploys `production` from `main` and both `staging` and `gemma2testing`
+from `development`. Setup, parameters and the branch map are in
+[`.jenkins/README.md`](./.jenkins/README.md). Validate any change to
+that pipeline with `.jenkins/validate-jenkinsfile` before pushing.
+
 ## Committing: start the curation dev server first
 
 `.husky/pre-commit` gates every commit. Most of it is self-contained
