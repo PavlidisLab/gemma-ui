@@ -7,6 +7,7 @@
  * family became its own module rather than travelling with either
  * caller. Pure move.
  */
+import { groupStatementsBySharedSubject } from "@gemma/ontology";
 import { cn } from "@/lib/cn";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { GeneSpeciesMark } from "@/components/ui/GeneSpeciesMark";
@@ -174,7 +175,8 @@ export function FvTermSpan({ term }: { term?: OntologyTerm | null }) {
 }
 
 /** Rich hover for a Design-summary FV cell: the factor value's actual
- *  curation — its statements as subject · predicate · object, which
+ *  curation — its statements as subject · predicate · object (one line
+ *  per subject; statements sharing a subject print it once), which
  *  terms are ontology-anchored (CURIE) vs free text, the baseline flag,
  *  and the sample count. Lets a curator judge the curation state
  *  (grounded? structured?) from the overview without opening the Design
@@ -205,15 +207,19 @@ export function FvCellTooltipBody({ factor, fv }: { factor: Factor; fv: FactorVa
       </div>
       {statements.length > 0 ? (
         <ul className="space-y-1">
-          {statements.map((s, i) => (
+          {groupStatementsBySharedSubject(statements).map((g, i) => (
             <li key={i} className="text-[11px] flex flex-wrap items-baseline gap-1">
-              <FvTermSpan term={s.subject} />
-              {s.predicate?.label ? (
-                <span className="font-mono text-[9px] text-slate-400">
-                  · {s.predicate.label} ·
+              <FvTermSpan term={g.statements[0].subject} />
+              {g.statements.map((s, k) => (
+                <span key={k} className="inline-flex flex-wrap items-baseline gap-1">
+                  {s.predicate?.label ? (
+                    <span className="font-mono text-[9px] text-slate-400">
+                      · {s.predicate.label} ·
+                    </span>
+                  ) : null}
+                  <FvTermSpan term={s.object} />
                 </span>
-              ) : null}
-              <FvTermSpan term={s.object} />
+              ))}
             </li>
           ))}
         </ul>

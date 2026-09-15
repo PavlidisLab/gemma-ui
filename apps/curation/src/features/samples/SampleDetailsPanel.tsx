@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { groupStatementsBySharedSubject } from "@gemma/ontology";
 import { geneDisplayLabel } from "@/lib/gene";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
@@ -2521,9 +2522,9 @@ function FvSelect({
 /** Mini S-P-O rendering for an FV's statements, intended to live
  *  inside a ``Tooltip`` label. CURIEs hidden (the FV label already
  *  shows what's resolved; the curator can drill into the factor
- *  for full URIs). Subject column blanks on subsequent rows whose
- *  subject matches the previous row, so a chain of statements on
- *  the same subject reads as a single block. Colours flipped for
+ *  for full URIs). Statements sharing a subject are brought together
+ *  and the subject column blanks after the first of them, so they
+ *  read as a single block. Colours flipped for
  *  the dark slate-800 tooltip background:
  *    - URI-backed term → emerald-300
  *    - free-text term → slate-100 italic
@@ -2545,16 +2546,9 @@ function FvStatementsTooltipBody({
     fv.supporting_evidence,
     ...fv.statements.map((s) => s.supporting_evidence),
   ]);
-  const sameSubject = (
-    a: Statement | null | undefined,
-    b: Statement,
-  ): boolean => {
-    if (!a) return false;
-    return (
-      (a.subject?.label ?? "") === (b.subject?.label ?? "") &&
-      (a.subject?.uri ?? null) === (b.subject?.uri ?? null)
-    );
-  };
+  const rows = groupStatementsBySharedSubject(fv.statements).flatMap((g) =>
+    g.statements.map((s, k) => ({ s, subjectSame: k > 0 })),
+  );
   return (
     <div className="space-y-1">
       {fv.free_text_label ? (
@@ -2563,8 +2557,7 @@ function FvStatementsTooltipBody({
         </div>
       ) : null}
       <div className="grid grid-cols-[max-content_max-content_max-content] gap-x-2 gap-y-0.5 items-baseline">
-        {fv.statements.map((s, i) => {
-          const subjectSame = sameSubject(fv.statements[i - 1], s);
+        {rows.map(({ s, subjectSame }, i) => {
           // Dark tooltip, so these are plain strings rather than
           // ``Term`` chips — but a gene still shows its symbol only.
           const subjUri = s.subject?.uri ?? null;

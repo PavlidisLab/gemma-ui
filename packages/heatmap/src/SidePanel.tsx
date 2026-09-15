@@ -10,7 +10,7 @@
  *   - strip cell   → factor metadata + clicked sample's FV + statements
  */
 import { useEffect, useRef, type CSSProperties } from 'react';
-import { OntologyTermLink } from '@gemma/ontology';
+import { groupStatementsBySharedSubject, OntologyTermLink } from '@gemma/ontology';
 import { continuousValueOf, parseFactorUnit } from './payload';
 import type {
   Factor,
@@ -371,15 +371,9 @@ function FactorRow({
                 </Chip>
               )}
             </div>
-            {fv.statements.length > 1 ? (
+            {fv.statements.length > 0 ? (
               <div style={{ marginTop: 4 }}>
-                {fv.statements.map((s, i) => (
-                  <StatementLine key={i} statement={s} />
-                ))}
-              </div>
-            ) : fv.statements[0] ? (
-              <div style={{ marginTop: 4 }}>
-                <StatementLine statement={fv.statements[0]} />
+                <StatementLines statements={fv.statements} />
               </div>
             ) : null}
           </>
@@ -389,31 +383,42 @@ function FactorRow({
   );
 }
 
-function StatementLine({ statement }: { statement: Statement }) {
-  if (!statement.predicate && !statement.object) {
-    return (
-      <div style={{ fontSize: 11 }}>
-        <OntologyTermLink term={statement.subject} />
-      </div>
-    );
-  }
+/** A factor value's statements, one line per subject: statements that
+ *  share a subject print it once, their pairs separated by commas. */
+function StatementLines({ statements }: { statements: Statement[] }) {
+  return (
+    <>
+      {groupStatementsBySharedSubject(statements).map((g, i) => (
+        <StatementLine key={i} statements={g.statements} />
+      ))}
+    </>
+  );
+}
+
+function StatementLine({ statements }: { statements: Statement[] }) {
+  const pairs = statements.filter((s) => s.predicate || s.object);
   return (
     <div style={{ fontSize: 11 }}>
-      <OntologyTermLink term={statement.subject} />
-      {statement.predicate ? (
-        <>
-          {' '}
-          <span style={{ color: SUBTLE }}>→</span>{' '}
-          <OntologyTermLink term={statement.predicate} />
-        </>
-      ) : null}
-      {statement.object ? (
-        <>
-          {' '}
-          <span style={{ color: SUBTLE }}>→</span>{' '}
-          <OntologyTermLink term={statement.object} />
-        </>
-      ) : null}
+      <OntologyTermLink term={statements[0].subject} />
+      {pairs.map((s, i) => (
+        <span key={i}>
+          {i > 0 ? ',' : null}
+          {s.predicate ? (
+            <>
+              {' '}
+              <span style={{ color: SUBTLE }}>→</span>{' '}
+              <OntologyTermLink term={s.predicate} />
+            </>
+          ) : null}
+          {s.object ? (
+            <>
+              {' '}
+              <span style={{ color: SUBTLE }}>→</span>{' '}
+              <OntologyTermLink term={s.object} />
+            </>
+          ) : null}
+        </span>
+      ))}
     </div>
   );
 }
@@ -632,9 +637,7 @@ function StripDetail({
                   <div style={{ fontSize: 10, color: SUBTLE, marginBottom: 3 }}>
                     statements
                   </div>
-                  {clickedFv.statements.map((s, i) => (
-                    <StatementLine key={i} statement={s} />
-                  ))}
+                  <StatementLines statements={clickedFv.statements} />
                 </div>
               )}
             </>

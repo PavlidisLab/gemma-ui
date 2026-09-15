@@ -54,7 +54,7 @@ import {
   type FactorAdoptPlan,
 } from "./factorComparison/adoptFactorPlan";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
-import { FvDisplayRow } from "@gemma/ontology";
+import { FvDisplayRow, groupStatementsBySharedSubject } from "@gemma/ontology";
 import {
   ContinuousStrip,
   continuousValuesFrom,
@@ -4071,44 +4071,18 @@ function MiniFvLine({
     | Factor["factor_values"][number]
     | FactorProposal["factor_values"][number];
 }) {
-  const statements = fv.statements ?? [];
-  const head = statements[0];
-  const rest = statements.slice(1);
-  const subjLabel =
-    head?.subject?.label?.trim() || fv.free_text_label?.trim() || "";
-  const subjUri = head?.subject?.uri ?? null;
-  const predLabel = head?.predicate?.label?.trim() ?? "";
-  const predUri = head?.predicate?.uri ?? null;
-  const objLabel = head?.object?.label?.trim() ?? "";
-  const objUri = head?.object?.uri ?? null;
+  const statements: MiniStatement[] = fv.statements ?? [];
+  // Statements sharing a subject print it once: the first group on the
+  // main row, each further subject on its own subline.
+  const [headGroup, ...restGroups] = groupStatementsBySharedSubject(statements);
   const n = fv.biomaterial_short_names?.length ?? 0;
   return (
     <div className="text-[10px] leading-tight">
       <div className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5">
-        {subjLabel ? (
-          <Term uri={subjUri} asLink={false} size="sm"
-                className="!whitespace-normal break-words">{subjLabel}</Term>
-        ) : (
-          <span className="italic text-slate-400">(blank)</span>
-        )}
-        {predLabel ? (
-          <>
-            <span className="text-slate-400 dark:text-slate-500">·</span>
-            <span
-              className="text-slate-500 dark:text-slate-300 font-mono"
-              title={predUri || undefined}
-            >
-              {predLabel}
-            </span>
-          </>
-        ) : null}
-        {objLabel ? (
-          <>
-            <span className="text-slate-400 dark:text-slate-500">·</span>
-            <Term uri={objUri} asLink={false} size="sm"
-                  className="!whitespace-normal break-words">{objLabel}</Term>
-          </>
-        ) : null}
+        <MiniSubjectPairs
+          statements={headGroup?.statements ?? []}
+          fallbackSubject={fv.free_text_label?.trim() || ""}
+        />
         {fv.is_baseline ? (
           <span
             className="text-amber-600 dark:text-amber-400 leading-none"
@@ -4124,41 +4098,77 @@ function MiniFvLine({
           </span>
         ) : null}
       </div>
-      {rest.length > 0 ? (
+      {restGroups.length > 0 ? (
         <div className="pl-2 mt-0.5 space-y-0.5">
-          {rest.map((s, i) => (
+          {restGroups.map((g, i) => (
             <div
               key={i}
               className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5"
             >
-              {s.subject?.label ? (
-                <Term uri={s.subject.uri ?? null} asLink={false} size="sm"
-                  className="!whitespace-normal break-words">
-                  {s.subject.label}
-                </Term>
-              ) : null}
-              {s.predicate?.label ? (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">·</span>
-                  <span className="text-slate-500 dark:text-slate-300 font-mono">
-                    {s.predicate.label}
-                  </span>
-                </>
-              ) : null}
-              {s.object?.label ? (
-                <>
-                  <span className="text-slate-400 dark:text-slate-500">·</span>
-                  <Term uri={s.object.uri ?? null} asLink={false} size="sm"
-                    className="!whitespace-normal break-words">
-                    {s.object.label}
-                  </Term>
-                </>
-              ) : null}
+              <MiniSubjectPairs statements={g.statements} />
             </div>
           ))}
         </div>
       ) : null}
     </div>
+  );
+}
+
+type MiniStatement = NonNullable<
+  (
+    | Factor["factor_values"][number]
+    | FactorProposal["factor_values"][number]
+  )["statements"]
+>[number];
+
+/** One subject and every pair said about it, the subject once:
+ *  ``subject · predicate · object · predicate · object``. */
+function MiniSubjectPairs({
+  statements,
+  fallbackSubject,
+}: {
+  statements: readonly MiniStatement[];
+  /** Used when the first statement has no subject label. Passing it
+   *  (even empty) also marks a still-missing subject ``(blank)``. */
+  fallbackSubject?: string;
+}) {
+  const first = statements[0];
+  const subjLabel = first?.subject?.label?.trim() || fallbackSubject || "";
+  return (
+    <>
+      {subjLabel ? (
+        <Term uri={first?.subject?.uri ?? null} asLink={false} size="sm"
+              className="!whitespace-normal break-words">{subjLabel}</Term>
+      ) : fallbackSubject !== undefined ? (
+        <span className="italic text-slate-400">(blank)</span>
+      ) : null}
+      {statements.map((s, i) => {
+        const predLabel = s.predicate?.label?.trim() ?? "";
+        const objLabel = s.object?.label?.trim() ?? "";
+        return (
+          <span key={i} className="contents">
+            {predLabel ? (
+              <>
+                <span className="text-slate-400 dark:text-slate-500">·</span>
+                <span
+                  className="text-slate-500 dark:text-slate-300 font-mono"
+                  title={s.predicate?.uri || undefined}
+                >
+                  {predLabel}
+                </span>
+              </>
+            ) : null}
+            {objLabel ? (
+              <>
+                <span className="text-slate-400 dark:text-slate-500">·</span>
+                <Term uri={s.object?.uri ?? null} asLink={false} size="sm"
+                      className="!whitespace-normal break-words">{objLabel}</Term>
+              </>
+            ) : null}
+          </span>
+        );
+      })}
+    </>
   );
 }
 

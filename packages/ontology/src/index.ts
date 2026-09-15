@@ -14,3 +14,11 @@ export {
   type FvTermRenderer,
   type FvTermProvenance,
 } from "./FvDisplayRow";
+
+export {
+  groupStatementsBySharedSubject,
+  sameStatementTerm,
+  type StatementTermLike,
+  type SubjectGroupable,
+  type SubjectGroup,
+} from "./statementGroups";

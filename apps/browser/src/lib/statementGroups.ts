@@ -1,3 +1,4 @@
+import { groupStatementsBySharedSubject } from "@gemma/ontology";
 import type { FactorValueStatement } from "./types";
 
 /**
@@ -11,21 +12,22 @@ import type { FactorValueStatement } from "./types";
  * arrives as TWO rows both naming GSK2879552. Rendered one row per
  * statement, the dataset page printed the subject chip and its CURIE
  * twice, once per pair, and a value with three pairs read as three
- * separate treatments.
+ * separate treatments. A subject needing more than two pairs is also
+ * stored as two separate statements (GSE244113 FV 368965: `protein ·
+ * derives from · Gzmb` and `protein · delivered at dose · … · delivered
+ * for duration · …`); those share a line the same way.
  *
- * 🛑 The curation app has the same rule, spelled for its own types, in
- * `features/design/StatementEditor.tsx::groupStatementsBySubject`. That
- * one keys on `(category, subject)` over `OntologyTerm` objects; this
- * one keys the same way over the browser's flat string shape. They are
- * deliberately separate — the two apps do not share a statement type,
- * and reconciling that is a bigger change than a display fix — but if
- * the grouping RULE changes, both have to move.
+ * The matching rule — category, then subject, each by URI when both
+ * carry one and by label otherwise — lives in `@gemma/ontology`
+ * (`groupStatementsBySharedSubject`), shared with the curation app's
+ * display surfaces. This adapts the browser's flat string shape to it.
  *
  * Order is preserved: groups come back in the order their first
  * statement appeared, and pairs within a group keep their wire order.
  */
 export interface StatementGroup {
-  /** The shared subject, taken from the first statement in the group. */
+  /** The shared subject: from the first statement in the group that
+   *  carries a subject URI, else from the first statement. */
   subject: string | null;
   subjectUri: string | null;
   /** Every statement sharing that subject, in wire order. Always at
@@ -33,44 +35,24 @@ export interface StatementGroup {
   statements: FactorValueStatement[];
 }
 
-/** `(category, subject)`, label + URI, case-folded.
- *
- *  Category is part of the key on purpose. A statement's category may
- *  legitimately differ from its factor's, so two rows naming the same
- *  subject under different categories are two different claims and must
- *  not be merged into one line. */
-function groupKey(s: FactorValueStatement): string {
-  return [
-    s.category ?? "",
-    s.categoryUri ?? "",
-    s.subject ?? "",
-    s.subjectUri ?? "",
-  ]
-    .join("|")
-    .toLowerCase();
-}
-
 export function groupStatementsBySubject(
   statements: readonly FactorValueStatement[] | null | undefined,
 ): StatementGroup[] {
-  const out: StatementGroup[] = [];
-  const byKey = new Map<string, StatementGroup>();
-  for (const s of statements ?? []) {
-    if (!s) continue;
-    const key = groupKey(s);
-    let g = byKey.get(key);
-    if (!g) {
-      g = {
-        subject: s.subject ?? null,
-        subjectUri: s.subjectUri ?? null,
-        statements: [],
-      };
-      byKey.set(key, g);
-      out.push(g);
-    }
-    g.statements.push(s);
-  }
-  return out;
+  const list = (statements ?? []).filter(Boolean);
+  const shaped = list.map((s) => ({
+    category: { label: s.category, uri: s.categoryUri },
+    subject: { label: s.subject, uri: s.subjectUri },
+  }));
+  return groupStatementsBySharedSubject(shaped).map((g) => {
+    const members = g.indices.map((i) => list[i]);
+    const shown =
+      members.find((s) => (s.subjectUri ?? "").trim()) ?? members[0];
+    return {
+      subject: shown.subject ?? null,
+      subjectUri: shown.subjectUri ?? null,
+      statements: members,
+    };
+  });
 }
 
 /** Does this statement carry anything to say ABOUT its subject? A row

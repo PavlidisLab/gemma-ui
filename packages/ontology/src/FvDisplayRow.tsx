@@ -7,8 +7,10 @@
  * Layout (single statement / no statement):
  *   [FV N] [subject Term] [- pred - object Term]? [★ baseline]? (n) […trailing]
  *
- * Multi-statement FVs render the first statement on the main row and
- * stack the remaining statements as indented sublines below.
+ * Multi-statement FVs group their statements by shared subject
+ * (`groupStatementsBySharedSubject`): the first statement's subject
+ * group renders on the main row, each other subject on an indented
+ * subline, and each subject is written once with its pairs stacked.
  *
  * Term rendering is caller-supplied via `termRenderer` so the curation
  * app can use its rich chip Term and the browser app can swap in a
@@ -16,6 +18,7 @@
  */
 
 import type { ReactNode } from "react";
+import { groupStatementsBySharedSubject } from "./statementGroups";
 
 export interface FvDisplayTerm {
   label?: string | null;
@@ -151,14 +154,6 @@ export function FvDisplayRow({
 }: FvDisplayRowProps): JSX.Element {
   const statements = fv.statements ?? [];
   const head = statements[0] ?? null;
-  // Preserve each ``rest`` entry's ORIGINAL index in ``statements``
-  // so the diff resolver's ``s{i}:{slot}`` keys still resolve after
-  // the head/sibling/other-rest partitioning below. Without the
-  // tagging, ``rest[0]`` looks like statement #0 to the diff
-  // resolver when it's really statement #1, and every ring is on the
-  // wrong chip.
-  const rest: Array<{ s: FvDisplayStatement; originalIndex: number }> =
-    statements.slice(1).map((s, i) => ({ s, originalIndex: i + 1 }));
   const isDiff = (originalIndex: number, slot: "subject" | "predicate" | "object"): boolean =>
     diffChips?.has(`s${originalIndex}:${slot}`) ?? false;
   // Subject label falls back to the FV's free-text label so a
@@ -174,23 +169,17 @@ export function FvDisplayRow({
   const subjLabel = head?.subject?.label?.trim() ?? "";
   const subjUri = head?.subject?.uri ?? null;
   const fvName = (fv.free_text_label ?? "").trim();
-  // Partition `rest` into the head-subject siblings (collapse into a
-  // stacked P/O column under the head's subject — mirrors the design
-  // editor's `CompactStatementGroup` so curators don't read the same
-  // subject chip twice) and everything else (a different subject, or
-  // a free-text label that doesn't match — render as full sub-row).
-  // Design review 2026-06-11: "the subject needn't be repeated if it is the
-  // same."
-  const headSubjectKey = subjectKey(head?.subject ?? null);
-  const headSiblings: Array<{ s: FvDisplayStatement; originalIndex: number }> = [];
-  const otherRest: Array<{ s: FvDisplayStatement; originalIndex: number }> = [];
-  for (const entry of rest) {
-    if (headSubjectKey && subjectKey(entry.s.subject ?? null) === headSubjectKey) {
-      headSiblings.push(entry);
-    } else {
-      otherRest.push(entry);
-    }
-  }
+  // Statements sharing a subject render under one subject chip — the
+  // head's group as a stacked P/O column on the main row, each other
+  // subject the same way on its own sub-row. Design review 2026-06-11:
+  // "the subject needn't be repeated if it is the same." Each entry
+  // keeps its ORIGINAL index in ``statements`` so the diff resolver's
+  // ``s{i}:{slot}`` keys land on the right chip after grouping.
+  const groups = groupStatementsBySharedSubject(statements).map((g) =>
+    g.statements.map((s, k) => ({ s, originalIndex: g.indices[k] })),
+  );
+  const headGroup = groups[0] ?? [];
+  const otherGroups = groups.slice(1);
   const n = fv.biomaterial_short_names?.length ?? 0;
   return (
     <div className={cx(compact ? "text-[10px]" : "text-[11px]", className)}>
@@ -274,15 +263,15 @@ export function FvDisplayRow({
             statements sharing the head subject, stack each pair as
             its own row underneath the head pair — the subject chip on
             the left stays single, predicates line up vertically. */}
-        {head && headSiblings.length > 0 ? (
+        {head && headGroup.length > 1 ? (
           // Two-column grid: predicate cells in col 1, object cells in
           // col 2. ``auto`` col 1 sizes to the widest predicate, so
           // every object starts at the same x and the objects line up
           // vertically across stacked statements (design review 2026-06-21:
           // "astrocyte should be under the homozygous object").
           <div className="grid grid-cols-[auto_auto] gap-x-1.5 gap-y-0.5 items-baseline min-w-0">
-            {[{ s: head, oi: 0 }, ...headSiblings.map(({ s, originalIndex }) => ({ s, oi: originalIndex }))].map(
-              ({ s, oi }, i) => (
+            {headGroup.map(
+              ({ s, originalIndex: oi }, i) => (
                 <StatementPredObjCells
                   key={i}
                   statement={s}
@@ -323,7 +312,7 @@ export function FvDisplayRow({
         ) : null}
         {trailing}
       </div>
-      {/* Sub-rows for statements whose subject differs from the head
+      {/* Sub-rows, one per subject other than the head's
           (rare — multi-subject FVs). Each row mirrors the head's
           flex-row layout: a leading-slot spacer (only when the head
           has one) + an empty ``FV N``-width gutter + the statement
@@ -333,9 +322,9 @@ export function FvDisplayRow({
           whether a leading glyph is present. Per design review 2026-06-13:
           "you should be aligning the two statements so they are
           vertically aligned". */}
-      {otherRest.length > 0 ? (
+      {otherGroups.length > 0 ? (
         <div className="mt-0.5 space-y-0.5">
-          {otherRest.map(({ s, originalIndex }, i) => (
+          {otherGroups.map((entries, i) => (
             <div
               key={i}
               className="flex items-baseline gap-x-1.5"
@@ -354,11 +343,9 @@ export function FvDisplayRow({
                 <span aria-hidden className="w-10 shrink-0" />
               ) : null}
               <ExtraStatementLine
-                statement={s}
+                entries={entries}
                 termRenderer={termRenderer}
-                subjDiff={isDiff(originalIndex, "subject")}
-                predDiff={isDiff(originalIndex, "predicate")}
-                objDiff={isDiff(originalIndex, "object")}
+                isDiff={isDiff}
                 compact={compact}
               />
             </div>
@@ -367,18 +354,6 @@ export function FvDisplayRow({
       ) : null}
     </div>
   );
-}
-
-/** Stable subject identity for "same subject across statements"
- *  grouping. URI wins when both sides carry one; falls back to the
- *  case-insensitive trimmed label. Returns empty string when both
- *  are missing — callers skip the grouping path in that case. */
-function subjectKey(subject: FvDisplayTerm | null): string {
-  if (!subject) return "";
-  const uri = (subject.uri ?? "").trim();
-  if (uri) return `uri:${uri}`;
-  const label = (subject.label ?? "").trim().toLowerCase();
-  return label ? `lbl:${label}` : "";
 }
 
 /** One predicate-object pair render — reused by both the head's
@@ -506,63 +481,60 @@ function StatementPredObjCells({
   );
 }
 
+/** A sub-row for one subject other than the head's: the subject chip
+ *  once, then that subject's pairs — inline for one pair, stacked in
+ *  the head row's two-column grid for several. */
 function ExtraStatementLine({
-  statement,
+  entries,
   termRenderer,
-  subjDiff = false,
-  predDiff = false,
-  objDiff = false,
+  isDiff,
   compact = false,
 }: {
-  statement: FvDisplayStatement;
+  /** The statements sharing this subject, each with its index in the
+   *  FV's ``statements``. Never empty. */
+  entries: ReadonlyArray<{ s: FvDisplayStatement; originalIndex: number }>;
   termRenderer: FvTermRenderer;
-  subjDiff?: boolean;
-  predDiff?: boolean;
-  objDiff?: boolean;
+  isDiff: (originalIndex: number, slot: "subject" | "predicate" | "object") => boolean;
   compact?: boolean;
 }): JSX.Element {
-  const subjLabel = statement.subject?.label?.trim() ?? "";
-  const subjUri = statement.subject?.uri ?? null;
-  const predLabel = statement.predicate?.label?.trim() ?? "";
-  const predUri = statement.predicate?.uri ?? null;
-  const objLabel = statement.object?.label?.trim() ?? "";
-  const objUri = statement.object?.uri ?? null;
-  const predCls = predClassName(predDiff, compact);
+  const { s: first, originalIndex: firstIndex } = entries[0];
+  const subjLabel = first.subject?.label?.trim() ?? "";
+  const subjUri = first.subject?.uri ?? null;
   return (
     <div className={cx("flex items-baseline gap-x-1.5", compact ? "text-[10px]" : "text-[11px]")}>
       {subjLabel
         ? termRenderer({
             label: subjLabel,
             uri: subjUri,
-            provenance: subjUri
-              ? undefined
-              : _statementProvenance(statement),
-            diff: subjDiff,
+            provenance: subjUri ? undefined : _statementProvenance(first),
+            diff: isDiff(firstIndex, "subject"),
             size: compact ? "sm" : undefined,
-            statementCategory: statement.category ?? null,
+            statementCategory: first.category ?? null,
           })
         : null}
-      {predLabel ? (
-        <>
-          <span
-            className={predCls}
-            title={predUri || undefined}
-          >
-            {predLabel}
-          </span>
-        </>
-      ) : null}
-      {objLabel ? (
-        <>
-          {termRenderer({
-            label: objLabel,
-            uri: objUri,
-            provenance: objUri ? undefined : _statementProvenance(statement),
-            diff: objDiff,
-            size: compact ? "sm" : undefined,
-          })}
-        </>
-      ) : null}
+      {entries.length > 1 ? (
+        <div className="grid grid-cols-[auto_auto] gap-x-1.5 gap-y-0.5 items-baseline min-w-0">
+          {entries.map(({ s, originalIndex }, i) => (
+            <StatementPredObjCells
+              key={i}
+              statement={s}
+              termRenderer={termRenderer}
+              predDiff={isDiff(originalIndex, "predicate")}
+              objDiff={isDiff(originalIndex, "object")}
+              compact={compact}
+            />
+          ))}
+        </div>
+      ) : (
+        <StatementPredicateObject
+          statement={first}
+          termRenderer={termRenderer}
+          inline
+          predDiff={isDiff(firstIndex, "predicate")}
+          objDiff={isDiff(firstIndex, "object")}
+          compact={compact}
+        />
+      )}
     </div>
   );
 }

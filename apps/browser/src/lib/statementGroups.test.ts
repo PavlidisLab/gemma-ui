@@ -114,6 +114,67 @@ describe("groupStatementsBySubject", () => {
     expect(groups).toHaveLength(1);
     expect(statementHasPair(groups[0].statements[0])).toBe(false);
   });
+
+  it("joins two STORED statements on one subject — GSE244113 FV 368965", () => {
+    // Live /datasets/GSE244113/design, 2026-09-15: statement 56988465
+    // (dose + duration) arrives as two rows, 56988464 (derives from) as
+    // one. Three rows, one subject.
+    const CHEBI_PROTEIN = "http://purl.obolibrary.org/obo/CHEBI_36080";
+    const row = (id: number, predicate: string, object: string) => ({
+      id,
+      category: "treatment",
+      categoryUri: EFO_TREATMENT,
+      subject: "protein",
+      subjectUri: CHEBI_PROTEIN,
+      predicate,
+      object,
+    });
+    const groups = groupStatementsBySubject([
+      row(56988465, "delivered at dose", "500 ng/mL"),
+      row(56988465, "delivered for duration", "20 h"),
+      row(56988464, "derives from", "Gzmb [mouse] granzyme B"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].statements.map((s) => s.predicate)).toEqual([
+      "delivered at dose",
+      "delivered for duration",
+      "derives from",
+    ]);
+  });
+
+  it("compares subjects by URI when both carry one, by label otherwise", () => {
+    // Same URI, different label: one subject.
+    expect(
+      groupStatementsBySubject([
+        { subject: "protein", subjectUri: "u1", predicate: "p" },
+        { subject: "proteins", subjectUri: "u1", predicate: "q" },
+      ]),
+    ).toHaveLength(1);
+    // Different URIs, same label: two subjects.
+    expect(
+      groupStatementsBySubject([
+        { subject: "protein", subjectUri: "u1", predicate: "p" },
+        { subject: "protein", subjectUri: "u2", predicate: "q" },
+      ]),
+    ).toHaveLength(2);
+    // One side without a URI: the labels decide, and the group shows
+    // the grounded subject.
+    const mixed = groupStatementsBySubject([
+      { subject: "Protein", predicate: "p" },
+      { subject: "protein", subjectUri: "u1", predicate: "q" },
+    ]);
+    expect(mixed).toHaveLength(1);
+    expect(mixed[0].subjectUri).toBe("u1");
+  });
+
+  it("does not join statements that have no subject", () => {
+    expect(
+      groupStatementsBySubject([
+        { predicate: "p", object: "o" },
+        { predicate: "q", object: "r" },
+      ]),
+    ).toHaveLength(2);
+  });
 });
 
 describe("statementHasPair", () => {
