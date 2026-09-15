@@ -19,6 +19,7 @@ export type SearchAction =
   | { type: "setTaxon"; value: Taxon[] }
   | { type: "setPlatforms"; value: Platform[] }
   | { type: "setTechnologyTypes"; value: string[] }
+  | { type: "setLibraryStrategies"; value: string[] }
   | { type: "setAnnotations"; value: AnnotationTerm[] }
   | { type: "setNegativeAnnotations"; value: AnnotationTerm[] }
   | { type: "setCategories"; value: Category[] }
@@ -34,6 +35,7 @@ export function searchReducer(state: SearchSettings, action: SearchAction): Sear
     case "setTaxon":           return { ...state, taxon: action.value };
     case "setPlatforms":       return { ...state, platforms: action.value };
     case "setTechnologyTypes": return { ...state, technologyTypes: action.value };
+    case "setLibraryStrategies": return { ...state, libraryStrategies: action.value };
     case "setAnnotations":     return { ...state, annotations: action.value };
     case "setNegativeAnnotations": return { ...state, negativeAnnotations: action.value };
     case "setCategories":      return { ...state, categories: action.value };
@@ -96,6 +98,12 @@ export function makeInitialSettings(params: {
 
   if (params.preset === "microarray") {
     base.technologyTypes = [...MICROARRAY_TECHNOLOGY_TYPES];
+  }
+
+  // Two-channel arrays: a library-strategy filter, not a technology
+  // type — see LIBRARY_STRATEGY_LABELS for the counts.
+  if (params.preset === "twocolor") {
+    base.libraryStrategies = ["MICROARRAY_TWO_COLOR"];
   }
 
   if (params.preset === "scrnaseq") {

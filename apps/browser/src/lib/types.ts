@@ -655,6 +655,9 @@ export interface SearchSettings {
   taxon: Taxon[];
   platforms: Platform[];
   technologyTypes: string[];
+  /** `BioAssay.libraryStrategy` enum names, e.g. MICROARRAY_TWO_COLOR.
+   *  No side-panel control; set by the `twocolor` preset or a `?s=` link. */
+  libraryStrategies: string[];
   /** Annotations selected as "include". */
   annotations: AnnotationTerm[];
   /** Annotations selected as "exclude". */
@@ -673,6 +676,7 @@ export function emptySearchSettings(): SearchSettings {
     taxon: [],
     platforms: [],
     technologyTypes: [],
+    libraryStrategies: [],
     annotations: [],
     negativeAnnotations: [],
     categories: [],

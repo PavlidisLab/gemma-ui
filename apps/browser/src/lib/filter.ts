@@ -13,6 +13,7 @@ import pluralize from "pluralize";
 import type { AnnotationTerm, Category, SearchSettings } from "./types";
 import { getCategoryId } from "./utils";
 import {
+  libraryStrategyLabel,
   MICROARRAY_TECHNOLOGY_TYPES,
   RNA_SEQ_TECHNOLOGY_TYPES,
 } from "./platformConstants";
@@ -65,6 +66,12 @@ export function generateFilter(s: SearchSettings): string[][] {
       clause.push(`bioAssays.arrayDesignUsed.technologyType in (${s.technologyTypes.join(",")})`);
     }
     filter.push(clause);
+  }
+
+  // Library strategy — its own ANDed clause, separate from technology
+  // type (see LIBRARY_STRATEGY_LABELS).
+  if (s.libraryStrategies.length > 0) {
+    filter.push([`bioAssays.libraryStrategy in (${s.libraryStrategies.join(",")})`]);
   }
 
   // Categories (whole-category include)
@@ -265,6 +272,7 @@ export function generateFilterSummary(s: SearchSettings): string {
   if (s.query) parts.push("query");
   if (s.taxon.length > 0) parts.push("taxa");
   if (s.platforms.length > 0 || s.technologyTypes.length > 0) parts.push("platforms");
+  if (s.libraryStrategies.length > 0) parts.push("library strategy");
   if (
     s.categories.length > 0 ||
     s.annotations.length > 0 ||
@@ -301,6 +309,10 @@ export function generateFilterDescription(
       platformValues.unshift("Microarray");
     }
     filter.push({ key: "Platforms", value: platformValues });
+  }
+
+  if (s.libraryStrategies.length > 0) {
+    filter.push({ key: "Library strategy", value: s.libraryStrategies.map(libraryStrategyLabel) });
   }
 
   if (s.categories.length > 0) {

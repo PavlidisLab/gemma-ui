@@ -21,6 +21,7 @@ const full = () =>
     taxon: [{ id: 2 }] as SearchSettings["taxon"],
     platforms: [{ id: 96 }, { id: 570 }] as SearchSettings["platforms"],
     technologyTypes: ["SEQUENCING"],
+    libraryStrategies: ["MICROARRAY_TWO_COLOR"],
     annotations: [
       {
         classUri: DISEASE,
@@ -48,6 +49,7 @@ describe("share link round-trip", () => {
     expect(s.taxon.map((t) => t.id)).toEqual([2]);
     expect(s.platforms.map((p) => p.id)).toEqual([96, 570]);
     expect(s.technologyTypes).toEqual(["SEQUENCING"]);
+    expect(s.libraryStrategies).toEqual(["MICROARRAY_TWO_COLOR"]);
     expect(s.annotations).toEqual(want.annotations);
     expect(s.negativeAnnotations).toEqual(want.negativeAnnotations);
     expect(s.categories).toEqual(want.categories);
@@ -124,6 +126,13 @@ describe("share link — bad input lands you somewhere usable", () => {
     );
     expect(decoded).toEqual({});
   });
+
+  it("keeps only enum-shaped library strategies, since they go into the clause unquoted", () => {
+    const decoded = decodeSearchSettings(
+      btoa(JSON.stringify({ ls: ["MICROARRAY_TWO_COLOR", "x) or (y", 7] })),
+    );
+    expect(decoded?.libraryStrategies).toEqual(["MICROARRAY_TWO_COLOR"]);
+  });
 });
 
 describe("isEmptySettings", () => {
@@ -135,6 +144,7 @@ describe("isEmptySettings", () => {
     expect(isEmptySettings(settings({ query: "x" }))).toBe(false);
     expect(isEmptySettings(settings({ ignoreExcludedTerms: true }))).toBe(false);
     expect(isEmptySettings(settings({ technologyTypes: ["SEQUENCING"] }))).toBe(false);
+    expect(isEmptySettings(settings({ libraryStrategies: ["MICROARRAY_TWO_COLOR"] }))).toBe(false);
   });
 
   it("ignores currentQuery, which is only what's typed so far", () => {

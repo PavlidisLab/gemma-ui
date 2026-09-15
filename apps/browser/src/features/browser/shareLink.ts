@@ -40,6 +40,7 @@ interface Payload {
   /** taxon ids */        tx?: number[];
   /** platform ids */     pf?: number[];
   /** technology types */ tt?: string[];
+  /** library strategies */ ls?: string[];
   /** annotations */      an?: TermTuple[];
   /** negative anns */    na?: TermTuple[];
   /** categories */       ca?: CatTuple[];
@@ -70,6 +71,7 @@ export function isEmptySettings(s: SearchSettings): boolean {
     s.taxon.length === 0 &&
     s.platforms.length === 0 &&
     s.technologyTypes.length === 0 &&
+    s.libraryStrategies.length === 0 &&
     s.annotations.length === 0 &&
     s.negativeAnnotations.length === 0 &&
     s.categories.length === 0 &&
@@ -84,6 +86,7 @@ export function encodeSearchSettings(s: SearchSettings): string {
   if (s.taxon.length) p.tx = s.taxon.map((t) => t.id);
   if (s.platforms.length) p.pf = s.platforms.map((x) => x.id);
   if (s.technologyTypes.length) p.tt = [...s.technologyTypes];
+  if (s.libraryStrategies.length) p.ls = [...s.libraryStrategies];
   if (s.annotations.length) p.an = s.annotations.map(termTuple);
   if (s.negativeAnnotations.length) p.na = s.negativeAnnotations.map(termTuple);
   if (s.categories.length) p.ca = s.categories.map(catTuple);
@@ -118,6 +121,10 @@ export function decodeSearchSettings(
     out.platforms = pf.map((id) => ({ id })) as SearchSettings["platforms"];
   const tt = strings(o.tt);
   if (tt.length) out.technologyTypes = tt;
+  // Enum names only: they go into the filter clause unquoted. Gemma
+  // answers an unrecognised name with a count of 0, not an error.
+  const ls = strings(o.ls).filter((v) => /^[A-Z0-9_]+$/.test(v));
+  if (ls.length) out.libraryStrategies = ls;
 
   const an = terms(o.an);
   if (an.length) out.annotations = an;

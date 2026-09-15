@@ -9,6 +9,7 @@ import { fallbackTaxa } from "@/lib/gemmaConfig";
 import { emptySearchSettings } from "@/lib/types";
 import type { SearchSettings } from "@/lib/types";
 import { generateFilter, generateFilterDescription, generateFilterSummary } from "@/lib/filter";
+import { libraryStrategyLabel } from "@/lib/platformConstants";
 import {
   decodeSearchSettings,
   encodeSearchSettings,
@@ -303,18 +304,25 @@ export function BrowserPage() {
               {filterSummary}
             </div>
           ) : null}
+          {settings.libraryStrategies.map((ls) => (
+            <HeaderChip
+              key={`ls-${ls}`}
+              label={libraryStrategyLabel(ls)}
+              clearLabel={`Clear the ${libraryStrategyLabel(ls)} filter`}
+              onClear={() =>
+                dispatch({
+                  type: "setLibraryStrategies",
+                  value: settings.libraryStrategies.filter((x) => x !== ls),
+                })
+              }
+            />
+          ))}
           {updatedSince ? (
-            <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border border-gemma-grid bg-surface-sunk text-gemma-ink shrink-0">
-              Updated since {updatedSince}
-              <button
-                type="button"
-                onClick={() => setUpdatedSince(undefined)}
-                aria-label="Clear the updated-since filter"
-                className="text-gemma-subtle hover:text-gemma-ink leading-none"
-              >
-                ×
-              </button>
-            </span>
+            <HeaderChip
+              label={`Updated since ${updatedSince}`}
+              clearLabel="Clear the updated-since filter"
+              onClear={() => setUpdatedSince(undefined)}
+            />
           ) : null}
           <div className="flex-1" />
           <CopyLinkButton settings={settings} sort={sort} />
@@ -418,6 +426,32 @@ export function BrowserPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** A removable chip in the results header, for a filter the side panel
+ *  has no control for (updated-since, library strategy). */
+function HeaderChip({
+  label,
+  clearLabel,
+  onClear,
+}: {
+  label: string;
+  clearLabel: string;
+  onClear: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border border-gemma-grid bg-surface-sunk text-gemma-ink shrink-0">
+      {label}
+      <button
+        type="button"
+        onClick={onClear}
+        aria-label={clearLabel}
+        className="text-gemma-subtle hover:text-gemma-ink leading-none"
+      >
+        ×
+      </button>
+    </span>
   );
 }
 

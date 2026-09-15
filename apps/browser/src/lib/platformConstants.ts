@@ -16,6 +16,24 @@ export const TOP_TECHNOLOGY_TYPES: TopTechGroup[] = [
   ["OTHER", "Other", OTHER_TECHNOLOGY_TYPES] as const,
 ];
 
+/**
+ * Labels for `BioAssay.libraryStrategy` values. A value missing here is
+ * shown as its raw enum name.
+ *
+ * 🛑 Two-channel is a library strategy, not a technology type. On
+ * gemma2, 2026-09-14: `libraryStrategy = MICROARRAY_TWO_COLOR` matches
+ * 659 datasets; `technologyType = TWOCOLOR` matches 243 of them, and
+ * DUALMODE platforms split 416 two-colour / 768 one-colour.
+ */
+export const LIBRARY_STRATEGY_LABELS: Record<string, string> = {
+  MICROARRAY_TWO_COLOR: "Two-colour microarray",
+  MICROARRAY_ONE_COLOR: "One-colour microarray",
+};
+
+export function libraryStrategyLabel(raw: string): string {
+  return LIBRARY_STRATEGY_LABELS[raw] ?? raw;
+}
+
 /** Category URI for the assay annotation — the one that says whether a
  *  dataset is bulk RNA-seq, single-cell, single-nucleus, or an array. */
 export const ASSAY_CATEGORY_URI = "http://purl.obolibrary.org/obo/OBI_0000070";

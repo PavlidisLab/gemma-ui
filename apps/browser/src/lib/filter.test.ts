@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { generateFilter } from "./filter";
+import { generateFilter, generateFilterDescription, generateFilterSummary } from "./filter";
 import { emptySearchSettings } from "./types";
 import type { AnnotationTerm, Category, SearchSettings } from "./types";
 
@@ -312,5 +312,24 @@ describe("generateFilter — platforms and technology types", () => {
     const clause = f.find((c) => c.some((sc) => sc.includes("arrayDesignUsed.id")));
     expect(clause).toBeDefined();
     expect(clause!.some((sc) => sc.includes("technologyType in (ONECOLOR,TWOCOLOR)"))).toBe(true);
+  });
+});
+
+describe("generateFilter — library strategy", () => {
+  // gemma2 2026-09-14: this clause alone matches 659 datasets; ANDed
+  // with the TWOCOLOR technology-type clause, 243.
+  it("ANDs the library strategy as a clause of its own", () => {
+    const f = generateFilter(
+      settings({ libraryStrategies: ["MICROARRAY_TWO_COLOR"], technologyTypes: ["DUALMODE"] }),
+    );
+    expect(f).toContainEqual(["bioAssays.libraryStrategy in (MICROARRAY_TWO_COLOR)"]);
+    const tech = f.find((c) => c.some((sc) => sc.includes("technologyType")));
+    expect(tech!.some((sc) => sc.includes("libraryStrategy"))).toBe(false);
+  });
+
+  it("names the filter in the summary and the description", () => {
+    const s = settings({ libraryStrategies: ["MICROARRAY_TWO_COLOR"] });
+    expect(generateFilterSummary(s)).toBe("Filters applied: library strategy");
+    expect(generateFilterDescription(s)).toBe("Library strategy: Two-colour microarray");
   });
 });

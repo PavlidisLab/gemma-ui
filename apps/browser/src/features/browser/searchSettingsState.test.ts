@@ -101,6 +101,12 @@ describe("makeInitialSettings — taxon and technology presets", () => {
     ]);
   });
 
+  it("maps twocolor onto the library strategy, leaving technology types alone", () => {
+    const s = makeInitialSettings({ preset: "twocolor" });
+    expect(s.libraryStrategies).toEqual(["MICROARRAY_TWO_COLOR"]);
+    expect(s.technologyTypes).toEqual([]);
+  });
+
   it("seeds scrnaseq with the single-cell assay annotations too", () => {
     const s = makeInitialSettings({ preset: "scrnaseq" });
     expect(s.technologyTypes).toEqual(["SEQUENCING"]);

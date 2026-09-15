@@ -77,6 +77,7 @@ export function SidePanel({
     (settings.taxon.length > 0 ? 1 : 0) +
     (settings.platforms.length > 0 ? 1 : 0) +
     (settings.technologyTypes.length > 0 ? 1 : 0) +
+    (settings.libraryStrategies.length > 0 ? 1 : 0) +
     (settings.annotations.length > 0 ? 1 : 0) +
     (settings.negativeAnnotations.length > 0 ? 1 : 0) +
     (settings.categories.length > 0 ? 1 : 0) +
