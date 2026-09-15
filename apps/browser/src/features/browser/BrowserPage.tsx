@@ -8,7 +8,13 @@ import { HelpHint } from "@/features/shared/HelpHint";
 import { fallbackTaxa } from "@/lib/gemmaConfig";
 import { emptySearchSettings } from "@/lib/types";
 import type { SearchSettings } from "@/lib/types";
-import { generateFilter, generateFilterDescription, generateFilterSummary } from "@/lib/filter";
+import {
+  curatorOnlyLibraryStrategyClause,
+  generateFilter,
+  generateFilterDescription,
+  generateFilterSummary,
+} from "@/lib/filter";
+import { canCurate, useMe } from "@/api/auth";
 import { libraryStrategyLabel } from "@/lib/platformConstants";
 import {
   decodeSearchSettings,
@@ -26,6 +32,7 @@ import {
   searchReducer,
 } from "./searchSettingsState";
 import {
+  useCuratorOnlyDatasetIds,
   useDatasets,
   useLibraryStrategyCounts,
   usePlatforms,
@@ -87,11 +94,15 @@ export function BrowserPage() {
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showSnippet, setShowSnippet] = useState(false);
 
+  const me = useMe();
+  const curator = canCurate(me.data);
+
   const filter = useMemo(() => {
     const f = generateFilter(settings);
     if (updatedSince) f.push([`lastUpdated > ${updatedSince}`]);
+    if (!curator) f.push(curatorOnlyLibraryStrategyClause());
     return f;
-  }, [settings, updatedSince]);
+  }, [settings, updatedSince, curator]);
 
   const browsing: BrowsingOptions = useMemo(
     () => ({
@@ -109,6 +120,7 @@ export function BrowserPage() {
   const taxa = useTaxa({ query: settings.query, filter });
   const platforms = usePlatforms({ query: settings.query, filter });
   const libraryStrategies = useLibraryStrategyCounts({ query: settings.query, filter });
+  const curatorOnlyIds = useCuratorOnlyDatasetIds(curator);
   // A selected category is never excluded from its own facet — see
   // CategoriesArgs.keepCategories. Sorted so the query key is stable
   // across re-orderings of the same selection.
@@ -261,6 +273,7 @@ export function BrowserPage() {
         platforms={platformList}
         annotations={annotationList}
         libraryStrategyCounts={libraryStrategies.counts}
+        showCuratorOnlyTypes={curator}
         loadingLibraryStrategies={libraryStrategies.isFetching}
         loadingTaxa={taxa.isFetching}
         loadingPlatforms={platforms.isFetching}
@@ -382,6 +395,7 @@ export function BrowserPage() {
           selectedAnnotations={settings.annotations}
           selectedCategories={settings.categories}
           availableAnnotations={annotationList}
+          curatorOnlyIds={curator ? curatorOnlyIds.data : undefined}
           onSelectTerm={(t) =>
             dispatch({ type: "setAnnotations", value: [...settings.annotations, t] })
           }

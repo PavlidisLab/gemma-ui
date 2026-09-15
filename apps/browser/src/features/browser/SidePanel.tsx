@@ -1,6 +1,7 @@
 // Left-side filter panel: query input + selectors.
 
-import { useEffect, type Dispatch } from "react";
+import { useEffect, type Dispatch, type ReactNode } from "react";
+import { VisibilityChip } from "@/components/VisibilityChip";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
 import { getMyself } from "@/api/endpoints";
@@ -17,6 +18,7 @@ import { TechnologyTypeSelector } from "./TechnologyTypeSelector";
 import { AnnotationSelector } from "./AnnotationSelector";
 import { FacetSection, type FacetRow } from "./FacetSection";
 import {
+  CURATOR_ONLY_LIBRARY_STRATEGIES,
   LIBRARY_STRATEGY_FACET,
   LIBRARY_STRATEGY_GROUPS,
   libraryStrategyLabel,
@@ -30,6 +32,8 @@ interface Props {
   annotations: CategoryWithChildren[];
   /** Datasets per library strategy; null while unknown. */
   libraryStrategyCounts: Map<string, number | null>;
+  /** Offer the CURATOR_ONLY_LIBRARY_STRATEGIES rows. */
+  showCuratorOnlyTypes: boolean;
   loadingLibraryStrategies?: boolean;
   loadingTaxa?: boolean;
   loadingPlatforms?: boolean;
@@ -45,6 +49,7 @@ export function SidePanel({
   platforms,
   annotations,
   libraryStrategyCounts,
+  showCuratorOnlyTypes,
   loadingLibraryStrategies,
   loadingTaxa,
   loadingPlatforms,
@@ -102,7 +107,7 @@ export function SidePanel({
   const countOf = (key: string) => libraryStrategyCounts.get(key) ?? null;
   const shown = (r: FacetRow) => r.checked !== false || (r.count ?? 0) > 0;
   const byCount = (a: FacetRow, b: FacetRow) => (b.count ?? 0) - (a.count ?? 0);
-  const leafRow = (value: string, label: string): FacetRow => ({
+  const leafRow = (value: string, label: ReactNode): FacetRow => ({
     key: value,
     label,
     title: value,
@@ -123,7 +128,29 @@ export function SidePanel({
     }),
     ...[...new Set([...LIBRARY_STRATEGY_FACET, ...selectedStrategies])]
       .filter((v) => !grouped.has(v))
-      .map((v) => leafRow(v, libraryStrategyLabel(v))),
+      .filter(
+        (v) =>
+          showCuratorOnlyTypes ||
+          !CURATOR_ONLY_LIBRARY_STRATEGIES.includes(v) ||
+          selectedStrategies.includes(v),
+      )
+      .map((v) =>
+        leafRow(
+          v,
+          CURATOR_ONLY_LIBRARY_STRATEGIES.includes(v) ? (
+            <span className="inline-flex items-center gap-1.5">
+              {libraryStrategyLabel(v)}
+              <VisibilityChip
+                tone="restricted"
+                label="curators"
+                title="Hidden from visitors who are not curators or administrators, along with every dataset whose samples carry only this type."
+              />
+            </span>
+          ) : (
+            libraryStrategyLabel(v)
+          ),
+        ),
+      ),
   ]
     .filter(shown)
     .sort(byCount);
@@ -285,7 +312,12 @@ export function SidePanel({
             onChange={(e) => dispatch({ type: "setIgnoreExcludedTerms", value: e.target.checked })}
             className="h-3 w-3 accent-gemma-accent"
           />
-          Show all terms (admin)
+          Show all terms
+          <VisibilityChip
+            tone="restricted"
+            label="admin"
+            title="Only administrators see this option."
+          />
         </label>
       ) : null}
     </aside>

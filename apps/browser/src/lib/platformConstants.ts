@@ -72,6 +72,18 @@ export const LIBRARY_STRATEGY_FACET: readonly string[] = [
   "RIP_SEQ",
 ];
 
+/**
+ * Library strategies the Browser keeps from anyone who is not a curator
+ * or administrator until they are reviewed (ruling, 2026-09-14): their
+ * Type rows, and every dataset whose samples carry nothing else.
+ *
+ * A dataset that also has samples of another strategy stays visible. On
+ * gemma2, 2026-09-14, 50 public datasets carry one of these; 25 carry
+ * nothing else and are hidden, and the other 25 also carry RNA_SEQ
+ * samples — all three CHIP_SEQ datasets among them.
+ */
+export const CURATOR_ONLY_LIBRARY_STRATEGIES: readonly string[] = ["OTHER", "CHIP_SEQ"];
+
 export interface LibraryStrategyGroup {
   /** Row key; prefixed so it can never equal a strategy value. */
   id: string;

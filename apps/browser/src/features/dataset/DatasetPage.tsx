@@ -8,6 +8,7 @@ import { marked } from "marked";
 import { ExternalLink, Pencil, ChevronRight } from "lucide-react";
 import { useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useMe } from "@/api/auth";
+import { VisibilityChip } from "@/components/VisibilityChip";
 import { curationUrl } from "@/lib/appLinks";
 import {
   groupStatementsBySubject,
@@ -282,21 +283,15 @@ function Banner({
               // a payload that omits it is not making the claim
               // "private", and rendering one from its absence is how a
               // missing field turns into a stated fact.
-              <span
+              <VisibilityChip
+                tone={dataset.isPublic ? "public" : "restricted"}
+                label={dataset.isPublic ? "Public" : "Private"}
                 title={
                   dataset.isPublic
                     ? "Public — visible to everyone, signed in or not."
                     : "Private — visible only to users it is shared with."
                 }
-                className={
-                  "text-[10px] px-1.5 py-0.5 rounded border font-mono self-center " +
-                  (dataset.isPublic
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                    : "bg-rose-50 text-rose-700 border-rose-300")
-                }
-              >
-                {dataset.isPublic ? "Public" : "Private"}
-              </span>
+              />
             ) : null}
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
@@ -414,7 +409,16 @@ function Banner({
                 (t.id === activeTab
                   ? "border-sky-600 text-slate-900 font-medium"
                   : "border-transparent text-slate-600 hover:text-slate-900")}>
-              {t.label}
+              <span className="inline-flex items-center gap-1.5">
+                {t.label}
+                {t.adminOnly ? (
+                  <VisibilityChip
+                    tone="restricted"
+                    label="admin"
+                    title="Only administrators see this tab."
+                  />
+                ) : null}
+              </span>
             </button>
           ))}
         </nav>

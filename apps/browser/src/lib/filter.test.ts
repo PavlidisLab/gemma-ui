@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  curatorOnlyDatasetsFilter,
+  curatorOnlyLibraryStrategyClause,
   generateFilter,
   generateFilterDescription,
   generateFilterSummary,
@@ -348,5 +350,33 @@ describe("withoutLibraryStrategyClause", () => {
       }),
     );
     expect(withoutLibraryStrategyClause(f)).toEqual([["taxon.id = 2"]]);
+  });
+});
+
+describe("curatorOnlyLibraryStrategyClause", () => {
+  it("is one ORed clause: no such sample, or some sample of another strategy", () => {
+    expect(curatorOnlyLibraryStrategyClause()).toEqual([
+      "none(bioAssays.libraryStrategy in (OTHER,CHIP_SEQ))",
+      "any(bioAssays.libraryStrategy not in (OTHER,CHIP_SEQ))",
+    ]);
+  });
+
+  it("survives the Type counts dropping the library-strategy selection", () => {
+    const f = [
+      ["bioAssays.libraryStrategy in (RNA_SEQ)"],
+      curatorOnlyLibraryStrategyClause(),
+    ];
+    expect(withoutLibraryStrategyClause(f)).toEqual([curatorOnlyLibraryStrategyClause()]);
+  });
+});
+
+describe("curatorOnlyDatasetsFilter", () => {
+  // gemma2 2026-09-14: this matched 25 datasets and the ORed clause above
+  // passed 23,519 of 23,544 — the two partition the corpus.
+  it("is the complement of the visibility clause", () => {
+    expect(curatorOnlyDatasetsFilter()).toEqual([
+      ["bioAssays.libraryStrategy in (OTHER,CHIP_SEQ)"],
+      ["none(bioAssays.libraryStrategy not in (OTHER,CHIP_SEQ))"],
+    ]);
   });
 });

@@ -10,6 +10,7 @@ import type {
   Dataset,
 } from "@/lib/types";
 import { displayTaxon, formatDecimal, formatNumber, highlight } from "@/lib/utils";
+import { VisibilityChip } from "@/components/VisibilityChip";
 import { DatasetPreview } from "./DatasetPreview";
 
 interface Props {
@@ -28,6 +29,9 @@ interface Props {
   availableAnnotations: CategoryWithChildren[];
   onSelectTerm: (t: AnnotationTerm) => void;
   onUnselectTerm: (t: AnnotationTerm) => void;
+  /** Datasets a regular visitor is not shown; marked on the row. Only
+   *  passed for a curator. */
+  curatorOnlyIds?: Set<number>;
 }
 
 const SORT_COLUMNS: Array<{ key: string; label: string; align?: "right" | "center" }> = [
@@ -77,7 +81,7 @@ export function ResultsTable(props: Props) {
     datasets, loading, error, sort, onSortChange,
     expanded, onToggleExpanded,
     selectedAnnotations, selectedCategories, availableAnnotations,
-    onSelectTerm, onUnselectTerm,
+    onSelectTerm, onUnselectTerm, curatorOnlyIds,
   } = props;
 
   function cycleSort(key: string) {
@@ -171,6 +175,13 @@ export function ResultsTable(props: Props) {
                   <td className="px-2 py-1 align-middle">
                     <div className="flex items-center gap-2 min-w-0">
                       {typeof q === "number" ? <QualityDot value={q} /> : null}
+                      {curatorOnlyIds?.has(d.id) ? (
+                        <VisibilityChip
+                          tone="restricted"
+                          label="curators"
+                          title="Hidden from visitors who are not curators or administrators: every sample's library strategy is Other or ChIP-Seq."
+                        />
+                      ) : null}
                       {d.curationNote ? (
                         <span
                           className="shrink-0 inline-flex items-center"

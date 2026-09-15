@@ -3,6 +3,7 @@
 import { useQuery, useQueries, keepPreviousData } from "@tanstack/react-query";
 import {
   getCategoriesWithChildren,
+  getCuratorOnlyDatasetIds,
   getDatasets,
   getLibraryStrategyCount,
   getOpenApiSpec,
@@ -75,6 +76,16 @@ export function useLibraryStrategyCounts(opts: { query?: string; filter: string[
       isFetching: results.some((r) => r.isFetching),
       error: (results.find((r) => r.error)?.error as Error | undefined) ?? null,
     }),
+  });
+}
+
+/** For a curator only — nobody else is sent these datasets to mark. */
+export function useCuratorOnlyDatasetIds(enabled: boolean) {
+  return useQuery({
+    queryKey: ["curatorOnlyDatasetIds"],
+    queryFn: ({ signal }) => getCuratorOnlyDatasetIds(signal),
+    enabled,
+    staleTime: 10 * 60_000,
   });
 }
 

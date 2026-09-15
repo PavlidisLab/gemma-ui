@@ -177,6 +177,12 @@ export function invalidateAfterIdentityChange(qc: QueryClient): void {
 
 // ─── Hooks ────────────────────────────────────────────────────────
 
+/** Curator or administrator, by Spring authority. */
+export function canCurate(user: { authorities?: string[] | null } | null | undefined): boolean {
+  const a = user?.authorities ?? [];
+  return a.includes("GROUP_ADMIN") || a.includes("GROUP_CURATOR");
+}
+
 export function useMe() {
   return useQuery({
     queryKey: ["auth", "me", readSessionToken() ?? "cookie"],

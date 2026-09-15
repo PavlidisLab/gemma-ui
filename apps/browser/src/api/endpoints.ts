@@ -5,6 +5,7 @@
 import { apiGet, ApiError, type Params } from "./client";
 import { compressFilter, compressArg } from "@/lib/utils";
 import {
+  curatorOnlyDatasetsFilter,
   negativeCategoryClause,
   quoteIfNecessary,
   withoutLibraryStrategyClause,
@@ -852,6 +853,23 @@ export async function getLibraryStrategyCount(
   };
   const r = await apiGet<{ data?: number }>(`${BASE}/datasets/count`, { params, signal });
   return r.data ?? 0;
+}
+
+/** Ids of every dataset hidden from visitors who are not curators, so a
+ *  curator's results can mark them. Paged to the end: a set read short
+ *  would leave some hidden datasets unmarked. */
+export async function getCuratorOnlyDatasetIds(signal?: AbortSignal): Promise<Set<number>> {
+  const ids = new Set<number>();
+  const limit = 100;
+  for (let offset = 0; ; offset += limit) {
+    const page = await getDatasets(
+      { filter: curatorOnlyDatasetsFilter(), offset, limit, sort: "+id" },
+      signal,
+    );
+    const rows = page.data ?? [];
+    for (const d of rows) ids.add(d.id);
+    if (rows.length < limit || ids.size >= (page.totalElements ?? 0)) return ids;
+  }
 }
 
 export async function getTaxa(args: TaxaArgs, signal?: AbortSignal) {

@@ -13,6 +13,7 @@ import pluralize from "pluralize";
 import type { AnnotationTerm, Category, SearchSettings } from "./types";
 import { getCategoryId } from "./utils";
 import {
+  CURATOR_ONLY_LIBRARY_STRATEGIES,
   libraryStrategyLabel,
   MICROARRAY_TECHNOLOGY_TYPES,
   RNA_SEQ_TECHNOLOGY_TYPES,
@@ -52,6 +53,34 @@ export function withoutLibraryStrategyClause(filter: string[][]): string[][] {
   return filter
     .map((c) => c.filter((sc) => !sc.startsWith(`${LIBRARY_STRATEGY_PROPERTY} `)))
     .filter((c) => c.length > 0);
+}
+
+/**
+ * The clause that hides CURATOR_ONLY_LIBRARY_STRATEGIES datasets from a
+ * visitor who is not a curator. A dataset passes when no sample carries
+ * one of them, or when at least one sample carries something else; a
+ * dataset with no library strategy on any sample passes by the first
+ * half. One ORed clause, since the grammar takes no parentheses.
+ *
+ * gemma2, 2026-09-14: 23,519 of 23,544 datasets pass; the 25 hidden are
+ * exactly those whose every sample is OTHER or CHIP_SEQ.
+ */
+export function curatorOnlyLibraryStrategyClause(): string[] {
+  const list = CURATOR_ONLY_LIBRARY_STRATEGIES.join(",");
+  return [
+    `none(${LIBRARY_STRATEGY_PROPERTY} in (${list}))`,
+    `any(${LIBRARY_STRATEGY_PROPERTY} not in (${list}))`,
+  ];
+}
+
+/** The complement of curatorOnlyLibraryStrategyClause: the datasets it
+ *  hides. gemma2, 2026-09-14: 25. */
+export function curatorOnlyDatasetsFilter(): string[][] {
+  const list = CURATOR_ONLY_LIBRARY_STRATEGIES.join(",");
+  return [
+    [`${LIBRARY_STRATEGY_PROPERTY} in (${list})`],
+    [`none(${LIBRARY_STRATEGY_PROPERTY} not in (${list}))`],
+  ];
 }
 
 export function generateFilter(s: SearchSettings): string[][] {
