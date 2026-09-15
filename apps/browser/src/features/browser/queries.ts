@@ -8,10 +8,12 @@ import {
   getLibraryStrategyCount,
   getOpenApiSpec,
   getPlatforms,
+  getPlatformsForLibraryStrategy,
   getTaxa,
   type DatasetsArgs,
 } from "@/api/endpoints";
-import { LIBRARY_STRATEGY_FACET, LIBRARY_STRATEGY_GROUPS } from "@/lib/platformConstants";
+import { LIBRARY_STRATEGY_FACET, LIBRARY_STRATEGY_SUBGROUPS } from "@/lib/platformConstants";
+import type { Platform } from "@/lib/types";
 
 export interface BrowsingOptions {
   query?: string;
@@ -55,12 +57,30 @@ export function usePlatforms(opts: { query?: string; filter: string[][] }) {
   });
 }
 
-/** Every count the Type section shows, keyed by strategy value or group
- *  id: one per LIBRARY_STRATEGY_FACET value, one per group. */
-const LIBRARY_STRATEGY_COUNTS: ReadonlyArray<readonly [string, readonly string[]]> = [
-  ...LIBRARY_STRATEGY_FACET.map((v) => [v, [v]] as const),
-  ...LIBRARY_STRATEGY_GROUPS.map((g) => [g.id, g.members.map((m) => m.value)] as const),
-];
+/** One count per LIBRARY_STRATEGY_FACET value, keyed by the value. */
+const LIBRARY_STRATEGY_COUNTS: ReadonlyArray<readonly [string, readonly string[]]> =
+  LIBRARY_STRATEGY_FACET.map((v) => [v, [v]] as const);
+
+const MICROARRAY_CHANNELS = (LIBRARY_STRATEGY_SUBGROUPS.MICROARRAY ?? []).map((s) => s.value);
+
+/** The platforms under each Microarray channel row, keyed by strategy. */
+export function usePlatformsByChannel(opts: { query?: string; filter: string[][] }) {
+  return useQueries({
+    queries: MICROARRAY_CHANNELS.map((value) => ({
+      queryKey: ["platformsForLibraryStrategy", value, opts],
+      placeholderData: keepPreviousData,
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        getPlatformsForLibraryStrategy(value, opts, signal),
+    })),
+    combine: (results) => ({
+      byStrategy: Object.fromEntries(
+        MICROARRAY_CHANNELS.map((v, i) => [v, results[i].data?.data ?? []]),
+      ) as Record<string, Platform[]>,
+      isFetching: results.some((r) => r.isFetching),
+      error: (results.find((r) => r.error)?.error as Error | undefined) ?? null,
+    }),
+  });
+}
 
 export function useLibraryStrategyCounts(opts: { query?: string; filter: string[][] }) {
   return useQueries({

@@ -46,8 +46,9 @@ export const LIBRARY_STRATEGY_LABELS: Record<string, string> = {
 };
 
 /**
- * The values the side panel's Type section counts — every value with
- * at least one dataset on gemma2, 2026-09-14:
+ * The values the Platforms chooser counts. Every value with at least one
+ * dataset on gemma2, 2026-09-14, except RNA_SEQ, which has no row (see
+ * LIBRARY_STRATEGY_SUBGROUPS):
  *
  *   RNA_SEQ 12,492 · MICROARRAY_ONE_COLOR 10,291 · MICROARRAY_TWO_COLOR 659
  *   OTHER 47 · SSRNA_SEQ 42 · MIRNA_SEQ 17 · RIBO_SEQ 9 · CHIP_SEQ 3
@@ -55,12 +56,10 @@ export const LIBRARY_STRATEGY_LABELS: Record<string, string> = {
  *
  * The other GeoLibraryStrategy names counted 0. 23,517 of 23,545 public
  * datasets carry some value. There is no facet route for this property,
- * so each value costs one `/datasets/count`, and each group below one
- * more; a value added upstream shows up here only when it is added to
- * this list.
+ * so each value costs one `/datasets/count`; a value added upstream shows
+ * up here only when it is added to this list.
  */
 export const LIBRARY_STRATEGY_FACET: readonly string[] = [
-  "RNA_SEQ",
   "MICROARRAY_ONE_COLOR",
   "MICROARRAY_TWO_COLOR",
   "OTHER",
@@ -84,62 +83,67 @@ export const LIBRARY_STRATEGY_FACET: readonly string[] = [
  */
 export const CURATOR_ONLY_LIBRARY_STRATEGIES: readonly string[] = ["OTHER", "CHIP_SEQ"];
 
-export interface LibraryStrategyGroup {
-  /** Row key; prefixed so it can never equal a strategy value. */
-  id: string;
-  label: string;
-  /** Labels here are the short form shown under the parent. */
-  members: ReadonlyArray<{ value: string; label: string }>;
-}
-
 /**
- * How the Type section nests LIBRARY_STRATEGY_FACET. A value in no group
- * is a top-level row.
+ * Library-strategy rows the Platforms chooser nests under a
+ * TOP_TECHNOLOGY_TYPES group, keyed by the group's id.
  *
- * A group's count is its own `in (...)` count, never the sum of its
- * rows: on gemma2, 2026-09-14, 21 datasets carry more than one
- * RNA-seq-family value (12,542 counted, 12,563 summed). The two
- * microarray values share no dataset (10,950 either way).
+ * Under Microarray each channel row opens onto its own platforms; a
+ * DUALMODE platform appears under both. Under RNA-Seq the rows follow
+ * the assay subgroups (TECH_SUBGROUPS). RNA_SEQ itself has no row: on
+ * gemma2, 2026-09-14, it is 12,492 of the 12,542 datasets carrying any
+ * RNA-seq-family value.
  */
-export const LIBRARY_STRATEGY_GROUPS: readonly LibraryStrategyGroup[] = [
-  {
-    id: "group:MICROARRAY",
-    label: "Microarray",
-    members: [
-      { value: "MICROARRAY_ONE_COLOR", label: "One-colour" },
-      { value: "MICROARRAY_TWO_COLOR", label: "Two-colour" },
-    ],
-  },
-  {
-    id: "group:RNA_SEQ",
-    label: "RNA-seq",
-    members: [
-      { value: "RNA_SEQ", label: "RNA-Seq (general)" },
-      { value: "SSRNA_SEQ", label: "ssRNA-seq" },
-      { value: "MIRNA_SEQ", label: "miRNA-Seq" },
-      { value: "RIBO_SEQ", label: "Ribo-Seq" },
-      { value: "NCRNA_SEQ", label: "ncRNA-Seq" },
-      { value: "RIP_SEQ", label: "RIP-Seq" },
-    ],
-  },
-];
+export const LIBRARY_STRATEGY_SUBGROUPS: Readonly<
+  Record<string, ReadonlyArray<{ value: string; label: string }>>
+> = {
+  MICROARRAY: [
+    { value: "MICROARRAY_ONE_COLOR", label: "One-colour" },
+    { value: "MICROARRAY_TWO_COLOR", label: "Two-colour" },
+  ],
+  RNA_SEQ: [
+    { value: "SSRNA_SEQ", label: "ssRNA-seq" },
+    { value: "MIRNA_SEQ", label: "miRNA-Seq" },
+    { value: "RIBO_SEQ", label: "Ribo-Seq" },
+    { value: "NCRNA_SEQ", label: "ncRNA-Seq" },
+    { value: "RIP_SEQ", label: "RIP-Seq" },
+  ],
+};
 
 export function libraryStrategyLabel(raw: string): string {
   return LIBRARY_STRATEGY_LABELS[raw] ?? raw;
 }
 
 /**
- * A platform name shortened for a narrow list row; the full name belongs
- * in the tooltip.
+ * Shortenings for a platform name in the side panel's platform rows,
+ * applied in order. The strings are the common ones across the 407
+ * microarray platforms with datasets on gemma2, 2026-09-15: "Affymetrix"
+ * 138 names, "Array" 138, "Microarray" 57, "GeneChip" 50, "expression
+ * beadchip" 27, and a leading CDF tag such as `[MoGene-2_0-st]`.
  *
- * Agilent arrays come in pairs that differ only in a trailing
- * `(Feature Number version)` / `(Probe Name version)` — GPL4133 and
- * GPL6480 are the same 4x44K array — so that suffix is the part a row
- * must not lose. The side panel wraps rows rather than truncating them:
- * clamped to two lines, the suffix was cut from GPL4133's row entirely.
+ * What separates sibling platforms is kept. Agilent arrays come in pairs
+ * that differ only in a trailing `(Feature Number version)` / `(Probe
+ * Name version)` — GPL4133 and GPL6480 are the same 4x44K array — and
+ * Affymetrix ST arrays in `[transcript (gene) version]` / `[probe set
+ * (exon) version]`; only the word "version" goes.
  */
+const PLATFORM_NAME_SHORTENINGS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^\[[^\]]*\]\s*/, ""],
+  [/\bAffymetrix GeneChip\b/g, "Affx"],
+  [/\bAffymetrix\b/g, "Affx"],
+  [/\s*\bexpression beadchip\b/gi, ""],
+  [/\s+(?:micro)?array\b/gi, ""],
+  [/ version([)\]])/gi, "$1"],
+];
+
+/** A platform name shortened for a side-panel row; the row's tooltip
+ *  carries the full name. */
 export function platformNameForList(name: string): string {
-  return name.replace(/ \((Feature Number|Probe Name) version\)$/, " ($1)");
+  let out = name;
+  for (const [pattern, replacement] of PLATFORM_NAME_SHORTENINGS) {
+    out = out.replace(pattern, replacement);
+  }
+  out = out.replace(/\s{2,}/g, " ").trim();
+  return out || name;
 }
 
 /** Category URI for the assay annotation — the one that says whether a

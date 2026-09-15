@@ -759,6 +759,26 @@ export async function getAllPlatforms(
   };
 }
 
+/** The platforms facet narrowed to one library strategy, for a
+ *  Microarray channel row. Any library-strategy selection is dropped
+ *  first, so the One-colour list still fills while Two-colour is ticked. */
+export async function getPlatformsForLibraryStrategy(
+  value: string,
+  args: PlatformsArgs,
+  signal?: AbortSignal,
+) {
+  return getPlatforms(
+    {
+      ...args,
+      filter: [
+        ...withoutLibraryStrategyClause(args.filter),
+        [`bioAssays.libraryStrategy = ${value}`],
+      ],
+    },
+    signal,
+  );
+}
+
 export async function getPlatforms(args: PlatformsArgs, signal?: AbortSignal) {
   const mFilter = args.filter
     .map((c) => c.filter((sc) => !sc.startsWith("bioAssays.arrayDesignUsed.") && !sc.startsWith("bioAssays.originalPlatform.")))

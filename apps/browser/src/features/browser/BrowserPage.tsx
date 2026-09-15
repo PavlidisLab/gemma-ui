@@ -36,6 +36,7 @@ import {
   useDatasets,
   useLibraryStrategyCounts,
   usePlatforms,
+  usePlatformsByChannel,
   useTaxa,
   useCategories,
   type BrowsingOptions,
@@ -120,6 +121,7 @@ export function BrowserPage() {
   const taxa = useTaxa({ query: settings.query, filter });
   const platforms = usePlatforms({ query: settings.query, filter });
   const libraryStrategies = useLibraryStrategyCounts({ query: settings.query, filter });
+  const platformsByChannel = usePlatformsByChannel({ query: settings.query, filter });
   const curatorOnlyIds = useCuratorOnlyDatasetIds(curator);
   // A selected category is never excluded from its own facet — see
   // CategoriesArgs.keepCategories. Sorted so the query key is stable
@@ -241,9 +243,17 @@ export function BrowserPage() {
       ["taxa", taxa.error],
       ["platforms", platforms.error],
       ["types", libraryStrategies.error],
+      ["platforms by channel", platformsByChannel.error],
       ["annotations", categories.error],
     ],
-    [datasets.error, taxa.error, platforms.error, libraryStrategies.error, categories.error],
+    [
+      datasets.error,
+      taxa.error,
+      platforms.error,
+      libraryStrategies.error,
+      platformsByChannel.error,
+      categories.error,
+    ],
   );
   const failures = useMemo(
     () => browseQueries.flatMap(([name, e]) => (e ? [[name, e] as [string, Error]] : [])),
@@ -272,9 +282,9 @@ export function BrowserPage() {
         taxa={taxaList}
         platforms={platformList}
         annotations={annotationList}
+        platformsByStrategy={platformsByChannel.byStrategy}
         libraryStrategyCounts={libraryStrategies.counts}
         showCuratorOnlyTypes={curator}
-        loadingLibraryStrategies={libraryStrategies.isFetching}
         loadingTaxa={taxa.isFetching}
         loadingPlatforms={platforms.isFetching}
         loadingAnnotations={categories.isFetching}
@@ -289,6 +299,7 @@ export function BrowserPage() {
             taxa.isFetching ||
             platforms.isFetching ||
             libraryStrategies.isFetching ||
+            platformsByChannel.isFetching ||
             categories.isFetching
               ? "busy"
               : ""

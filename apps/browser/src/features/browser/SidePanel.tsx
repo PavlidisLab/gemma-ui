@@ -1,6 +1,6 @@
 // Left-side filter panel: query input + selectors.
 
-import { useEffect, type Dispatch, type ReactNode } from "react";
+import { useEffect, useState, type Dispatch, type MouseEvent as ReactMouseEvent } from "react";
 import { VisibilityChip } from "@/components/VisibilityChip";
 import { useQuery } from "@tanstack/react-query";
 import { Search, X } from "lucide-react";
@@ -16,25 +16,35 @@ import type { SearchAction } from "./searchSettingsState";
 import { TaxonSelector } from "./TaxonSelector";
 import { TechnologyTypeSelector } from "./TechnologyTypeSelector";
 import { AnnotationSelector } from "./AnnotationSelector";
-import { FacetSection, type FacetRow } from "./FacetSection";
-import {
-  CURATOR_ONLY_LIBRARY_STRATEGIES,
-  LIBRARY_STRATEGY_FACET,
-  LIBRARY_STRATEGY_GROUPS,
-  libraryStrategyLabel,
-} from "@/lib/platformConstants";
+
+const SIDEBAR_WIDTH_KEY = "gemma-browser-sidebar-width";
+const SIDEBAR_DEFAULT = 360;
+const SIDEBAR_MIN = 280;
+const SIDEBAR_MAX = 640;
+
+/** The stored panel width, or the default when it is missing, unreadable
+ *  or out of range. */
+function readSidebarWidth(): number {
+  try {
+    const n = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY));
+    return Number.isFinite(n) && n >= SIDEBAR_MIN && n <= SIDEBAR_MAX ? n : SIDEBAR_DEFAULT;
+  } catch {
+    return SIDEBAR_DEFAULT;
+  }
+}
 
 interface Props {
   settings: SearchSettings;
   dispatch: Dispatch<SearchAction>;
   taxa: Taxon[];
   platforms: Platform[];
+  /** Platforms under each Microarray channel row, keyed by strategy. */
+  platformsByStrategy: Record<string, Platform[]>;
   annotations: CategoryWithChildren[];
   /** Datasets per library strategy; null while unknown. */
   libraryStrategyCounts: Map<string, number | null>;
   /** Offer the CURATOR_ONLY_LIBRARY_STRATEGIES rows. */
   showCuratorOnlyTypes: boolean;
-  loadingLibraryStrategies?: boolean;
   loadingTaxa?: boolean;
   loadingPlatforms?: boolean;
   loadingAnnotations?: boolean;
@@ -47,10 +57,10 @@ export function SidePanel({
   dispatch,
   taxa,
   platforms,
+  platformsByStrategy,
   annotations,
   libraryStrategyCounts,
   showCuratorOnlyTypes,
-  loadingLibraryStrategies,
   loadingTaxa,
   loadingPlatforms,
   loadingAnnotations,
@@ -100,79 +110,42 @@ export function SidePanel({
     (settings.negativeCategories.length > 0 ? 1 : 0) +
     (settings.query ? 1 : 0);
 
-  // Type rows. A row shows when it has datasets under the current filter
-  // or holds a selection — a `?s=` link can carry a value whose count is
-  // 0 here, or one outside LIBRARY_STRATEGY_FACET altogether.
-  const selectedStrategies = settings.libraryStrategies;
-  const countOf = (key: string) => libraryStrategyCounts.get(key) ?? null;
-  const shown = (r: FacetRow) => r.checked !== false || (r.count ?? 0) > 0;
-  const byCount = (a: FacetRow, b: FacetRow) => (b.count ?? 0) - (a.count ?? 0);
-  const leafRow = (value: string, label: ReactNode): FacetRow => ({
-    key: value,
-    label,
-    title: value,
-    count: countOf(value),
-    checked: selectedStrategies.includes(value),
-  });
-  const grouped = new Set(LIBRARY_STRATEGY_GROUPS.flatMap((g) => g.members.map((m) => m.value)));
-  const libraryStrategyRows: FacetRow[] = [
-    ...LIBRARY_STRATEGY_GROUPS.map((g): FacetRow => {
-      const picked = g.members.filter((m) => selectedStrategies.includes(m.value)).length;
-      return {
-        key: g.id,
-        label: g.label,
-        count: countOf(g.id),
-        checked: picked === 0 ? false : picked === g.members.length ? true : "partial",
-        children: g.members.map((m) => leafRow(m.value, m.label)).filter(shown).sort(byCount),
-      };
-    }),
-    ...[...new Set([...LIBRARY_STRATEGY_FACET, ...selectedStrategies])]
-      .filter((v) => !grouped.has(v))
-      .filter(
-        (v) =>
-          showCuratorOnlyTypes ||
-          !CURATOR_ONLY_LIBRARY_STRATEGIES.includes(v) ||
-          selectedStrategies.includes(v),
-      )
-      .map((v) =>
-        leafRow(
-          v,
-          CURATOR_ONLY_LIBRARY_STRATEGIES.includes(v) ? (
-            <span className="inline-flex items-center gap-1.5">
-              {libraryStrategyLabel(v)}
-              <VisibilityChip
-                tone="restricted"
-                label="curators"
-                title="Hidden from visitors who are not curators or administrators, along with every dataset whose samples carry only this type."
-              />
-            </span>
-          ) : (
-            libraryStrategyLabel(v)
-          ),
-        ),
-      ),
-  ]
-    .filter(shown)
-    .sort(byCount);
-
-  function toggleLibraryStrategy(key: string) {
-    const group = LIBRARY_STRATEGY_GROUPS.find((g) => g.id === key);
-    let next: string[];
-    if (group) {
-      const members = group.members.map((m) => m.value);
-      next = members.every((m) => selectedStrategies.includes(m))
-        ? selectedStrategies.filter((v) => !members.includes(v))
-        : [...new Set([...selectedStrategies, ...members])];
-    } else {
-      next = selectedStrategies.includes(key)
-        ? selectedStrategies.filter((v) => v !== key)
-        : [...selectedStrategies, key];
+  const [width, setWidth] = useState(readSidebarWidth);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(width));
+    } catch {
+      // localStorage unavailable — the width still holds for this visit.
     }
-    dispatch({ type: "setLibraryStrategies", value: next });
+  }, [width]);
+
+  // Drag the gutter on the panel's right edge. Same handler shape as the
+  // curation app's proposals sidebar (apps/curation/src/App.tsx).
+  function startResize(e: ReactMouseEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    function onMove(ev: MouseEvent) {
+      setWidth(Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, startWidth + ev.clientX - startX)));
+    }
+    function onUp() {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    }
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
   }
 
   return (
-    <aside className="w-[360px] shrink-0 border-r border-gemma-grid bg-white overflow-y-auto p-3">
+    <>
+    <aside
+      style={{ width }}
+      className="shrink-0 border-r border-gemma-grid bg-white overflow-y-auto p-3"
+    >
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-medium inline-flex items-center gap-1.5">
           Search & filter
@@ -180,7 +153,7 @@ export function SidePanel({
             label="Search & filter"
             body={
               "Free-text search runs against dataset titles, descriptions, and annotated terms." +
-              "\nFilters narrow the same corpus by taxon, type (RNA-Seq, one- or two-colour microarray, …), platform / technology, and ontology annotations." +
+              "\nFilters narrow the same corpus by taxon, platform / technology (including one- or two-colour microarray), and ontology annotations." +
               "\nAll filters compose as AND; multi-pick within a section is OR." +
               "\nA term matches only where it is annotated under the category you picked it from — not merely somewhere in the dataset."
             }
@@ -251,24 +224,19 @@ export function SidePanel({
         onChange={(t) => dispatch({ type: "setTaxon", value: t })}
       />
 
-      <FacetSection
-        title="Type"
-        rows={libraryStrategyRows}
-        showClear={selectedStrategies.length > 0}
-        loading={loadingLibraryStrategies}
-        emptyText="No types available"
-        onToggle={toggleLibraryStrategy}
-        onClear={() => dispatch({ type: "setLibraryStrategies", value: [] })}
-      />
-
       <TechnologyTypeSelector
         platforms={platforms}
+        platformsByStrategy={platformsByStrategy}
         annotations={annotations}
         selectedPlatforms={settings.platforms}
         selectedTechnologyTypes={settings.technologyTypes}
         selectedTechAnnotations={settings.annotations.filter((a) =>
           a.classUri === "http://purl.obolibrary.org/obo/OBI_0000070",
         )}
+        selectedLibraryStrategies={settings.libraryStrategies}
+        libraryStrategyCounts={libraryStrategyCounts}
+        showCuratorOnlyTypes={showCuratorOnlyTypes}
+        onChangeLibraryStrategies={(v) => dispatch({ type: "setLibraryStrategies", value: v })}
         loading={loadingPlatforms}
         disabled={loadingPlatforms}
         onChangePlatforms={(p) => dispatch({ type: "setPlatforms", value: p })}
@@ -321,5 +289,15 @@ export function SidePanel({
         </label>
       ) : null}
     </aside>
+    <div
+      onMouseDown={startResize}
+      className="w-1.5 -ml-1.5 shrink-0 cursor-col-resize relative z-10 group"
+      title="Drag to resize the filter panel"
+      role="separator"
+      aria-orientation="vertical"
+    >
+      <div className="absolute inset-y-0 right-0 w-px group-hover:bg-blue-400 group-active:bg-blue-500 transition-colors" />
+    </div>
+    </>
   );
 }
