@@ -7,11 +7,8 @@
  *
  * Each card hits its own /datasets/{id}/* endpoint and renders an
  * empty state when the data isn't computed yet, so the row ships
- * before every Gemma build serves all four. Layout: single row on lg+
- * with a 4:2:3:3 column ratio (heatmap : scree : PC×factor :
- * mean-variance) so each plot gets width matched to its content — the
- * square correlation matrix needs the widest slot, the scree the
- * narrowest. Falls back to 2×2 on md and stacked on sm.
+ * before every Gemma build serves all four. Layout: single row on lg+,
+ * 2x2 on md, stacked on sm. Column widths in the component below.
  */
 
 import { SampleCorrelationCard } from "./SampleCorrelationCard";
@@ -20,11 +17,16 @@ import { PcFactorCard } from "./PcFactorCard";
 import { MeanVarianceCard } from "./MeanVarianceCard";
 
 export function DiagnosticsRow({ datasetId }: { datasetId: number }) {
-  // One row on lg+ with a 4:2:3:3 column ratio; 2×2 on md; stacked on
-  // sm. The fr ratios distribute width by plot: heatmap widest (4),
-  // scree narrowest (2), the two others medium (3 each).
+  // The correlation card gets a bounded px column, not an `fr`: its
+  // matrix is square and the panel body is a fixed 420px tall, so past
+  // roughly that width the extra is dead space inside the card — the
+  // square can only grow as far as the height lets it. Capping the
+  // column there and giving the remainder to the other three (whose
+  // bars and scatter do use width) is what closes the gap. The other
+  // three keep the old 2:3:3 ratio: scree narrowest, the two others
+  // medium.
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[4fr_2fr_3fr_3fr] gap-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-[40%_1fr_1.4fr_1.4fr] gap-3">
       <SampleCorrelationCard datasetId={datasetId} />
       <PcaScreeCard datasetId={datasetId} />
       <PcFactorCard datasetId={datasetId} />

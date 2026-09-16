@@ -6,7 +6,12 @@ import type {
   StripHit,
 } from './types';
 import { computeLayout, resolveConfig } from './layout';
-import { renderMatrix, markGutterFor } from './render';
+import {
+  renderMatrix,
+  markGutterFor,
+  stripHeightsFor,
+  verticalChromeFor,
+} from './render';
 
 export interface HeatmapProps {
   data: HeatmapData;
@@ -223,7 +228,18 @@ export function Heatmap({
       ? Math.min(resolved.maxColLabelPx, Math.max(20, adaptiveLabelPx))
       : COL_LABEL_HOVER_BAR_PX
     : 0;
-  const matrixAvailableH = height != null ? height - colLabelGutter : null;
+  // `height` is the box the whole CANVAS must fit in; `computeLayout`
+  // sizes the MATRIX. The difference is the column-label gutter plus
+  // the strip block and marker gutter that `renderMatrix` adds on top
+  // — subtract all of it or the canvas overruns the caller's box by
+  // exactly that much, which a fixed-height panel then clips.
+  const matrixAvailableH =
+    height != null
+      ? Math.max(
+          1,
+          height - colLabelGutter - verticalChromeFor(data, resolved),
+        )
+      : null;
 
   // Real layout with the gutter applied. When height is null this returns
   // the same result as initialLayout (no height constraint either way).
@@ -264,14 +280,7 @@ export function Heatmap({
   }, [data, config, matrixAvailableW, matrixAvailableH]);
 
   const annotations = data.colAnnotations ?? [];
-  // Per-strip height: categorical strips marked ``compact`` (batch /
-  // block) render at half the configured strip height so they sit
-  // below the biological factors visually.
-  const stripHeights = annotations.map((a) =>
-    a.kind === 'categorical' && a.compact
-      ? Math.max(4, Math.floor(resolved.annotationStripHeight / 2))
-      : resolved.annotationStripHeight,
-  );
+  const stripHeights = stripHeightsFor(data, resolved);
   const stripsH =
     annotations.length === 0
       ? 0
@@ -468,9 +477,14 @@ export function Heatmap({
                   cursor: clickable ? 'pointer' : undefined,
                 }}
                 title={
-                  clickable
-                    ? `Group columns by ${a.name}`
-                    : a.name
+                  [
+                    a.description && a.description !== a.name
+                      ? `${a.name} — ${a.description}`
+                      : a.name,
+                    clickable ? 'Click to group columns by this factor.' : '',
+                  ]
+                    .filter(Boolean)
+                    .join('\n\n')
                 }
               >
                 {/* Selected main-grouping strip is flagged with a small
@@ -511,7 +525,13 @@ export function Heatmap({
                     color: compact ? '#64748b' : undefined,
                   }}
                 >
-                  {a.name}
+                  {/* Label by the factor's design description when it has
+                      one — "treatment" names the category, the description
+                      says what the treatment WAS. Same precedence the
+                      samples table uses for its factor column headers.
+                      Long descriptions ellipsis here; the full string
+                      (name included) is in the title. */}
+                  {a.description || a.name}
                 </span>
               </div>
             );

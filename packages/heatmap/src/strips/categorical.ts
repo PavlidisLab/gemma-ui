@@ -116,6 +116,7 @@ export function buildCategoricalStrip(
   return {
     kind: 'categorical',
     name: factor.name,
+    description: factor.description,
     values,
     palette,
     factorId: factor.id,

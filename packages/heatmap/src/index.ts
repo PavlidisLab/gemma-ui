@@ -14,6 +14,12 @@ export {
   type ColumnMap,
 } from './layout';
 export { makeColorScale, dataExtent, rowStandardize } from './color';
+export {
+  computeRowOrder,
+  ROW_CLUSTER_MAX_ROWS,
+  ROW_ORDER_LABELS,
+  type RowOrderMode,
+} from './rowOrder';
 export { PALETTES, DEFAULT_PALETTE } from './palettes';
 export type {
   AnnotationStrip,

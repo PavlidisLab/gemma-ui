@@ -17,6 +17,12 @@ export type CellValue = number | null;
  */
 export interface CategoricalAnnotation {
   name: string;
+  /** The factor's design ``description`` — the curator's sentence for
+   *  what this factor is ("Nasal wash, LAIV vs placebo"). Preferred
+   *  over `name` for the gutter label, matching the samples table,
+   *  which headers its factor columns by description and falls back to
+   *  the category. `name` stays the identity string. */
+  description?: string;
   values: Array<string | null>;
   /** Map of category value -> CSS color. Missing keys render as `nanColor`. */
   palette: Record<string, string>;
@@ -40,6 +46,8 @@ export interface CategoricalAnnotation {
  */
 export interface ContinuousAnnotation {
   name: string;
+  /** See {@link CategoricalAnnotation.description}. */
+  description?: string;
   kind: 'continuous';
   /** Per-column numeric value. `null` paints as `nanColor`. */
   values: Array<number | null>;

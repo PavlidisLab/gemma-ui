@@ -28,6 +28,45 @@ export function markGutterFor(data: HeatmapData): number {
   return any ? MARK_GUTTER_PX : 0;
 }
 
+/** Per-strip rendered height. Compact categorical strips (batch /
+ *  block) render at half the configured height so they sit below the
+ *  biological factors visually. */
+export function stripHeightsFor(
+  data: HeatmapData,
+  resolved: ResolvedConfig,
+): number[] {
+  return (data.colAnnotations ?? []).map((a) =>
+    a.kind === 'categorical' && a.compact
+      ? Math.max(4, Math.floor(resolved.annotationStripHeight / 2))
+      : resolved.annotationStripHeight,
+  );
+}
+
+/**
+ * Vertical space the canvas spends on everything that is NOT the
+ * matrix: the annotation-strip block, its gap, and the marker gutter.
+ *
+ * 🛑 `renderMatrix` adds all of this to `totalH`, so a caller's
+ * `availableH` is a budget for the MATRIX, not for the canvas — a
+ * container that sized itself to a square 417×417 matrix still had the
+ * marker gutter pushed past its bottom edge and clipped. Whoever turns
+ * a container height into an `availableH` subtracts this first, and
+ * both sides read it from here so they cannot drift apart.
+ */
+export function verticalChromeFor(
+  data: HeatmapData,
+  resolved: ResolvedConfig,
+): number {
+  const n = (data.colAnnotations ?? []).length;
+  const heights = stripHeightsFor(data, resolved);
+  const stripsBlockH =
+    n === 0
+      ? 0
+      : heights.reduce((s, h) => s + h, 0) +
+        (n - 1) * resolved.annotationStripGap;
+  return stripsBlockH + (n > 0 ? 4 : 0) + markGutterFor(data);
+}
+
 export interface RenderOptions {
   /** Available width in CSS pixels for the matrix area. */
   availableW: number;
@@ -61,11 +100,7 @@ export function renderMatrix(
   // Per-strip rendered height: compact categorical strips render
   // at half the configured strip height so batch / block surface
   // without competing visually with biological factors.
-  const stripHeights = annotations.map((a) =>
-    a.kind === 'categorical' && a.compact
-      ? Math.max(4, Math.floor(resolved.annotationStripHeight / 2))
-      : resolved.annotationStripHeight,
-  );
+  const stripHeights = stripHeightsFor(data, resolved);
   const stripsBlockH =
     annotations.length === 0
       ? 0

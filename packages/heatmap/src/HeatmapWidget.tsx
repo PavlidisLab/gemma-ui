@@ -2,6 +2,14 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Heatmap } from './Heatmap';
 import { Legend } from './Legend';
 import { rowStandardize } from './color';
+import {
+  computeRowOrder,
+  isIdentityOrder,
+  permute,
+  ROW_CLUSTER_MAX_ROWS,
+  ROW_ORDER_LABELS,
+  type RowOrderMode,
+} from './rowOrder';
 import { PALETTES } from './palettes';
 import { buildHeatmapDataFromPayload } from './buildHeatmapData';
 import { isTechnicalFactor, orderFactorsForDisplay } from './factorOrder';
@@ -130,6 +138,19 @@ export interface HeatmapWidgetProps {
    *  DO, since a clickable row that only names itself gives the curator
    *  no way to find out. */
   rowLabelTitle?: (rowIndex: number) => string | undefined;
+  /** Initial row ordering. Default `'none'` — rows render in the order
+   *  the caller supplied, which for a DE contrast is by p-value and
+   *  for the PC popup is by loading, and neither wants reordering
+   *  behind the caller's back.
+   *
+   *  `'cluster'` groups rows by expression profile (average linkage on
+   *  1 − Pearson) and shows NO tree; `'expression'` sorts by row mean,
+   *  highest first; `'label'` sorts by the gutter's headline label,
+   *  which is the gene symbol wherever one is resolved. */
+  defaultRowOrder?: RowOrderMode;
+  /** Hide the row-order control in the Options popover. For heatmaps
+   *  whose row order is the point — a PC's top-loaded probes, say. */
+  hideRowOrderControl?: boolean;
   /** Rows to veil as a proposed change; see `HeatmapData.dimRows`. */
   dimRows?: boolean[];
   /** Rows to tint as flagged; see `HeatmapData.markRows`. */
@@ -224,6 +245,33 @@ function writeStoredPalette(v: WidgetPalette): void {
   }
 }
 
+const ROW_ORDER_OPTIONS: Array<{
+  key: RowOrderMode;
+  label: string;
+  hint: string;
+}> = [
+  {
+    key: 'none',
+    label: ROW_ORDER_LABELS.none,
+    hint: "the order the rows arrived in — by p-value on a DE contrast, by loading on a PC's top probes",
+  },
+  {
+    key: 'cluster',
+    label: ROW_ORDER_LABELS.cluster,
+    hint: 'group rows with similar profiles together (average linkage on 1 − Pearson); no tree is drawn',
+  },
+  {
+    key: 'expression',
+    label: ROW_ORDER_LABELS.expression,
+    hint: 'highest mean expression first',
+  },
+  {
+    key: 'label',
+    label: ROW_ORDER_LABELS.label,
+    hint: 'alphabetical by the gutter label — the gene symbol where one resolved',
+  },
+];
+
 const FIT_OPTIONS: Array<{ key: FitMode; label: string; hint: string }> = [
   {
     key: 'squeeze',
@@ -288,6 +336,8 @@ export function HeatmapWidget({
   showDownload = true,
   rowLabelTooltip,
   onRowLabelClick,
+  defaultRowOrder = 'none',
+  hideRowOrderControl = false,
   rowLabelTitle,
   dimRows,
   markRows,
@@ -473,7 +523,7 @@ export function HeatmapWidget({
     [payload, orderedFactors],
   );
 
-  const scaledData = useMemo<HeatmapData>(() => {
+  const unorderedData = useMemo<HeatmapData>(() => {
     const base = rowScale
       ? { ...rawData, values: rowStandardize(rawData.values) }
       : rawData;
@@ -484,6 +534,47 @@ export function HeatmapWidget({
     if (!dimRows && !markRows) return base;
     return { ...base, dimRows, markRows };
   }, [rawData, rowScale, dimRows, markRows]);
+
+  const [rowOrderMode, setRowOrderMode] = useState<RowOrderMode>(defaultRowOrder);
+  // 🛑 Cluster on the ROW-SCALED values, not the raw ones. Correlation
+  // distance is scale-free, so the two agree — but `'expression'` is
+  // not, and row-scaling flattens every row to mean 0, which would
+  // make that mode sort on noise. Rank by the raw values and cluster
+  // by whatever is on screen.
+  const rowOrderLabels = useMemo(
+    () =>
+      unorderedData.rowLabels ??
+      unorderedData.rowLabelColumns?.map((c) => c[0]),
+    [unorderedData.rowLabels, unorderedData.rowLabelColumns],
+  );
+  const rowOrder = useMemo(
+    () =>
+      computeRowOrder(
+        rowOrderMode,
+        rowOrderMode === 'expression' ? rawData.values : unorderedData.values,
+        rowOrderLabels,
+      ),
+    [rowOrderMode, rawData.values, unorderedData.values, rowOrderLabels],
+  );
+
+  // Display index → source index, and everything parallel to rows moved
+  // with it. The permutation is NOT pushed back to the caller: their
+  // `rowLabelTooltip(i)` / `onRowLabelClick(i)` still index the rows
+  // they handed over, so the mapping is undone at the call boundary
+  // below. A widget that quietly renumbered a caller's rows would make
+  // every tooltip on a reordered heatmap point at the wrong gene.
+  const scaledData = useMemo<HeatmapData>(() => {
+    if (isIdentityOrder(rowOrder)) return unorderedData;
+    return {
+      ...unorderedData,
+      values: rowOrder.map((i) => unorderedData.values[i]),
+      rowLabels: permute(unorderedData.rowLabels, rowOrder),
+      rowLabelColumns: permute(unorderedData.rowLabelColumns, rowOrder),
+      dimRows: permute(unorderedData.dimRows, rowOrder),
+      markRows: permute(unorderedData.markRows, rowOrder),
+    };
+  }, [unorderedData, rowOrder]);
+  const toSourceRow = (i: number) => rowOrder[i] ?? i;
 
   // Pinned-strip index is derived from the main-grouping factor id;
   // factors render one strip each in `orderedFactors` (display) order,
@@ -795,6 +886,13 @@ export function HeatmapWidget({
                     clipDrivesScale={clipDrivesScale}
                     rowScale={rowScale}
                     setRowScale={setRowScale}
+                    rowOrderMode={rowOrderMode}
+                    setRowOrderMode={setRowOrderMode}
+                    showRowOrder={!hideRowOrderControl}
+                    rowOrderFellBack={
+                      rowOrderMode === 'cluster' &&
+                      numRows > ROW_CLUSTER_MAX_ROWS
+                    }
                     fitMode={fitMode}
                     setFitMode={setFitMode}
                     maxH={maxH}
@@ -889,8 +987,16 @@ export function HeatmapWidget({
               config={config}
               height={matrixMaxHeight}
               selectedStripIndex={selectedStripIndex}
-              rowLabelTooltip={rowLabelTooltip}
-              onRowLabelClick={onRowLabelClick}
+              rowLabelTooltip={
+                rowLabelTooltip
+                  ? (i) => rowLabelTooltip(toSourceRow(i))
+                  : undefined
+              }
+              onRowLabelClick={
+                onRowLabelClick
+                  ? (i) => onRowLabelClick(toSourceRow(i))
+                  : undefined
+              }
               rowLabelTitle={rowLabelTitle}
               rowLabelGutterWidth={rowLabelGutterWidth}
               onStripGutterClick={
@@ -1105,6 +1211,10 @@ function ControlsPopover({
   clipDrivesScale,
   rowScale,
   setRowScale,
+  rowOrderMode,
+  setRowOrderMode,
+  showRowOrder,
+  rowOrderFellBack,
   fitMode,
   setFitMode,
   maxH,
@@ -1126,6 +1236,13 @@ function ControlsPopover({
   clipDrivesScale: boolean;
   rowScale: boolean;
   setRowScale: (v: boolean) => void;
+  rowOrderMode: RowOrderMode;
+  setRowOrderMode: (v: RowOrderMode) => void;
+  showRowOrder: boolean;
+  /** Clustering declined because there are too many rows — the control
+   *  says so rather than sitting on "Cluster" while showing something
+   *  else. */
+  rowOrderFellBack: boolean;
   fitMode: FitMode;
   setFitMode: (v: FitMode) => void;
   maxH: number;
@@ -1195,6 +1312,22 @@ function ControlsPopover({
           hint="z-score each row"
         />
       </ControlRow>
+      {showRowOrder ? (
+        <ControlRow label="Row order">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <SegmentedControl
+              options={ROW_ORDER_OPTIONS}
+              value={rowOrderMode}
+              onChange={setRowOrderMode}
+            />
+            {rowOrderFellBack ? (
+              <span style={{ fontSize: 10, color: SUBTLE }}>
+                too many rows to cluster — sorted by expression
+              </span>
+            ) : null}
+          </div>
+        </ControlRow>
+      ) : null}
       <ControlRow
         label="Clip"
         disabled={!clipDrivesScale}
