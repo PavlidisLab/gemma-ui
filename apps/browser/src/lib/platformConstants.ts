@@ -148,6 +148,136 @@ export function libraryStrategyLabel(raw: string): string {
   return LIBRARY_STRATEGY_LABELS[raw] ?? raw;
 }
 
+/** Readable names for Gemma's `ExtractedMolecule` constants. A value
+ *  missing here is shown as its raw name. */
+export const EXTRACTED_MOLECULE_LABELS: Record<string, string> = {
+  totalRNA: "total RNA",
+  polyARNA: "poly(A)+ RNA",
+  cytoplasmicRNA: "cytoplasmic RNA",
+  nuclearRNA: "nuclear RNA",
+  genomicDNA: "genomic DNA",
+  protein: "protein",
+  other: "other molecule",
+};
+
+export function extractedMoleculeLabel(raw: string): string {
+  return EXTRACTED_MOLECULE_LABELS[raw] ?? raw;
+}
+
+/** One value and how many of the dataset's assays carry it. */
+export interface LibraryTally {
+  value: string;
+  label: string;
+  n: number;
+}
+
+/**
+ * What a dataset's own samples say they are, tallied across assays.
+ *
+ * The three fields are per-BIOASSAY in Gemma, and they are the durable
+ * answer to "what kind of experiment is this": the dataset-level
+ * `technologyType` is not. Gemma maps sequencing onto generic gene-list
+ * platforms, so an ordinary RNA-seq dataset reports GENELIST —
+ * GSE270825 is `technologyType: GENELIST` with 24 SSRNA_SEQ samples.
+ *
+ * Population, measured on gemma2 2026-09-16: `libraryStrategy` is
+ * carried by 23,517 of 23,545 datasets. Over a 60-dataset sample
+ * `extractedMolecule` was present and uniform on every one;
+ * `librarySelection` was present on the sequencing datasets (`cDNA`)
+ * and absent on every microarray one, which is the field describing
+ * something microarray does not do rather than a gap.
+ *
+ * Mixed values within one dataset are real but rare — the per-strategy
+ * `/datasets/count` calls summed to 23,562 against 23,544 datasets, so
+ * on the order of 18 carry samples of two strategies. Hence tallies
+ * rather than a single value: a dataset that is part RNA-Seq and part
+ * ChIP-Seq should say so rather than pick a winner.
+ */
+export interface LibraryProfile {
+  strategies: LibraryTally[];
+  molecules: LibraryTally[];
+  selections: LibraryTally[];
+  /** Assays the profile was built from, carrying a value or not. */
+  total: number;
+}
+
+type LibraryFields = {
+  libraryStrategy?: string | null;
+  librarySelection?: string | null;
+  extractedMolecule?: string | null;
+};
+
+function tally(
+  assays: readonly LibraryFields[],
+  pick: (a: LibraryFields) => string | null | undefined,
+  label: (raw: string) => string,
+): LibraryTally[] {
+  const counts = new Map<string, number>();
+  for (const a of assays) {
+    const v = (pick(a) ?? "").trim();
+    if (v) counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([value, n]) => ({ value, label: label(value), n }));
+}
+
+export function libraryProfile(
+  assays: readonly LibraryFields[] | null | undefined,
+): LibraryProfile {
+  const list = assays ?? [];
+  return {
+    strategies: tally(list, (a) => a.libraryStrategy, libraryStrategyLabel),
+    molecules: tally(list, (a) => a.extractedMolecule, extractedMoleculeLabel),
+    selections: tally(list, (a) => a.librarySelection, (v) => v),
+    total: list.length,
+  };
+}
+
+/**
+ * The dataset's kind, as its samples record it — the header's headline.
+ *
+ * Every strategy present is named, worst case joined, because a mixed
+ * dataset that renders as only its majority strategy is a stated fact
+ * that is wrong for some of its samples. `null` when no sample carries
+ * one, which is the caller's cue to fall back.
+ */
+export function libraryKindLabel(
+  profile: LibraryProfile | null | undefined,
+): string | null {
+  const s = profile?.strategies ?? [];
+  if (s.length === 0) return null;
+  return s.map((t) => t.label).join(" + ");
+}
+
+/**
+ * The sentence behind the kind: what was counted, out of how many, and
+ * the molecule and selection alongside.
+ *
+ * Says "n of m" whenever the value does not cover every assay, so a
+ * partly-populated dataset reads as partly populated rather than as a
+ * fact about all of it.
+ */
+export function libraryProfileTitle(
+  profile: LibraryProfile | null | undefined,
+): string | null {
+  if (!profile || profile.total === 0) return null;
+  const { total } = profile;
+  const part = (tallies: LibraryTally[]): string | null => {
+    if (tallies.length === 0) return null;
+    const covered = tallies.reduce((n, t) => n + t.n, 0);
+    if (tallies.length === 1 && covered === total) return tallies[0].label;
+    return tallies.map((t) => `${t.label} (${t.n} of ${total})`).join(", ");
+  };
+  const parts = [
+    part(profile.strategies),
+    part(profile.molecules),
+    part(profile.selections.map((t) => ({ ...t, label: `${t.label} selection` }))),
+  ].filter((x): x is string => Boolean(x));
+  if (parts.length === 0) return null;
+  return `From the samples' own library records — ${parts.join(" · ")}.`;
+}
+
 /**
  * Shortenings for a platform name in the side panel's platform rows,
  * applied in order. The strings are the common ones across the 407

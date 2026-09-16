@@ -43,6 +43,7 @@ import type {
 import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
+import { middleEllipsis } from "@/lib/middleEllipsis";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { splitBySampleScope } from "@/lib/annotationScope";
 import {
@@ -55,6 +56,10 @@ import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
   assayKindLabel,
+  extractedMoleculeLabel,
+  libraryKindLabel,
+  libraryProfile,
+  libraryProfileTitle,
   libraryStrategyLabel,
   platformDisplay,
   platformRouteParam,
@@ -231,17 +236,50 @@ function Banner({
     platforms,
     originals,
   );
-  // The dataset's own curated `assay` annotation first. The platform's
-  // technologyType is the fallback and a poor one: Gemma maps
-  // sequencing onto generic gene-list platforms, so ordinary RNA-seq
-  // reports GENELIST, which the tech vocabulary labels "Other".
-  // The ORIGINAL platform's technology is the honest fallback: the
-  // generic stand-in Gemma switches sequencing onto reports GENELIST,
-  // which the vocabulary labels "Other".
+  // What the samples themselves record, which is where the answer is
+  // moving to: the curated `assay` tag is on its way out, and the
+  // per-assay libraryStrategy / extractedMolecule / librarySelection
+  // replace it. 23,517 of 23,545 datasets carry a strategy (gemma2,
+  // 2026-09-16), so this is the first choice rather than a fallback.
+  //
+  // Shares the Samples tab's query key, so opening that tab costs
+  // nothing extra and its data upgrades this line. Skipped above 300
+  // samples: the route has no pagination — `?limit=` is a 400 — and a
+  // 1,218-sample dataset answers 7 MB. That is 0.6% of datasets
+  // (152 of 23,544), and they still get the line once the Samples tab
+  // has loaded it.
+  //
+  // `numberOfBioAssays` is the right thing to gate on: it matches what
+  // the route returns, including for single-cell, where the thousands
+  // of sub-assays under each sample are not served here (GSE227729,
+  // 224 samples claimed and 224 returned). Rows differ in weight
+  // though — that single-cell dataset is 4.4 MB over 224 rows where a
+  // microarray one is 7 MB over 1,218.
+  const librarySamples = useQuery({
+    queryKey: ["datasetSamples", dataset.id],
+    queryFn: ({ signal }) => getDatasetSamples(dataset.id, signal),
+    enabled: dataset.id != null && (dataset.numberOfBioAssays ?? 0) <= 300,
+    staleTime: 30 * 60_000,
+  });
+  const library = useMemo(
+    () => libraryProfile(librarySamples.data),
+    [librarySamples.data],
+  );
+  // The curated `assay` annotation next, then the platform's
+  // technologyType — a poor last resort: Gemma maps sequencing onto
+  // generic gene-list platforms, so ordinary RNA-seq reports GENELIST,
+  // which the tech vocabulary labels "Other". The ORIGINAL platform's
+  // technology is the better of the two for the same reason.
   const kind =
+    libraryKindLabel(library) ??
     assayKindLabel(dataset.characteristics) ??
     technologyTypeLabel(originals[0]?.technologyType) ??
     technologyTypeLabel(platforms[0]?.technologyType);
+  // Only when the kind IS the library record — otherwise the tooltip
+  // would describe a source the label didn't come from.
+  const kindTitle = libraryKindLabel(library)
+    ? libraryProfileTitle(library)
+    : null;
   const geeq = dataset.geeq;
   const gemma1Url = useGemma1Url(
     `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
@@ -299,7 +337,11 @@ function Banner({
             ) : null}
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
-            {kind ? <span className="text-slate-800">{kind}</span> : null}
+            {kind ? (
+              <span className="text-slate-800" title={kindTitle ?? undefined}>
+                {kind}
+              </span>
+            ) : null}
             {dataset.lastUpdated ? (
               /* This is `curationDetails.lastUpdated` — verified
                  identical on the wire — so it moves when ANY audit
@@ -1746,7 +1788,7 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
     assay.libraryStrategy ? libraryStrategyLabel(assay.libraryStrategy) : null,
     assay.librarySelection ? `${assay.librarySelection} selection` : null,
     assay.extractedMolecule
-      ? (EXTRACTED_MOLECULE_LABELS[assay.extractedMolecule] ?? assay.extractedMolecule)
+      ? extractedMoleculeLabel(assay.extractedMolecule)
       : null,
   ].filter(Boolean);
   const sequencing = [
@@ -1904,17 +1946,6 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
     </>
   );
 }
-
-/** Readable names for Gemma's ExtractedMolecule constants. */
-const EXTRACTED_MOLECULE_LABELS: Record<string, string> = {
-  totalRNA: "total RNA",
-  polyARNA: "poly(A)+ RNA",
-  cytoplasmicRNA: "cytoplasmic RNA",
-  nuclearRNA: "nuclear RNA",
-  genomicDNA: "genomic DNA",
-  protein: "protein",
-  other: "other molecule",
-};
 
 function SampleMetaField({
   label,
@@ -2277,6 +2308,7 @@ function AnalysisCard({
                 resultSet={rs}
                 datasetId={datasetId}
                 subsetSamplesLabel={subLabel ?? null}
+                isSubsetAnalysis={Boolean(analysis.isSubset)}
               />
             ))}
           </ul>
@@ -2286,6 +2318,10 @@ function AnalysisCard({
   );
 }
 
+/** How many of a factor's levels the row names before it collapses to
+ *  a count. Two fits on one line beside the DE columns. */
+const INLINE_LEVELS = 2;
+
 /** One result-set row: factor labels, baseline, DE counts + up/down
  *  split chip, and per-row "Top genes heatmap" / "Download TSV"
  *  actions. The heatmap expands inline below the row to keep the
@@ -2294,16 +2330,22 @@ function ResultSetRow({
   resultSet,
   datasetId,
   subsetSamplesLabel,
+  isSubsetAnalysis,
 }: {
   resultSet: DiffExNestedResultSet;
   datasetId: number;
   /** Subset cell-type / tissue label, threaded into the heatmap
    *  caption so the curator sees which samples the matrix is over. */
   subsetSamplesLabel: string | null;
+  /** Whether this row's analysis runs over a SUBSET of the experiment.
+   *  The top-genes route cannot serve those, so the heatmap's empty
+   *  state has to say which of the two it is looking at. */
+  isSubsetAnalysis: boolean;
 }) {
   const [heatmapOpen, setHeatmapOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
+  const [levelsOpen, setLevelsOpen] = useState(false);
 
   const factorLabels = (resultSet.experimentalFactors ?? [])
     .map((f) => f.name?.trim() || f.category?.trim())
@@ -2411,16 +2453,48 @@ function ResultSetRow({
                 {contrastLabel}
               </span>
               <span className="text-[11px] text-slate-400">·</span>
-              {conditionTerms.map((t, i) => (
-                // Long ontology labels (e.g. gene-marker cell types) would
-                // otherwise run under the DE metric columns — cap the width
-                // so the label ellipsizes; the full term is on hover.
-                <span key={i} className="inline-flex min-w-0 max-w-[22rem]">
-                  <OntologyTermChip uri={t.uri} labelTitle={t.label}>
-                    {t.label}
-                  </OntologyTermChip>
-                </span>
-              ))}
+              {/* A factor with many levels used to spill every one of
+                  them across five wrapped lines, and the row's single DE
+                  number belongs to the result set as a whole, not to any
+                  one level — so the pile of chips looked like data it
+                  was not. Past two levels the row states the COUNT and
+                  the levels open on demand. GSE239820's treatment factor
+                  is the case: 6 levels, 4 of them differing only by a
+                  leading timepoint. */}
+              {conditionTerms.length > INLINE_LEVELS && !levelsOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setLevelsOpen(true)}
+                  className="text-[11px] text-slate-600 underline underline-offset-2 decoration-dotted hover:text-slate-900"
+                  title={conditionTerms.map((c) => c.label).join("\n")}
+                >
+                  {conditionTerms.length} levels
+                </button>
+              ) : (
+                <>
+                  {conditionTerms.map((t, i) => (
+                    // Long ontology labels (e.g. gene-marker cell types)
+                    // would otherwise run under the DE metric columns —
+                    // shorten from the middle so the label fits AND two
+                    // levels that differ only in their tail stay
+                    // distinguishable; the full term is on hover.
+                    <span key={i} className="inline-flex min-w-0 max-w-[22rem]">
+                      <OntologyTermChip uri={t.uri} labelTitle={t.label}>
+                        {middleEllipsis(t.label)}
+                      </OntologyTermChip>
+                    </span>
+                  ))}
+                  {conditionTerms.length > INLINE_LEVELS ? (
+                    <button
+                      type="button"
+                      onClick={() => setLevelsOpen(false)}
+                      className="text-[11px] text-slate-500 underline underline-offset-2 decoration-dotted hover:text-slate-800"
+                    >
+                      fewer
+                    </button>
+                  ) : null}
+                </>
+              )}
               <span className="text-[11px] text-slate-400">vs</span>
               <span
                 className="text-[11px] text-slate-500 italic truncate max-w-[22rem]"
@@ -2516,6 +2590,7 @@ function ResultSetRow({
           onClose={() => setHeatmapOpen(false)}
         >
           <ResultSetHeatmap
+            isSubsetAnalysis={isSubsetAnalysis}
             datasetId={datasetId}
             resultSetId={resultSet.id}
             contrastLabel={contrastLabel}
@@ -3006,10 +3081,13 @@ function ResultSetHeatmap({
   contrastLabel,
   contrastFactorId,
   subsetSamplesLabel,
+  isSubsetAnalysis,
 }: {
   datasetId: number;
   resultSetId: number;
   contrastLabel: string;
+  /** See {@link ResultSetRow}. Decides which empty state is honest. */
+  isSubsetAnalysis: boolean;
   /** Owning contrast factor id — used to default the heatmap's group
    *  strips to the factor this result set actually contrasts. */
   contrastFactorId: number | null;
@@ -3100,9 +3178,37 @@ function ResultSetHeatmap({
     );
   }
   if (!data || !data.values.length) {
+    // Two different silences, and saying the wrong one sends a reader
+    // looking for missing data that is not missing.
+    //
+    // `GET /datasets/{id}/expressions/differential` answers 200 with an
+    // empty `geneExpressionLevels` for every result set belonging to a
+    // SUBSET analysis: the parent dataset's id does not resolve them,
+    // and the subset's own id (`bioAssaySetId`) is not a `/datasets/`
+    // resource, so there is no id to ask with. Measured on gemma2
+    // 2026-09-16 over a random sample: 7 whole-experiment result sets
+    // returned 23–50 genes, both subset ones returned 0, and all three
+    // of GSE239820's did.
+    //
+    // The stats themselves are fine either way — `/resultSets/{id}`
+    // serves the subset result sets, which is what Download TSV uses,
+    // so the row's counts and the download are unaffected.
+    //
+    // ⏳ This branch is TEMPORARY. It describes a backend bug, not a
+    // design limit: the vectors are stamped with the subset's id and
+    // the route matched them against the path's dataset id, so the
+    // filter never matched and the empty list was the result. A fix
+    // that makes the parent's id resolve subset result sets is written
+    // gemma-core-side (2026-09-16) and not yet on gemma2. When
+    // `/datasets/{parentId}/expressions/differential?diffExSet=573164`
+    // returns genes for GSE239820, drop the `isSubsetAnalysis` branch
+    // and the prop that feeds it — leaving it in would tell a reader a
+    // working feature is unavailable.
     return (
       <div className="mt-2 px-2 py-3 border border-slate-200 rounded text-xs text-slate-500 italic">
-        No expression vectors returned for this result set.
+        {isSubsetAnalysis
+          ? "Top-genes heatmaps aren't available for per-subset analyses — the expression route only answers for whole-experiment result sets. The DE counts and Download TSV are unaffected."
+          : "No expression vectors returned for this result set."}
       </div>
     );
   }
