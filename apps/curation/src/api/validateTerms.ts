@@ -15,7 +15,7 @@ import { useMutation } from "@tanstack/react-query";
 import { api } from "./client";
 
 /**
- * 🛑 Four statuses, and the split is what makes the check useful — do
+ * 🛑 Six statuses, and the split is what makes the check useful — do
  * not collapse this to a boolean.
  *
  * - `ok` — the stored label NAMES this term. Deliberately not
@@ -35,15 +35,58 @@ import { api } from "./client";
  *   declares. Landed agents-side 2026-08-16 on our ask
  *   (`CAB_TO_UIB_2026_08_16_OBSOLETE_VERDICT_LANDED.md`) — before it,
  *   every one of these was an `unknown` nobody could see.
- * - `unknown` — the ontology index cannot name this URI. **NOT an
+ * - `not_found` — the URI is in a namespace the index DOES carry, the
+ *   index cannot name it, and Gemma disowns it too. The term does not
+ *   exist: a fabricated or mistyped ID. Red, and grouped with
+ *   `label_mismatch` — see `features/design/termValidation.ts`.
+ *   Carries `canonical_uri` (the URI that failed) and a `detail`
+ *   written to be shown verbatim; it carries no `canonical_label` and
+ *   no `replaced_by_*`, because there is nothing to re-bind TO. The
+ *   curator has to pick a different term. Landed agents-side
+ *   2026-09-16 (`CAB_TO_UIB_2026_09_16_VALIDATE_TERMS_HAS_A_SIXTH_VERDICT_NOT_FOUND_AND_IT_IS_THE_RED_ONE.md`).
+ * - `unknown` — neither the ontology index nor Gemma can name this
+ *   URI, and it sits in a namespace the index doesn't carry, so
+ *   "fabricated" is not a conclusion available about it. **NOT an
  *   error, and not a finding.** It is silence: with no term name to
  *   compare against, the check simply didn't run on that pair. So it
  *   earns neither an inline mark nor a summary row, only a count in
  *   the tally; see `features/design/termValidation.ts`.
  *
+ *   Much rarer since 2026-09-16. The first
+ *   cut of the split tested the URI's prefix against the agents index
+ *   and returned BEFORE asking Gemma, so RO, GENO, GO and NBO all read
+ *   "not checked" while `/annotations/term` named them outright — it
+ *   resolves past that index, through Gemma's own vocabularies, ~15
+ *   loaded ontologies, then OLS. Gemma is now asked first and those
+ *   carry real verdicts. Measured over a 1,371-pair reference set:
+ *   453 pairs took the `unknown` path, of which asking Gemma resolves
+ *   436 to `ok`, 3 to `non_canonical` and 1 to `not_found`. The 13
+ *   left are 10 NCBITaxon and one each of Orphanet, HsapDv and XCO —
+ *   ~1% of pairs, so a grey chip is now rare enough that a curator
+ *   seeing one can reasonably ask why. The residual is per-TERM, not
+ *   per-namespace: `CVCL_0321` and `ENVO_00002006` are unserved while
+ *   other CVCL and ENVO pairs resolve fine.
+ *
+ *   🛑 `unknown` and `not_found` are not interchangeable, and the
+ *   split is why the sixth status exists. Until 2026-09-16 one word
+ *   answered two questions: a real `RO_0001000` and a fabricated
+ *   `EFO_9999999` came back identically, and both read downstream as a
+ *   pass. (RO no longer lands in either bucket — Gemma names it, so it
+ *   gets a real verdict.) Measured the same day: a deliberately
+ *   fabricated URI passed the eval's `apply_groundings` 45/45 clean
+ *   while guarding production writes. Rendering `not_found` grey puts back exactly
+ *   the ambiguity the split removed.
+ *
+ *   A stale index and an unreachable Gemma both still answer
+ *   `unknown`: a term minted after the index build is not fabricated,
+ *   and a positive control (`CL_0000540`) decides whether the second
+ *   opinion runs at all — without it an offline Gemma would mark the
+ *   whole corpus fabricated.
+ *
  * 🛑 Gemma's own annotation categories must never surface as either
- * `unknown` or `obsolete`. The index carries live ontology classes, so
- * it cannot name `disease` / `EFO_0000408` (`obsolete_disease`
+ * `unknown` or `obsolete`.
+ * The index carries live ontology classes, so it cannot name
+ * `disease` / `EFO_0000408` (`obsolete_disease`
  * upstream) or `biological process` / `GO_0008150` — both perfectly
  * good annotations, and `EFO_0000408` is deprecated AND Gemma's live
  * disease category at the same time. The agents side now excludes
@@ -58,6 +101,7 @@ export type TermValidationStatus =
   | "label_mismatch"
   | "non_canonical"
   | "obsolete"
+  | "not_found"
   | "unknown";
 
 export interface TermValidationResult {
