@@ -4,10 +4,11 @@
 //
 // Under RNA-Seq: subgroup rows (TECH_SUBGROUPS) that bundle one or more
 // OBI assay-annotation URIs into a single checkbox — "Single-cell /
-// single-nucleus" (sc + sn) and "Bulk" (bulk RNA-seq) — then the
-// library-strategy variants (LIBRARY_STRATEGY_SUBGROUPS). Individual
-// SEQUENCING platforms are intentionally hidden — Gemma users pick
-// RNA-Seq via the assay annotation, not a specific array.
+// single-nucleus" (sc + sn) and "Bulk" (bulk RNA-seq) — then "Other",
+// which opens onto the remaining library strategies
+// (LIBRARY_STRATEGY_SUBGROUPS). Individual SEQUENCING platforms are
+// intentionally hidden — Gemma users pick RNA-Seq via the assay
+// annotation, not a specific array.
 //
 // Under Microarray: One-colour / Two-colour (library strategy), each
 // opening onto the platforms its datasets were run on.
@@ -20,11 +21,16 @@ import { ChevronRight } from "lucide-react";
 import type { AnnotationTerm, Platform, CategoryWithChildren } from "@/lib/types";
 import {
   CURATOR_ONLY_LIBRARY_STRATEGIES,
+  flattenStrategyRows,
+  isStrategyNest,
   LIBRARY_STRATEGY_SUBGROUPS,
   libraryStrategyLabel,
   platformNameForList,
   TECH_SUBGROUPS,
   TOP_TECHNOLOGY_TYPES,
+  type StrategyEntry,
+  type StrategyNest,
+  type StrategyRow,
 } from "@/lib/platformConstants";
 import { formatNumber } from "@/lib/utils";
 import { VisibilityChip } from "@/components/VisibilityChip";
@@ -34,8 +40,6 @@ const ASSAY_CATEGORY_URI = "http://purl.obolibrary.org/obo/OBI_0000070";
 /** Unselected platform rows drawn under an expanded row. Selected ones
  *  are drawn regardless — see `visiblePlatforms`. */
 const PLATFORM_ROW_CAP = 40;
-
-type StrategyRow = { value: string; label: string };
 
 interface Props {
   platforms: Platform[];
@@ -84,8 +88,11 @@ export function TechnologyTypeSelector({
 
   const selectedPlatformIds = new Set(selectedPlatforms.map((p) => p.id));
   const selectedStrategySet = new Set(selectedLibraryStrategies);
-  const strategyRows = (groupId: string): readonly StrategyRow[] =>
+  const strategyEntries = (groupId: string): readonly StrategyEntry[] =>
     LIBRARY_STRATEGY_SUBGROUPS[groupId] ?? [];
+  /** The strategy values a group offers, whatever depth they render at. */
+  const strategyValues = (groupId: string): string[] =>
+    flattenStrategyRows(strategyEntries(groupId)).map((s) => s.value);
 
   // Open whatever holds a selection. Without this a visitor arriving on
   // a filter — the platform page's "open in browser", `/browser/twocolor`,
@@ -105,7 +112,14 @@ export function TechnologyTypeSelector({
       if (selectedPlatforms.some((p) => p.technologyType && tts.includes(p.technologyType))) {
         holders.add(id);
       }
-      if (strategyRows(id).some((s) => selectedStrategySet.has(s.value))) holders.add(id);
+      if (strategyValues(id).some((v) => selectedStrategySet.has(v))) holders.add(id);
+      // A picked strategy also opens the "Other" row it sits under.
+      for (const e of strategyEntries(id)) {
+        if (isStrategyNest(e) && e.rows.some((s) => selectedStrategySet.has(s.value))) {
+          holders.add(id);
+          holders.add(e.id);
+        }
+      }
     }
     // A picked platform also opens the channel row that lists it.
     for (const [value, list] of Object.entries(platformsByStrategy)) {
@@ -165,7 +179,7 @@ export function TechnologyTypeSelector({
     // A strategy row narrows its group, so the group's own checkbox
     // clears them either way: off means none of the group, on means all
     // of it.
-    const members = strategyRows(g.id).map((s) => s.value);
+    const members = strategyValues(g.id);
     if (members.some((m) => selectedStrategySet.has(m))) {
       onChangeLibraryStrategies(selectedLibraryStrategies.filter((v) => !members.includes(v)));
     }
@@ -200,7 +214,7 @@ export function TechnologyTypeSelector({
   }
 
   function groupState(g: typeof groups[number]): "on" | "off" | "partial" {
-    if (strategyRows(g.id).some((s) => selectedStrategySet.has(s.value))) return "partial";
+    if (strategyValues(g.id).some((v) => selectedStrategySet.has(v))) return "partial";
     const ttOn = g.tts.every((t) => selectedTechSet.has(t));
     const ttOff = g.tts.every((t) => !selectedTechSet.has(t));
     const allSgUris = (g.subgroups ?? []).flatMap((sg) => sg.termUris);
@@ -257,6 +271,37 @@ export function TechnologyTypeSelector({
     const n = libraryStrategyCounts.get(value);
     return n == null ? "" : formatNumber(n);
   };
+
+  /** A nest's checkbox: on when every row under it is picked. */
+  function nestState(e: StrategyNest): "on" | "off" | "partial" {
+    const picked = e.rows.filter((s) => selectedStrategySet.has(s.value)).length;
+    if (picked === 0) return "off";
+    return picked === e.rows.length ? "on" : "partial";
+  }
+
+  function toggleNest(e: StrategyNest) {
+    if (disabled) return;
+    const members = e.rows.map((s) => s.value);
+    if (nestState(e) === "on") {
+      onChangeLibraryStrategies(selectedLibraryStrategies.filter((v) => !members.includes(v)));
+    } else {
+      const next = new Set(selectedLibraryStrategies);
+      members.forEach((v) => next.add(v));
+      onChangeLibraryStrategies([...next]);
+    }
+  }
+
+  /** A nest has no count of its own — each value costs its own
+   *  `/datasets/count` and nothing counts the union. The sum of its rows
+   *  is an upper bound, because a dataset carrying two of them is
+   *  counted twice, so it is shown as one. */
+  function nestCount(e: StrategyNest): string {
+    const known = e.rows
+      .map((s) => libraryStrategyCounts.get(s.value))
+      .filter((n): n is number => n != null);
+    if (known.length === 0) return "";
+    return `≤${formatNumber(known.reduce((a, b) => a + b, 0))}`;
+  }
 
   function subgroupState(termUris: string[]): "on" | "off" | "partial" {
     const matched = termUris.filter((u) => selectedAnnotUris.has(u));
@@ -353,11 +398,60 @@ export function TechnologyTypeSelector({
     />
   );
 
+  /** One library-strategy row. Rows with platforms of their own (the
+   *  Microarray channels) open onto them; the rest are plain. */
+  const strategyRow = (s: StrategyRow, g: { tts: readonly string[] }) => {
+    const list = platformsByStrategy[s.value];
+    if (!list) {
+      return (
+        <li key={s.value} className="flex items-center gap-2 py-0.5">
+          {strategyCheckbox(s.value)}
+          <span className="flex-1 truncate text-xs" title={s.value}>
+            {s.label}
+          </span>
+          <span className="text-gemma-subtle text-xs tabular-nums">
+            {strategyCount(s.value)}
+          </span>
+        </li>
+      );
+    }
+    const rowOpen = !!open[s.value];
+    const groupList = list.filter(
+      (p) => p.technologyType && g.tts.includes(p.technologyType),
+    );
+    return (
+      <li key={s.value} className="py-0.5">
+        <div className="flex items-center gap-2">
+          {strategyCheckbox(s.value)}
+          <button
+            type="button"
+            onClick={() => setOpen({ ...open, [s.value]: !rowOpen })}
+            className="flex-1 text-left truncate hover:text-gemma-accent flex items-center gap-1 text-xs"
+            title={`${s.label} — expand for individual platforms`}
+          >
+            {chevron(rowOpen)}
+            <span className="truncate">{s.label}</span>
+          </button>
+          <span className="text-gemma-subtle text-xs tabular-nums">
+            {strategyCount(s.value)}
+          </span>
+        </div>
+        {rowOpen ? (
+          <ul className="pl-6 border-l border-gemma-grid ml-1.5">
+            {platformList(groupList)}
+          </ul>
+        ) : null}
+      </li>
+    );
+  };
+
   const curatorOnlyRows = CURATOR_ONLY_LIBRARY_STRATEGIES.filter(
     (v) => (showCuratorOnlyTypes || selectedStrategySet.has(v)) && strategyShown(v),
   );
   const ownedStrategies = new Set([
-    ...Object.values(LIBRARY_STRATEGY_SUBGROUPS).flatMap((rows) => rows.map((s) => s.value)),
+    ...Object.values(LIBRARY_STRATEGY_SUBGROUPS).flatMap((entries) =>
+      flattenStrategyRows(entries).map((s) => s.value),
+    ),
     ...CURATOR_ONLY_LIBRARY_STRATEGIES,
   ]);
   const anySelected =
@@ -400,8 +494,12 @@ export function TechnologyTypeSelector({
           const state = groupState(g);
           const isOpen = !!open[g.id];
           const hasSubgroups = (g.subgroups?.length ?? 0) > 0;
-          const strategies = strategyRows(g.id);
-          const shownStrategies = strategies.filter((s) => strategyShown(s.value));
+          const entries = strategyEntries(g.id);
+          const shownEntries = entries.filter((e) =>
+            isStrategyNest(e)
+              ? e.rows.some((s) => strategyShown(s.value))
+              : strategyShown(e.value),
+          );
           const nSelected = selectedInGroup(g);
           return (
             <li key={g.id} className="py-0.5">
@@ -426,7 +524,7 @@ export function TechnologyTypeSelector({
                   onClick={() => setOpen({ ...open, [g.id]: !isOpen })}
                   className="flex-1 text-left truncate hover:text-gemma-accent flex items-center gap-1"
                   title={
-                    hasSubgroups || strategies.length > 0
+                    hasSubgroups || entries.length > 0
                       ? `${g.name} — expand for types`
                       : `${g.name} — expand for individual platforms`
                   }
@@ -471,51 +569,49 @@ export function TechnologyTypeSelector({
                         );
                       })
                     : null}
-                  {shownStrategies.map((s) => {
-                    const list = platformsByStrategy[s.value];
-                    if (!list) {
-                      return (
-                        <li key={s.value} className="flex items-center gap-2 py-0.5">
-                          {strategyCheckbox(s.value)}
-                          <span className="flex-1 truncate text-xs" title={s.value}>
-                            {s.label}
-                          </span>
-                          <span className="text-gemma-subtle text-xs tabular-nums">
-                            {strategyCount(s.value)}
-                          </span>
-                        </li>
-                      );
-                    }
-                    const rowOpen = !!open[s.value];
-                    const groupList = list.filter(
-                      (p) => p.technologyType && g.tts.includes(p.technologyType),
-                    );
-                    return (
-                      <li key={s.value} className="py-0.5">
+                  {shownEntries.map((e) =>
+                    isStrategyNest(e) ? (
+                      <li key={e.id} className="py-0.5">
                         <div className="flex items-center gap-2">
-                          {strategyCheckbox(s.value)}
+                          <input
+                            type="checkbox"
+                            checked={nestState(e) === "on"}
+                            ref={(el) => {
+                              if (el) el.indeterminate = nestState(e) === "partial";
+                            }}
+                            disabled={disabled}
+                            onChange={() => toggleNest(e)}
+                            className="h-3.5 w-3.5 accent-gemma-accent"
+                          />
                           <button
                             type="button"
-                            onClick={() => setOpen({ ...open, [s.value]: !rowOpen })}
+                            onClick={() => setOpen({ ...open, [e.id]: !open[e.id] })}
                             className="flex-1 text-left truncate hover:text-gemma-accent flex items-center gap-1 text-xs"
-                            title={`${s.label} — expand for individual platforms`}
+                            title={`${e.label} — expand for its types`}
                           >
-                            {chevron(rowOpen)}
-                            <span className="truncate">{s.label}</span>
+                            {chevron(!!open[e.id])}
+                            <span className="truncate">{e.label}</span>
                           </button>
-                          <span className="text-gemma-subtle text-xs tabular-nums">
-                            {strategyCount(s.value)}
+                          <span
+                            className="text-gemma-subtle text-xs tabular-nums"
+                            title="At most this many — the rows below are summed, and a dataset carrying two of them is counted twice."
+                          >
+                            {nestCount(e)}
                           </span>
                         </div>
-                        {rowOpen ? (
+                        {open[e.id] ? (
                           <ul className="pl-6 border-l border-gemma-grid ml-1.5">
-                            {platformList(groupList)}
+                            {e.rows
+                              .filter((s) => strategyShown(s.value))
+                              .map((s) => strategyRow(s, g))}
                           </ul>
                         ) : null}
                       </li>
-                    );
-                  })}
-                  {!hasSubgroups && strategies.length === 0 ? platformList(g.platforms) : null}
+                    ) : (
+                      strategyRow(e, g)
+                    ),
+                  )}
+                  {!hasSubgroups && entries.length === 0 ? platformList(g.platforms) : null}
                 </ul>
               ) : null}
             </li>

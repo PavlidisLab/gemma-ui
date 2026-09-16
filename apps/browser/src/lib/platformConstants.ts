@@ -89,25 +89,60 @@ export const CURATOR_ONLY_LIBRARY_STRATEGIES: readonly string[] = ["OTHER", "CHI
  *
  * Under Microarray each channel row opens onto its own platforms; a
  * DUALMODE platform appears under both. Under RNA-Seq the rows follow
- * the assay subgroups (TECH_SUBGROUPS). RNA_SEQ itself has no row: on
- * gemma2, 2026-09-14, it is 12,492 of the 12,542 datasets carrying any
- * RNA-seq-family value.
+ * the assay subgroups (TECH_SUBGROUPS) — single-cell / single-nucleus
+ * and bulk — and every remaining strategy sits one level further down,
+ * under "Other". RNA_SEQ itself has no row: on gemma2, 2026-09-14, it is
+ * 12,492 of the 12,542 datasets carrying any RNA-seq-family value.
  */
+
+/** A row that stands for one library-strategy value. */
+export interface StrategyRow {
+  value: string;
+  label: string;
+}
+
+/** A row that holds other strategy rows instead of standing for a value
+ *  of its own. Its checkbox picks every row under it. */
+export interface StrategyNest {
+  id: string;
+  label: string;
+  rows: readonly StrategyRow[];
+}
+
+export type StrategyEntry = StrategyRow | StrategyNest;
+
 export const LIBRARY_STRATEGY_SUBGROUPS: Readonly<
-  Record<string, ReadonlyArray<{ value: string; label: string }>>
+  Record<string, readonly StrategyEntry[]>
 > = {
   MICROARRAY: [
     { value: "MICROARRAY_ONE_COLOR", label: "One-colour" },
     { value: "MICROARRAY_TWO_COLOR", label: "Two-colour" },
   ],
   RNA_SEQ: [
-    { value: "SSRNA_SEQ", label: "ssRNA-seq" },
-    { value: "MIRNA_SEQ", label: "miRNA-Seq" },
-    { value: "RIBO_SEQ", label: "Ribo-Seq" },
-    { value: "NCRNA_SEQ", label: "ncRNA-Seq" },
-    { value: "RIP_SEQ", label: "RIP-Seq" },
+    {
+      id: "RNA_SEQ_OTHER",
+      label: "Other",
+      rows: [
+        { value: "SSRNA_SEQ", label: "ssRNA-seq" },
+        { value: "MIRNA_SEQ", label: "miRNA-Seq" },
+        { value: "RIBO_SEQ", label: "Ribo-Seq" },
+        { value: "NCRNA_SEQ", label: "ncRNA-Seq" },
+        { value: "RIP_SEQ", label: "RIP-Seq" },
+      ],
+    },
   ],
 };
+
+export function isStrategyNest(e: StrategyEntry): e is StrategyNest {
+  return "rows" in e;
+}
+
+/** Every strategy row under a list of entries, nests flattened. */
+export function flattenStrategyRows(
+  entries: readonly StrategyEntry[],
+): StrategyRow[] {
+  return entries.flatMap((e) => (isStrategyNest(e) ? [...e.rows] : [e]));
+}
 
 export function libraryStrategyLabel(raw: string): string {
   return LIBRARY_STRATEGY_LABELS[raw] ?? raw;
