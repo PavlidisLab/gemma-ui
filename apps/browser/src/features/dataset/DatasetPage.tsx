@@ -111,6 +111,20 @@ const TABS: { id: TabId; label: string; adminOnly?: boolean }[] = [
   { id: "quantitationtypes", label: "Quantitation Types", adminOnly: true },
 ];
 
+
+/** Page content width, per tab.
+ *
+ *  Diagnostics is four plots side by side; at 1200px the square
+ *  correlation matrix gets a ~275px column and the row runs out of
+ *  width long before it runs out of height. Every other tab is prose
+ *  and tables, where a longer measure is harder to read, so they keep
+ *  the narrower cap. The banner reads the same value — content wider
+ *  than the tab strip would leave the two edges misaligned. */
+const PAGE_WIDTH_CLS: Partial<Record<TabId, string>> = {
+  diagnostics: "max-w-[1600px]",
+};
+const pageWidthCls = (tab: TabId) => PAGE_WIDTH_CLS[tab] ?? "max-w-[1200px]";
+
 function isTabId(s: unknown): s is TabId {
   return typeof s === "string" && TABS.some((t) => t.id === s);
 }
@@ -157,7 +171,7 @@ export function DatasetPage() {
   return (
     <PageShell>
       <Banner dataset={dataset} activeTab={activeTab} onTabChange={setTab} isAdmin={isAdmin} />
-      <div className="mx-auto w-full max-w-[1200px] px-6 py-6 space-y-6">
+      <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6 py-6 space-y-6`}>
         {activeTab === "overview"   && <OverviewTab   dataset={dataset} />}
         {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
@@ -302,7 +316,7 @@ function Banner({
   return (
     <section className="sticky top-0 z-10 bg-white border-b border-slate-200">
       <div className="h-1 bg-gradient-to-r from-amber-500 via-slate-900 to-sky-500" />
-      <div className="mx-auto w-full max-w-[1200px] px-6 py-3 flex gap-4 flex-wrap items-start">
+      <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6 py-3 flex gap-4 flex-wrap items-start`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
             {/* Plain text, not a link: this used to jump to the Gemma
@@ -447,7 +461,7 @@ function Banner({
           </span>
         )}
       </div>
-      <div className="mx-auto w-full max-w-[1200px] px-6">
+      <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6`}>
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
           {TABS.filter((t) => !t.adminOnly || isAdmin).map((t) => (
             <button key={t.id} type="button" onClick={() => onTabChange(t.id)}
@@ -868,10 +882,10 @@ function PublicationsSection({ publications, loading, failed }: { publications: 
  * because they live behind a few small components in curation:
  *
  *  - **Batch / block factors are nuisance variables**, not real
- *    biological factors. They sort last and live under a separate
- *    "Nuisance variables" header so the reader's eye lands on the
- *    biological factors first. EFC category ``block`` or factor
- *    name ``batch`` triggers the bucket.
+ *    biological factors. They sort last and sit behind a collapsed
+ *    toggle so the reader's eye lands on the biological factors
+ *    first. EFC category ``block`` or factor name ``batch``
+ *    triggers the bucket.
  *  - **Factor card palette = sky** (mirrors the curation factor
  *    cards). One consistent colour learns the reader "blue = factor".
  *  - **FV identity comes from S-P-O statements when present**, with
@@ -894,6 +908,7 @@ function DesignTab({ datasetId }: { datasetId: number }) {
     queryKey: ["datasetDesign", datasetId],
     queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
   });
+  const [showNuisance, setShowNuisance] = useState(false);
 
   if (q.isLoading) return <SectionCard title="Experimental design"><LoadingRow /></SectionCard>;
   if (q.isError)   return <SectionCard title="Experimental design"><ErrorRow /></SectionCard>;
@@ -928,11 +943,14 @@ function DesignTab({ datasetId }: { datasetId: number }) {
       <DesignBreakdown design={design} />
       <SectionCard
         title="Factor details"
-        subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}${
-          nuisance.length ? ` · ${nuisance.length} nuisance` : ""
-        }`}
+        subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}`}
       >
         <div className="space-y-3">
+          {bio.length === 0 ? (
+            <p className="text-[11px] text-slate-500 italic">
+              No biological factors recorded.
+            </p>
+          ) : null}
           {bio.map((f) => (
             <FactorCard
               key={f.id}
@@ -940,21 +958,33 @@ function DesignTab({ datasetId }: { datasetId: number }) {
               sampleCountByFvId={sampleCountByFvId}
             />
           ))}
+          {/* Nuisance factors stay collapsed. A scan-date batch factor
+              routinely carries one level per sample (60 here), which
+              buries the biological factors under rows nobody browsing
+              reads. Counted and reachable, not rendered by default. */}
           {nuisance.length > 0 ? (
             <div className="pt-2 mt-2 border-t border-slate-200">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1.5 px-1">
-                Nuisance variables
-              </div>
-              <div className="space-y-2">
-                {nuisance.map((f) => (
-                  <FactorCard
-                    key={f.id}
-                    factor={f}
-                    nuisance
-                    sampleCountByFvId={sampleCountByFvId}
-                  />
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowNuisance((v) => !v)}
+                className="text-[10px] uppercase tracking-wide text-slate-400 hover:text-slate-600 font-semibold px-1"
+                title="Batch / block factors — technical bookkeeping, not biology"
+              >
+                {showNuisance ? "▾" : "▸"} {nuisance.length} nuisance variable
+                {nuisance.length === 1 ? "" : "s"}
+              </button>
+              {showNuisance ? (
+                <div className="space-y-2 mt-1.5">
+                  {nuisance.map((f) => (
+                    <FactorCard
+                      key={f.id}
+                      factor={f}
+                      nuisance
+                      sampleCountByFvId={sampleCountByFvId}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -3261,14 +3291,19 @@ function ResultSetHeatmap({
         defaultPalette="ambsky"
         defaultRowScale
         defaultControlsOpen={false}
-        // DE result sets typically have a handful of samples (5–30)
-        // and 50 genes. We want the matrix dense, not poster-sized;
-        // the legacy Gemma popup paints cells ~14×11px which lets a
-        // 50×18 matrix fit on a ~400px-wide pane alongside legible row
-        // labels. Match that proportion as the minimum-target footprint.
-        // Curators can still pull the Cell H / Cell W sliders to grow
-        // the matrix from the Options popover.
-        defaultFitMode="expand"
+        // Cell caps: the legacy Gemma popup paints cells ~14×11px,
+        // which lets a 50×18 matrix fit on a ~400px-wide pane alongside
+        // legible row labels. Match that proportion as the target
+        // footprint. Readers can still pull the Cell H / Cell W sliders
+        // to grow the matrix from the Options popover.
+        //
+        // Squeeze, not expand: in expand mode cells hold 14px whatever
+        // the sample count, so a contrast over hundreds of samples
+        // (GSE48023) runs off the pane and the reader sees a slice of
+        // the matrix plus a scrollbar. Squeeze caps cells at the same
+        // 14px — small DE sets render identically — and shrinks or
+        // merges columns beyond that so the whole contrast is on screen.
+        defaultFitMode="squeeze"
         defaultMaxWidth={14}
         defaultMaxHeight={18}
         rowLabelGutterWidth={370}
@@ -3492,6 +3527,11 @@ function buildDeHeatmapPayload(
     return {
       id: ef.id,
       name: ef.name ?? label,
+      // The design endpoint's ``description`` — what the strip gutter
+      // labels the factor with, and what the side panel shows. Dropping
+      // it here left both reading "treatment" with no idea of what the
+      // treatment was.
+      description: ef.description ?? undefined,
       category: { label, uri: ef.category?.categoryUri ?? null },
       type: isContinuous ? "continuous" : "categorical",
       factor_values: (ef.values ?? []).map((fv) => {

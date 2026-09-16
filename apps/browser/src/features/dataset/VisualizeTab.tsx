@@ -19,7 +19,12 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useQueries,
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import {
   HeatmapWidget,
   buildGeneRowLabel,
@@ -31,6 +36,8 @@ import {
   searchGoTerms,
   annotationSearchMessage,
   getGoTermGenes,
+  getOntologyTerm,
+  toGoCurie,
   getHeatmapData,
   getDatasetQuantitationTypes,
   getDatasetPlatforms,
@@ -45,8 +52,9 @@ import { ProbeRowTooltip } from "./ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 
 const GENES_HASH_KEY = "genes";
+const GO_HASH_KEY = "go";
 const LS_PREFIX = "gemma-visualize-genes:";
-const ORIGINS_LS_PREFIX = "gemma-visualize-origins:";
+const GO_LS_PREFIX = "gemma-visualize-go:";
 const PICKER_MODE_LS_KEY = "gemma-visualize-picker-mode";
 // Recent-query history is shared across datasets (it's the visitor's
 // vocabulary, not dataset-bound). No per-dataset namespacing.
@@ -55,13 +63,31 @@ const RECENT_GO_TERMS_LS_KEY = "gemma-visualize-recent-go-terms";
 const RECENT_CAP = 8;
 // Row count for the preview when nothing is selected.
 const RANDOM_SAMPLE_SIZE = 20;
+/** Most genes one GO term may contribute.
+ *
+ *  A top-level GO node carries thousands, which is neither readable as
+ *  heatmap rows nor a fetch worth making. This is also the page size
+ *  ``/goTerms/{uri}/genes`` returns, so the cap costs nothing extra —
+ *  it just says out loud what the endpoint was already doing, and the
+ *  picker tells you when a term is over it so you can narrow. */
+const GO_TERM_GENE_CAP = 100;
 
 type PickerMode = "symbol" | "go";
 
-/** Per-gene origin record — currently captures the GO term the gene
- *  was selected from. Lives in localStorage parallel to the gene
- *  selection list. */
+/** Per-gene origin record — the GO term a gene is in the set BECAUSE
+ *  of. Derived from the picked terms on every render, never stored:
+ *  a term now carries its own genes, so persisting the same fact per
+ *  gene would be a second copy to keep in step. */
 type GeneOrigin = { goUri: string; goLabel: string };
+
+/** A GO term held as a unit of the selection.
+ *
+ *  ``curie`` (``GO:0005840``) is the identity — short enough for the
+ *  URL and the form ``/goTerms/{uri}/genes`` wants. ``label`` is for
+ *  display only and may start empty: a shared link carries the curie
+ *  alone, and the label is resolved from ``/annotations/term`` after
+ *  the fact. */
+type GoPick = { curie: string; label: string };
 type RecentGoTerm = { valueUri: string | null; value: string };
 
 /** Tailwind 500-shade qualitative ramp, mirrors the one used by the
@@ -138,7 +164,24 @@ export function VisualizeTab({
   // deciding whether to fall back to a random-gene preview, so a
   // direct visit to ``#genes=…`` doesn't flash a random heatmap first.
   const [selected, setSelected, selectionHydrated] = useGeneSelection(datasetId);
-  const [origins, setOrigins] = useGeneOrigins(datasetId);
+  // GO terms are held as terms and expanded here, so the heatmap's gene
+  // list is the union of the loose picks above and every picked term's
+  // members. Removing a term drops its genes in one click.
+  const [goPicks, setGoPicks, goHydrated] = useGoSelection(datasetId);
+  const { genes: termGenes, origins, loading: termGenesLoading } =
+    useTermGenes(goPicks, taxon);
+  const effectiveGenes = useMemo(() => {
+    if (termGenes.length === 0) return selected;
+    const out = [...selected];
+    const have = new Set(selected.map((g) => g.id));
+    for (const g of termGenes) if (!have.has(g.id)) out.push(g);
+    return out;
+  }, [selected, termGenes]);
+  // The heatmap falls back to a random preview when it sees an empty
+  // gene list, so it must not look until BOTH restores have settled and
+  // any term expansion has landed — otherwise a shared ``#go=`` link
+  // flashes 20 random genes first.
+  const hydrated = selectionHydrated && goHydrated && !termGenesLoading;
   const [mode, setModeState] = useState<PickerMode>(readStickyPickerMode);
   // Search query shared across modes so toggling symbol↔GO doesn't
   // wipe what the visitor typed.
@@ -163,16 +206,14 @@ export function VisualizeTab({
       return next;
     });
 
-  // Origin writes happen separately from gene writes so the gene
-  // selection updater stays a pure function (React 18 strict-mode
-  // double-invokes updaters; writing siblings inside would
-  // duplicate).
-  const tagOriginFor = (geneIds: number[], origin: GeneOrigin) => {
-    setOrigins((cur) => {
-      const next = { ...cur };
-      for (const id of geneIds) next[id] = origin;
-      return next;
-    });
+  const addTerm = (t: { valueUri: string | null; value: string }) => {
+    if (!t.valueUri) return;
+    const curie = toGoCurie(t.valueUri);
+    setGoPicks((cur) =>
+      cur.some((p) => p.curie === curie)
+        ? cur
+        : [...cur, { curie, label: t.value }],
+    );
   };
 
   return (
@@ -213,7 +254,7 @@ export function VisualizeTab({
           ) : (
             <GenePickerByGo
               taxon={taxon}
-              alreadySelected={selected.map((g) => g.id)}
+              alreadySelected={effectiveGenes.map((g) => g.id)}
               modeToggle={modeToggle}
               query={query}
               setQuery={setQuery}
@@ -222,25 +263,31 @@ export function VisualizeTab({
                 pushRecentGoTerm({ valueUri: t.valueUri, value: t.value })
               }
               onClearRecent={clearRecentGoTerms}
-              onAdd={(gene, origin) => {
+              onAdd={(gene) =>
                 setSelected((cur) =>
                   cur.some((g) => g.id === gene.id) ? cur : [...cur, gene],
-                );
-                if (origin) tagOriginFor([gene.id], origin);
-              }}
-              onAddMany={(genes, origin) => {
-                addMany(genes);
-                if (origin) tagOriginFor(genes.map((g) => g.id), origin);
-              }}
+                )
+              }
+              onAddTerm={addTerm}
+              pickedTermCuries={goPicks.map((p) => p.curie)}
             />
           )}
         </div>
         <SelectedGenesStrip
           genes={selected}
+          terms={goPicks}
+          termGenes={termGenes}
+          origins={origins}
           onRemove={(id) =>
             setSelected((cur) => cur.filter((g) => g.id !== id))
           }
-          onClear={() => setSelected(() => [])}
+          onRemoveTerm={(curie) =>
+            setGoPicks((cur) => cur.filter((p) => p.curie !== curie))
+          }
+          onClear={() => {
+            setSelected(() => []);
+            setGoPicks(() => []);
+          }}
         />
       </section>
 
@@ -257,9 +304,9 @@ export function VisualizeTab({
         ) : null}
         <HeatmapPanel
           datasetId={datasetId}
-          genes={selected}
+          genes={effectiveGenes}
           origins={origins}
-          selectionHydrated={selectionHydrated}
+          selectionHydrated={hydrated}
           quantitationType={selectedQt}
           maskOutliers={maskOutliers}
         />
@@ -478,13 +525,21 @@ function GenePickerBySymbol({
  *   1. Type a fragment of a GO term name. Typeahead against
  *      ``/annotations/search?prefixes=GO_`` returns ranked GO
  *      matches.
- *   2. Pick a GO term. The picker fetches up to 100 of its
- *      annotated genes from ``/goTerms/{uri}/genes`` (taxon-scoped
- *      to the dataset) and shows them as a scrollable browsable
- *      list. Each gene has a +add button — no bulk-add by design:
- *      a top-level GO node can carry thousands of genes and the
- *      heatmap can't sensibly display all of them, so the user
- *      picks individually.
+ *   2. Pick a GO term. The picker fetches its annotated genes from
+ *      ``/goTerms/{uri}/genes`` (taxon-scoped to the dataset, capped
+ *      at {@link GO_TERM_GENE_CAP}) and shows them as a scrollable
+ *      browsable list.
+ *
+ * Two ways out of that list, and they mean different things:
+ *   - **Add the term** — the whole term joins the selection as ONE
+ *     unit. It is what the URL carries and what a single × removes.
+ *   - **+add on a gene** — that gene alone joins, loose, with no tie
+ *     back to the term. Use it to borrow a few members without
+ *     taking the set.
+ *
+ * A term over the cap is not addable; the picker says how many it has
+ * and asks for a more specific term, because neither the fetch nor the
+ * heatmap does anything useful with four thousand rows.
  */
 function GenePickerByGo({
   taxon,
@@ -496,7 +551,8 @@ function GenePickerByGo({
   onPickTerm,
   onClearRecent,
   onAdd,
-  onAddMany,
+  onAddTerm,
+  pickedTermCuries,
 }: {
   taxon: string | undefined;
   alreadySelected: number[];
@@ -506,8 +562,11 @@ function GenePickerByGo({
   recentTerms: RecentGoTerm[];
   onPickTerm: (t: { valueUri: string | null; value: string }) => void;
   onClearRecent: () => void;
-  onAdd: (gene: Gene, origin?: GeneOrigin) => void;
-  onAddMany: (genes: Gene[], origin?: GeneOrigin) => void;
+  onAdd: (gene: Gene) => void;
+  onAddTerm: (t: { valueUri: string | null; value: string }) => void;
+  /** Curies already in the selection — the add-term button becomes a
+   *  standing "added" marker rather than offering the same term twice. */
+  pickedTermCuries: string[];
 }) {
   const termQuery = query;
   const setTermQuery = setQuery;
@@ -658,7 +717,13 @@ function GenePickerByGo({
   const page = genesQ.data;
   const total = page?.totalElements ?? 0;
   const shown = page?.data ?? [];
-  const truncated = page && total > shown.length;
+  // Cap on the TERM's own size, not on what came back in this page —
+  // a term with 4,000 genes is over the limit even though the endpoint
+  // hands us 100 of them.
+  const overCap = total > GO_TERM_GENE_CAP;
+  const alreadyPicked =
+    !!pickedTerm.valueUri &&
+    pickedTermCuries.includes(toGoCurie(pickedTerm.valueUri));
 
   return (
     <div className="flex flex-col gap-2">
@@ -713,32 +778,34 @@ function GenePickerByGo({
                 {total.toLocaleString()}
               </strong>{" "}
               {total === 1 ? "gene" : "genes"} annotated{taxon ? ` in ${taxon}` : ""}.
-              {truncated ? (
+              {overCap ? (
                 <>
                   {" "}
-                  Showing the first {shown.length}.
+                  Over the {GO_TERM_GENE_CAP}-gene limit for one term —
+                  pick a more specific term, or add genes individually
+                  from the first {shown.length} below.
                 </>
               ) : null}
             </p>
-            {(() => {
-              const addable = shown.filter((g) => !already.has(g.id));
-              const n = addable.length;
-              if (n === 0) return null;
-              return (
-                <button
-                  type="button"
-                  onClick={() =>
-                    onAddMany(addable, {
-                      goUri: pickedTerm.valueUri ?? "",
-                      goLabel: pickedTerm.value,
-                    })
-                  }
-                  className="text-[11px] px-2 py-0.5 border border-slate-300 rounded whitespace-nowrap hover:bg-slate-900 hover:text-white hover:border-slate-900 shrink-0"
-                >
-                  + add all {n}
-                </button>
-              );
-            })()}
+            {alreadyPicked ? (
+              <span className="text-[11px] px-2 py-0.5 border border-sky-300 bg-sky-50 text-sky-800 rounded whitespace-nowrap shrink-0">
+                term added
+              </span>
+            ) : overCap ? null : (
+              <button
+                type="button"
+                onClick={() =>
+                  onAddTerm({
+                    valueUri: pickedTerm.valueUri,
+                    value: pickedTerm.value,
+                  })
+                }
+                className="text-[11px] px-2 py-0.5 border border-slate-300 rounded whitespace-nowrap hover:bg-slate-900 hover:text-white hover:border-slate-900 shrink-0"
+                title="Add this term as one unit — one chip, one click to remove"
+              >
+                + add term ({total.toLocaleString()})
+              </button>
+            )}
           </div>
           <div className="border border-slate-200 rounded max-h-72 overflow-y-auto">
             <ul className="divide-y divide-slate-100">
@@ -762,12 +829,10 @@ function GenePickerByGo({
                     <button
                       type="button"
                       disabled={isSelected}
-                      onClick={() =>
-                        onAdd(g, {
-                          goUri: pickedTerm.valueUri ?? "",
-                          goLabel: pickedTerm.value,
-                        })
-                      }
+                      // Loose, not tied to the term: taking one member
+                      // is not taking the set, and the set is now its
+                      // own chip.
+                      onClick={() => onAdd(g)}
                       className={
                         "text-[11px] px-2 py-0.5 border rounded whitespace-nowrap shrink-0 " +
                         (isSelected
@@ -799,11 +864,22 @@ function shortenGoUri(uri: string): string {
 
 function SelectedGenesStrip({
   genes,
+  terms,
+  termGenes,
+  origins,
   onRemove,
+  onRemoveTerm,
   onClear,
 }: {
   genes: Gene[];
+  /** GO terms held as units — one chip each, removable in one click. */
+  terms: GoPick[];
+  /** Every gene the picked terms expanded to, for the per-term count
+   *  and the ▾ list. Keyed back to its term through `origins`. */
+  termGenes: Gene[];
+  origins: Record<number, GeneOrigin>;
   onRemove: (id: number) => void;
+  onRemoveTerm: (curie: string) => void;
   onClear: () => void;
 }) {
   // When the strip would render more chips than this, collapse to
@@ -812,7 +888,13 @@ function SelectedGenesStrip({
   // becomes the source of truth for gene identity anyway.
   const COLLAPSE_THRESHOLD = 15;
   const [expanded, setExpanded] = useState(false);
-  if (genes.length === 0) return null;
+  // Which term chip has its gene list open. One at a time — two open
+  // lists push the heatmap off the screen on a laptop.
+  const [openTerm, setOpenTerm] = useState<string | null>(null);
+  if (genes.length === 0 && terms.length === 0) return null;
+  const genesOfTerm = (curie: string) =>
+    termGenes.filter((g) => origins[g.id]?.goUri === curie);
+  const total = genes.length + termGenes.length;
   const visible =
     expanded || genes.length <= COLLAPSE_THRESHOLD
       ? genes
@@ -821,8 +903,60 @@ function SelectedGenesStrip({
   return (
     <div className="border-t border-slate-200 px-4 py-2 flex items-center gap-2 flex-wrap">
       <span className="text-[10px] uppercase tracking-wide text-slate-500 mr-1">
-        {genes.length} {genes.length === 1 ? "gene" : "genes"}
+        {total} {total === 1 ? "gene" : "genes"}
       </span>
+      {/* Term chips lead: they are the bigger unit, and a reader
+          scanning the strip should see "the ribosome set plus two
+          genes", not hunt for the term among its own members. */}
+      {terms.map((t) => {
+        const members = genesOfTerm(t.curie);
+        const isOpen = openTerm === t.curie;
+        return (
+          <span key={t.curie} className="inline-flex flex-col">
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-sky-50 border border-sky-300 rounded"
+              title={t.curie}
+            >
+              <span
+                aria-hidden
+                className="w-2 h-2 rounded-full shrink-0"
+                style={{ backgroundColor: colorForGoUri(t.curie) }}
+              />
+              <span className="font-semibold text-slate-900">
+                {t.label || t.curie}
+              </span>
+              <span className="text-slate-500">
+                · {members.length} {members.length === 1 ? "gene" : "genes"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setOpenTerm(isOpen ? null : t.curie)}
+                aria-label={`${isOpen ? "hide" : "show"} genes in ${t.label || t.curie}`}
+                className="text-slate-400 hover:text-slate-900"
+              >
+                {isOpen ? "▴" : "▾"}
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemoveTerm(t.curie)}
+                aria-label={`remove ${t.label || t.curie}`}
+                className="text-slate-400 hover:text-rose-600"
+              >
+                ×
+              </button>
+            </span>
+            {isOpen ? (
+              <span className="mt-1 max-w-[22rem] max-h-32 overflow-y-auto rounded border border-slate-200 bg-white px-2 py-1 text-[11px] leading-relaxed text-slate-600">
+                {members.length === 0
+                  ? "no genes for this term in this taxon"
+                  : members
+                      .map((g) => g.officialSymbol ?? `#${g.id}`)
+                      .join(", ")}
+              </span>
+            ) : null}
+          </span>
+        );
+      })}
       {visible.map((g) => (
         <span
           key={g.id}
@@ -898,12 +1032,19 @@ function HeatmapPanel({
   const queried = useMemo(() => new Set(geneIds), [geneIds]);
   // if nothing is selected use random genes
   const isSample = geneIds.length === 0;
+  // Reroll counter for the random preview. It is part of the query key
+  // rather than a `refetch()` because the server draws a fresh sample
+  // on every call — a new key is a new sample, and the previous roll
+  // stays in cache if the reader steps back to it. Only reachable
+  // while `isSample`; picking genes takes the control away with the
+  // preview it belongs to.
+  const [sampleRoll, setSampleRoll] = useState(0);
   const wireQuery = useQuery({
     // ``quantitationType ?? "default"`` in the key so switching QTs
     // (including back to the processed default) refetches rather than
     // serving a stale matrix from another QT.
     queryKey: isSample
-      ? ["heatmap-data-sample", datasetId, RANDOM_SAMPLE_SIZE, quantitationType ?? "default", maskOutliers]
+      ? ["heatmap-data-sample", datasetId, RANDOM_SAMPLE_SIZE, quantitationType ?? "default", maskOutliers, sampleRoll]
       : ["heatmap-data", datasetId, geneIds.join(","), quantitationType ?? "default", maskOutliers],
     queryFn: ({ signal }) =>
       getHeatmapData(
@@ -919,6 +1060,12 @@ function HeatmapPanel({
     // throwaway random-sample fetch on a direct ``#genes=…`` visit.
     enabled: selectionHydrated,
     staleTime: 60_000,
+    // Hold the previous matrix on screen while the next one loads.
+    // Without it every key change — a reroll, a gene added — drops
+    // through the `isPending` branch below and replaces the heatmap
+    // with the loading line, which for a reroll also takes away the
+    // button that was just clicked.
+    placeholderData: keepPreviousData,
   });
 
   // A probe is addressable only as platform + element. One platform ⇒
@@ -981,10 +1128,22 @@ function HeatmapPanel({
   return (
     <div className="space-y-2">
       {isSample ? (
-        <p className="text-[11px] text-slate-500 px-1">
-          Showing a random sample of {wire.rows.length}{" "}
-          {wire.rows.length === 1 ? "gene" : "genes"} from this dataset.
-          Search and add genes on the left to build your own set.
+        <p className="text-[11px] text-slate-500 px-1 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setSampleRoll((n) => n + 1)}
+            disabled={wireQuery.isFetching}
+            className="text-sm leading-none text-slate-500 hover:text-slate-900 disabled:opacity-40 disabled:cursor-default cursor-pointer"
+            title="Draw a different random sample of genes"
+            aria-label="Draw a different random sample of genes"
+          >
+            ↻
+          </button>
+          <span>
+            Showing a random sample of {wire.rows.length}{" "}
+            {wire.rows.length === 1 ? "gene" : "genes"} from this dataset.
+            Search and add genes on the left to build your own set.
+          </span>
         </p>
       ) : null}
       <div className="bg-slate-50 border border-slate-200 rounded p-2">
@@ -992,6 +1151,11 @@ function HeatmapPanel({
           payload={payload}
           rowLabelGutterWidth={260}
           rowLabelTooltip={rowLabelTooltip}
+          // A gene set has no order of its own — a GO term's members
+          // arrive alphabetically, a symbol search in the order it was
+          // typed — so cluster by default and let co-expressed genes
+          // land together. Switchable (including off) in Options.
+          defaultRowOrder="cluster"
         />
       </div>
       {/* Standing key for the gutter's multi-gene notation, so it reads
@@ -1194,6 +1358,10 @@ export function adaptHeatmapWire(
     factors: (wire.factors ?? []).map((wrap) => ({
       id: wrap.factor.id,
       name: wrap.factor.name,
+      // What the strip gutter labels the factor with — "treatment"
+      // names the category, the description says what the treatment
+      // was.
+      description: wrap.factor.description ?? undefined,
       category: {
         label: wrap.factor.category ?? wrap.factor.name,
         uri: wrap.factor.categoryUri ?? null,
@@ -1287,53 +1455,136 @@ function useGeneSelection(datasetId: number): [
 }
 
 /**
- * Hold per-gene origin metadata (currently: the GO term the gene was
- * picked from). LocalStorage only — origin is a hint, not load-bearing
- * for the heatmap render, and we don't pollute the URL hash with it.
+ * Hold the GO terms picked for this dataset, as units.
+ *
+ * Mirrors {@link useGeneSelection}: URL hash wins over localStorage on
+ * first paint, both are written on change. The hash carries curies
+ * only (``#go=GO:0005840,GO:0006412``) — a term's LABEL is display
+ * text, not identity, so it stays out of the link and is resolved
+ * from ``/annotations/term`` when a shared link arrives without one.
+ * localStorage keeps the labels so a return visit in the same browser
+ * names the chips without a round trip.
+ *
+ * 🛑 Terms are held INSTEAD OF their genes, not alongside. Expanding
+ * at pick time is what put 68 ids in the URL and left the strip a wall
+ * of chips with no way to say "drop the ribosome set"; the expansion
+ * is now {@link useTermGenes}, at render.
  */
-function useGeneOrigins(datasetId: number): [
-  Record<number, GeneOrigin>,
-  (updater: (cur: Record<number, GeneOrigin>) => Record<number, GeneOrigin>) => void,
+function useGoSelection(datasetId: number): [
+  GoPick[],
+  (updater: (cur: GoPick[]) => GoPick[]) => void,
+  boolean,
 ] {
-  const lsKey = `${ORIGINS_LS_PREFIX}${datasetId}`;
+  const lsKey = `${GO_LS_PREFIX}${datasetId}`;
   const initRan = useRef(false);
-  const [origins, setOriginsState] = useState<Record<number, GeneOrigin>>({});
+  const [picks, setPicksState] = useState<GoPick[]>([]);
+  const [hydrated, setHydrated] = useState(() => {
+    const fromHash = readGoCuriesFromHash();
+    return !fromHash || fromHash.length === 0;
+  });
 
-  // First-paint hydrate.
   useEffect(() => {
     if (initRan.current) return;
     initRan.current = true;
-    try {
-      const raw = window.localStorage.getItem(lsKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<number, GeneOrigin>;
-      if (parsed && typeof parsed === "object") setOriginsState(parsed);
-    } catch {
-      /* ignore */
+    const stored = readGoPicksFromStorage(lsKey);
+    const fromHash = readGoCuriesFromHash();
+    if (fromHash && fromHash.length > 0) {
+      // Hash wins on identity; borrow any label localStorage already
+      // has for the same curie so the chip is named immediately.
+      const labelled = new Map(stored?.map((p) => [p.curie, p.label]));
+      setPicksState(
+        fromHash.map((curie) => ({ curie, label: labelled.get(curie) ?? "" })),
+      );
+      setHydrated(true);
+      return;
     }
+    if (stored && stored.length > 0) setPicksState(stored);
+    setHydrated(true);
   }, [lsKey]);
 
-  // Persist on change.
+  // Name any term that arrived as a bare curie (shared link). One
+  // request per unnamed term, once — a failed lookup leaves the curie
+  // showing rather than retrying forever.
+  const resolving = useRef(new Set<string>());
   useEffect(() => {
-    if (!initRan.current) return;
-    try {
-      if (Object.keys(origins).length === 0) {
-        window.localStorage.removeItem(lsKey);
-      } else {
-        window.localStorage.setItem(lsKey, JSON.stringify(origins));
-      }
-    } catch {
-      /* sandboxed env */
+    if (!hydrated) return;
+    for (const p of picks) {
+      if (p.label || resolving.current.has(p.curie)) continue;
+      resolving.current.add(p.curie);
+      void getOntologyTerm(p.curie).then((t) => {
+        if (!t) return;
+        setPicksState((cur) =>
+          cur.map((x) => (x.curie === p.curie ? { ...x, label: t.label } : x)),
+        );
+      });
     }
-  }, [origins, lsKey]);
+  }, [picks, hydrated]);
 
-  const setOrigins = (
-    updater: (cur: Record<number, GeneOrigin>) => Record<number, GeneOrigin>,
-  ) => {
-    setOriginsState((cur) => updater(cur));
-  };
+  // Persist once hydration has settled — same gate, and for the same
+  // reason, as the gene selection's.
+  useEffect(() => {
+    if (!hydrated) return;
+    writeGoCuriesToHash(picks.map((p) => p.curie));
+    writeGoPicksToStorage(lsKey, picks);
+  }, [picks, lsKey, hydrated]);
 
-  return [origins, setOrigins];
+  const setPicks = (updater: (cur: GoPick[]) => GoPick[]) =>
+    setPicksState((cur) => updater(cur));
+
+  return [picks, setPicks, hydrated];
+}
+
+/**
+ * Expand the picked GO terms into genes, one query per term.
+ *
+ * Per-term rather than one combined query so adding a second term
+ * doesn't refetch the first, and so a term that fails leaves the
+ * others standing. Capped at {@link GO_TERM_GENE_CAP} per term, which
+ * is the endpoint's own page size.
+ *
+ * Returns the genes in pick order, the per-gene origin map the heatmap
+ * colours its row discs from, and whether any expansion is still in
+ * flight — the heatmap waits on that, or a shared ``#go=`` link
+ * flashes the random preview before the real set lands.
+ */
+function useTermGenes(
+  picks: GoPick[],
+  taxon: string | undefined,
+): { genes: Gene[]; origins: Record<number, GeneOrigin>; loading: boolean } {
+  // 🛑 `combine`, not a `useMemo` over the results array. `useQueries`
+  // hands back a fresh array every render, so a memo keyed on it never
+  // hits — and the identity of `genes` / `origins` flowing out of here
+  // feeds the heatmap payload, which would then rebuild on every
+  // keystroke elsewhere in the tab. `combine` is memoized on the
+  // underlying query results for us.
+  return useQueries({
+    queries: picks.map((p) => ({
+      queryKey: ["go-term-genes", p.curie, taxon ?? "any", GO_TERM_GENE_CAP],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        getGoTermGenes(p.curie, { taxon, limit: GO_TERM_GENE_CAP, signal }),
+      staleTime: 30 * 60_000,
+    })),
+    combine: (results) => {
+      const genes: Gene[] = [];
+      const origins: Record<number, GeneOrigin> = {};
+      const seen = new Set<number>();
+      picks.forEach((p, i) => {
+        for (const g of results[i]?.data?.data ?? []) {
+          // First term to claim a gene owns its disc — a gene in two
+          // picked terms gets one colour, not a fight between two.
+          if (seen.has(g.id)) continue;
+          seen.add(g.id);
+          genes.push(g);
+          origins[g.id] = { goUri: p.curie, goLabel: p.label || p.curie };
+        }
+      });
+      return {
+        genes,
+        origins,
+        loading: results.some((r) => r.isLoading || r.isPending),
+      };
+    },
+  });
 }
 
 /**
@@ -1468,20 +1719,33 @@ function readGeneIdsFromHash(): number[] | null {
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
-function writeGeneIdsToHash(ids: number[]): void {
+/**
+ * Set (or, with null, clear) one param in the fragment's second `#`,
+ * leaving the route and every other param alone.
+ *
+ * 🛑 The single writer for all of them. The gene list and the GO term
+ * list are persisted by separate effects that both fire on the same
+ * render, and each rebuilds the fragment from `window.location.hash`
+ * — so two copies of this logic race, and the second to run drops
+ * whatever the first had just written. There is one copy, and it is
+ * this one.
+ *
+ * `route` comes back from `splitFragment` WITHOUT its leading `#`;
+ * rebuilding has to put it back, and has to keep `pathname` +
+ * `search` (the app can be mounted under a sub-path). Getting either
+ * wrong strips the app's own hash route and the router lands nowhere.
+ *
+ * `replaceState` rather than `router.navigate` deliberately: a gene
+ * pick is not a navigation, and routing it through the router would
+ * re-render this whole heatmap page on every checkbox.
+ */
+export function setFragmentParam(key: string, value: string | null): void {
   if (typeof window === "undefined") return;
   const { route, params } = splitFragment(window.location.hash);
   const p = new URLSearchParams(params);
-  if (ids.length === 0) {
-    p.delete(GENES_HASH_KEY);
-  } else {
-    p.set(GENES_HASH_KEY, ids.join(","));
-  }
+  if (value === null || value === "") p.delete(key);
+  else p.set(key, value);
   const next = p.toString();
-  // Rebuilt route-first so the router still sees its path. Kept on
-  // ``replaceState`` rather than ``router.navigate`` deliberately: a
-  // gene pick is not a navigation, and routing it through the router
-  // would re-render this whole heatmap page on every checkbox.
   const frag = route
     ? next
       ? `#${route}#${next}`
@@ -1494,6 +1758,56 @@ function writeGeneIdsToHash(ids: number[]): void {
     "",
     window.location.pathname + window.location.search + frag,
   );
+}
+
+function writeGeneIdsToHash(ids: number[]): void {
+  setFragmentParam(GENES_HASH_KEY, ids.length === 0 ? null : ids.join(","));
+}
+
+/** Picked GO curies from the fragment's ``go`` param, or null when the
+ *  param is absent. Mirrors {@link readGeneIdsFromHash} — null means
+ *  "the link says nothing", which is what lets localStorage answer
+ *  instead; an empty array would mean "the link says none". */
+function readGoCuriesFromHash(): string[] | null {
+  if (typeof window === "undefined") return null;
+  const { params } = splitFragment(window.location.hash);
+  if (!params) return null;
+  const raw = new URLSearchParams(params).get(GO_HASH_KEY);
+  if (!raw) return null;
+  return raw
+    .split(",")
+    .map((s) => toGoCurie(s.trim()))
+    .filter(Boolean);
+}
+
+function writeGoCuriesToHash(curies: string[]): void {
+  setFragmentParam(GO_HASH_KEY, curies.length === 0 ? null : curies.join(","));
+}
+
+function readGoPicksFromStorage(key: string): GoPick[] | null {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as GoPick[];
+    if (!Array.isArray(parsed)) return null;
+    return parsed
+      .filter((p) => p && typeof p.curie === "string" && p.curie)
+      .map((p) => ({
+        curie: toGoCurie(p.curie),
+        label: typeof p.label === "string" ? p.label : "",
+      }));
+  } catch {
+    return null;
+  }
+}
+
+function writeGoPicksToStorage(key: string, picks: GoPick[]): void {
+  try {
+    if (picks.length === 0) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, JSON.stringify(picks));
+  } catch {
+    /* sandboxed env */
+  }
 }
 
 function readGeneIdsFromStorage(key: string): number[] | null {

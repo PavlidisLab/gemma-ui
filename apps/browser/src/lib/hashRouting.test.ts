@@ -20,7 +20,10 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { splitFragment } from "@/features/dataset/VisualizeTab";
+import {
+  setFragmentParam,
+  splitFragment,
+} from "@/features/dataset/VisualizeTab";
 
 function mkRouter() {
   const root = createRootRoute();
@@ -96,5 +99,51 @@ describe("splitFragment", () => {
 
   it("handles an empty fragment", () => {
     expect(splitFragment("")).toEqual({ route: "", params: "" });
+  });
+});
+
+// The Visualize tab writes two independent params into that shared
+// space — the loose gene ids and the picked GO terms — from two
+// effects that fire on the same render. They went through separate
+// copies of this rebuild, and the second to run clobbered the first;
+// worse, one copy dropped the leading "#" off the route and took the
+// whole app off its route. One writer now, pinned here.
+describe("setFragmentParam", () => {
+  it("adds a param without disturbing the route", () => {
+    window.history.replaceState({}, "", "/#/dataset/9?tab=visualize");
+    setFragmentParam("go", "GO:0005840");
+    expect(window.location.hash).toBe("#/dataset/9?tab=visualize#go=GO%3A0005840");
+  });
+
+  it("keeps a param another writer just set", () => {
+    window.history.replaceState({}, "", "/#/dataset/9#genes=1,2");
+    setFragmentParam("go", "GO:0005840");
+    const { route, params } = splitFragment(window.location.hash);
+    expect(route).toBe("/dataset/9");
+    const p = new URLSearchParams(params);
+    expect(p.get("genes")).toBe("1,2");
+    expect(p.get("go")).toBe("GO:0005840");
+  });
+
+  it("clears one param and leaves the other", () => {
+    window.history.replaceState({}, "", "/#/dataset/9#genes=1,2&go=GO%3A1");
+    setFragmentParam("go", null);
+    const { params } = splitFragment(window.location.hash);
+    const p = new URLSearchParams(params);
+    expect(p.get("genes")).toBe("1,2");
+    expect(p.get("go")).toBeNull();
+  });
+
+  it("keeps the route when the last param goes", () => {
+    window.history.replaceState({}, "", "/#/dataset/9#go=GO%3A1");
+    setFragmentParam("go", null);
+    expect(window.location.hash).toBe("#/dataset/9");
+  });
+
+  it("preserves a sub-path mount", () => {
+    window.history.replaceState({}, "", "/mnt/#/dataset/9");
+    setFragmentParam("go", "GO:1");
+    expect(window.location.pathname).toBe("/mnt/");
+    expect(window.location.hash).toBe("#/dataset/9#go=GO%3A1");
   });
 });

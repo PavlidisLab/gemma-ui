@@ -1791,10 +1791,51 @@ export async function searchGoTerms(
  *    - ``GO:0001889`` (already CURIE) → unchanged
  *  Tomcat rejects the full PURL form when URL-encoded into the
  *  path (the double-encoded ``%2F`` slashes 400), so this MUST run
- *  before ``encodeURIComponent``. */
-function toGoCurie(uri: string): string {
+ *  before ``encodeURIComponent``.
+ *
+ *  Exported because the CURIE is also what the Visualize tab puts in
+ *  the URL for a picked GO term — short, and round-trips through here
+ *  whatever form it came back as. */
+export function toGoCurie(uri: string): string {
   const m = uri.match(/GO[_:](\d+)\s*$/);
   return m ? `GO:${m[1]}` : uri;
+}
+
+/** The inverse: CURIE (or PURL) → the full OBO PURL.
+ *
+ *  🛑 ``/annotations/term`` is the opposite of ``/goTerms/…/genes``
+ *  above — it wants the full IRI and answers nothing for a CURIE. The
+ *  two forms are not interchangeable across Gemma's endpoints, so
+ *  every call site converts explicitly rather than passing through
+ *  whatever it happens to hold. */
+export function toGoIri(curieOrUri: string): string {
+  if (curieOrUri.startsWith("http")) return curieOrUri;
+  const m = curieOrUri.match(/GO[_:](\d+)\s*$/);
+  return m ? `http://purl.obolibrary.org/obo/GO_${m[1]}` : curieOrUri;
+}
+
+/** One ontology term by URI — ``{uri, label, definition}``.
+ *
+ *  Used to put a name on a GO term that arrived as a bare identifier:
+ *  a shared Visualize link carries ``#go=GO:0005840`` and nothing
+ *  else, so the chip has no label until this resolves it.
+ *
+ *  🛑 Full IRI, not CURIE — see {@link toGoIri}. */
+export async function getOntologyTerm(
+  uri: string,
+  signal?: AbortSignal,
+): Promise<{ uri: string; label: string } | null> {
+  try {
+    const r = await apiGet<{ data?: { uri?: string; label?: string } }>(
+      `${BASE}/annotations/term`,
+      { params: { uri: toGoIri(uri) }, signal },
+    );
+    const t = r.data;
+    if (!t?.label) return null;
+    return { uri: t.uri ?? uri, label: t.label };
+  } catch {
+    return null;
+  }
 }
 
 /** Genes annotated under a GO term. Paginated; ``totalElements``
@@ -1975,6 +2016,11 @@ export interface HeatmapWireResponse {
     factor: {
       id: number;
       name: string;
+      /** The curator's sentence for what this factor is ("0, 1, 3, 14
+       *  days [after trivalent influenza vaccination]"). Verified on the
+       *  wire 2026-09-15; it is what the heatmap's strip gutter labels
+       *  the factor with, in preference to `name`. */
+      description?: string | null;
       type?: string;
       category?: string;
       categoryUri?: string | null;
