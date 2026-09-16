@@ -57,7 +57,7 @@ export function HomeBrutalist() {
         <div className="px-1 pt-1 pb-2">
           <SearchBox
             variant="hero"
-            placeholder="Search datasets — by name, accession, or gene…"
+            placeholder="Search data sets by name, accession, topic, or leave blank to browse the collection"
           />
         </div>
 

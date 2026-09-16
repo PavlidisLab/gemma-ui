@@ -74,9 +74,9 @@ export function SearchBox({
           />
           <button
             type="submit"
-            className="px-5 py-3 text-sm font-semibold bg-stone-900 text-stone-50 hover:bg-stone-800"
+            className="px-5 py-3 text-sm font-semibold bg-stone-900 text-stone-50 hover:bg-stone-800 whitespace-nowrap"
           >
-            Search →
+            Search/Browse →
           </button>
         </div>
       </form>
