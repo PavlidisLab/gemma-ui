@@ -52,16 +52,22 @@ import { api } from "./client";
  *   earns neither an inline mark nor a summary row, only a count in
  *   the tally; see `features/design/termValidation.ts`.
  *
- *   Much rarer since 2026-09-16. The first
- *   cut of the split tested the URI's prefix against the agents index
+ *   Much rarer since 2026-09-16. The first cut of the split tested
+ *   the URI's prefix against the agents index
  *   and returned BEFORE asking Gemma, so RO, GENO, GO and NBO all read
  *   "not checked" while `/annotations/term` named them outright — it
  *   resolves past that index, through Gemma's own vocabularies, ~15
  *   loaded ontologies, then OLS. Gemma is now asked first and those
  *   carry real verdicts. Measured over a 1,371-pair reference set:
  *   453 pairs took the `unknown` path, of which asking Gemma resolves
- *   436 to `ok`, 3 to `non_canonical` and 1 to `not_found`. The 13
- *   left are 10 NCBITaxon and one each of Orphanet, HsapDv and XCO —
+ *   436 to `ok`, 3 to `non_canonical` and 1 to `not_found`. That one
+ *   was a real defect, not a standing population: `P4` on
+ *   TGEMO_00099, a URI our own ontology does not declare, carrying
+ *   three different labels across four production rows. It was found
+ *   on the verdict's first sweep and the data is being repaired, so a
+ *   later sweep answering 0 `not_found` is the fix landing, not the
+ *   check regressing. The 13 left are 10 NCBITaxon and one each of
+ *   Orphanet, HsapDv and XCO —
  *   ~1% of pairs, so a grey chip is now rare enough that a curator
  *   seeing one can reasonably ask why. The residual is per-TERM, not
  *   per-namespace: `CVCL_0321` and `ENVO_00002006` are unserved while
