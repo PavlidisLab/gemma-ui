@@ -63,6 +63,7 @@ import {
   extractedMoleculeLabel,
   libraryKindLabel,
   libraryProfile,
+  libraryProfileFromCounts,
   libraryProfileTitle,
   libraryStrategyLabel,
   platformDisplay,
@@ -260,28 +261,47 @@ function Banner({
   // replace it. 23,517 of 23,545 datasets carry a strategy (gemma2,
   // 2026-09-16), so this is the first choice rather than a fallback.
   //
-  // Shares the Samples tab's query key, so opening that tab costs
-  // nothing extra and its data upgrades this line.
+  // The payload's own tallies when it has them — one row, and the
+  // reason to prefer it is what the fallback below costs.
+  const payloadTallies = dataset.libraryStrategies ?? null;
+  // Fetching every sample to read one fact is the fallback, for
+  // payloads predating the tallies. It shares the Samples tab's query
+  // key, so opening that tab costs nothing extra.
   //
-  // Fetched for every dataset, whatever its size. An earlier version
-  // skipped this above 300 samples and picked the wrong number to
-  // worry about — the DECOMPRESSED JSON, 7 MB for 1,218 samples. What
-  // crosses the wire is gzip: measured on gemma2 2026-09-16, GSE20142
-  // (1,240 samples) is 75 KiB in 0.7s, and the corpus's largest,
-  // GSE2109 (2,158 samples), is 652 KiB in 2.3s. Meanwhile the skip
-  // was plainly wrong on screen: GSE20142 is 1,240 one-colour
-  // microarray samples and the header fell back to the curated tag.
-  // Nothing blocks on this — the fallback renders until the samples
-  // land, then the line sharpens.
+  // An earlier version skipped this above 300 samples and picked the
+  // wrong number to worry about — the DECOMPRESSED JSON, 7 MB for
+  // 1,218 samples. What crosses the wire is gzip: measured on gemma2
+  // 2026-09-16, GSE20142 (1,240 samples) is 75 KiB in 0.7s, and the
+  // corpus's largest, GSE2109 (2,158 samples), is 652 KiB in 2.3s. The
+  // skip was also plainly wrong on screen: GSE20142 is 1,240
+  // one-colour microarray samples and the header fell back to the
+  // curated tag. Nothing blocks on either path — the fallback renders
+  // until the samples land, then the line sharpens.
   const librarySamples = useQuery({
     queryKey: ["datasetSamples", dataset.id],
     queryFn: ({ signal }) => getDatasetSamples(dataset.id, signal),
-    enabled: dataset.id != null,
+    enabled: dataset.id != null && payloadTallies == null,
     staleTime: 30 * 60_000,
   });
   const library = useMemo(
-    () => libraryProfile(librarySamples.data),
-    [librarySamples.data],
+    () =>
+      payloadTallies
+        ? libraryProfileFromCounts(
+            {
+              strategies: payloadTallies,
+              molecules: dataset.extractedMolecules,
+              selections: dataset.librarySelections,
+            },
+            dataset.numberOfBioAssays ?? 0,
+          )
+        : libraryProfile(librarySamples.data),
+    [
+      payloadTallies,
+      dataset.extractedMolecules,
+      dataset.librarySelections,
+      dataset.numberOfBioAssays,
+      librarySamples.data,
+    ],
   );
   // The curated `assay` annotation next, then the platform's
   // technologyType — a poor last resort: Gemma maps sequencing onto

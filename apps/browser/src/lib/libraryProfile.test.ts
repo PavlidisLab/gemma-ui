@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   libraryKindLabel,
   libraryProfile,
+  libraryProfileFromCounts,
   libraryProfileTitle,
 } from "./platformConstants";
 
@@ -125,5 +126,86 @@ describe("libraryProfileTitle", () => {
   it("is null with nothing to describe", () => {
     expect(libraryProfileTitle(libraryProfile([]))).toBeNull();
     expect(libraryProfileTitle(libraryProfile([{}, {}]))).toBeNull();
+  });
+});
+
+// The dataset payload's own tallies, landed gemma-side 2026-09-16.
+// Shapes are from the contract handoff: {value, numberOfBioAssays},
+// ordered by descending count, ties broken on the value, and a null
+// value counting the assays that record none.
+describe("libraryProfileFromCounts", () => {
+  it("reads the tallies without touching a sample", () => {
+    const p = libraryProfileFromCounts(
+      {
+        strategies: [{ value: "SSRNA_SEQ", numberOfBioAssays: 24 }],
+        molecules: [{ value: "polyARNA", numberOfBioAssays: 24 }],
+        selections: [{ value: "cDNA", numberOfBioAssays: 24 }],
+      },
+      24,
+    );
+    expect(libraryKindLabel(p)).toBe("ssRNA-seq");
+    expect(libraryProfileTitle(p)).toBe(
+      "From the samples' own library records — ssRNA-seq · poly(A)+ RNA · cDNA selection.",
+    );
+  });
+
+  // 🛑 A null entry is the count of assays recording NOTHING. It keeps
+  // the counts summing to the dataset's assay count, and a microarray
+  // dataset's selections arrive as [{null, 30}] rather than empty —
+  // which must read as "no selection recorded", not as a value called
+  // "null".
+  it("treats a null value as not-recorded, not as a level", () => {
+    const p = libraryProfileFromCounts(
+      {
+        strategies: [{ value: "MICROARRAY_ONE_COLOR", numberOfBioAssays: 30 }],
+        molecules: [{ value: "totalRNA", numberOfBioAssays: 30 }],
+        selections: [{ value: null, numberOfBioAssays: 30 }],
+      },
+      30,
+    );
+    expect(p.selections).toEqual([]);
+    expect(libraryProfileTitle(p)).toBe(
+      "From the samples' own library records — One-colour microarray · total RNA.",
+    );
+  });
+
+  // GSE38680 as the payload will report it until the backfill lands:
+  // 45 of 58 totalRNA, 13 recording nothing. The count has to read as
+  // partial rather than as a fact about the whole dataset.
+  it("keeps the total, so a partly-recorded field says n of m", () => {
+    const p = libraryProfileFromCounts(
+      {
+        strategies: [{ value: "MICROARRAY_ONE_COLOR", numberOfBioAssays: 58 }],
+        molecules: [
+          { value: "totalRNA", numberOfBioAssays: 45 },
+          { value: null, numberOfBioAssays: 13 },
+        ],
+      },
+      58,
+    );
+    expect(libraryProfileTitle(p)).toBe(
+      "From the samples' own library records — One-colour microarray · total RNA (45 of 58).",
+    );
+  });
+
+  // Entries arrive ordered by descending count, and the label must
+  // keep that order: [0] is the value that speaks for the dataset.
+  it("keeps the server's order for a mixed dataset", () => {
+    const p = libraryProfileFromCounts(
+      {
+        strategies: [
+          { value: "RNA_SEQ", numberOfBioAssays: 12 },
+          { value: "CHIP_SEQ", numberOfBioAssays: 4 },
+        ],
+      },
+      16,
+    );
+    expect(libraryKindLabel(p)).toBe("RNA-Seq + ChIP-Seq");
+  });
+
+  it("is empty for a dataset with no samples", () => {
+    const p = libraryProfileFromCounts({ strategies: [] }, 0);
+    expect(libraryKindLabel(p)).toBeNull();
+    expect(libraryProfileTitle(p)).toBeNull();
   });
 });

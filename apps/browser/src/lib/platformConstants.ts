@@ -234,6 +234,58 @@ export function libraryProfile(
   };
 }
 
+/** One entry of a dataset-payload tally: `{value, numberOfBioAssays}`,
+ *  `value: null` for the assays recording none. */
+export interface LibraryFieldCount {
+  value: string | null;
+  numberOfBioAssays: number;
+}
+
+/**
+ * The same profile, from the tallies gemma-rest puts on the dataset
+ * payload rather than from the assays themselves.
+ *
+ * Prefer this: it is one row instead of the whole sample list, which
+ * for a 2,158-sample dataset is 652 KiB over the wire. Landed
+ * gemma-side 2026-09-16 on our ask
+ * (`GEM_TO_UIB_2026_09_16_THE_LIBRARY_FIELDS_ARE_ON_THE_DATASET_PAYLOAD_WITH_COUNTS.md`);
+ * absent from older payloads, so callers check presence and fall back
+ * to {@link libraryProfile} over the samples.
+ *
+ * 🛑 A `null` value is the count of assays recording NOTHING, which is
+ * why the counts sum to the dataset's assay count and why a microarray
+ * dataset's selections arrive as `[{value: null, …}]` rather than
+ * empty. Dropped from the tallies here and kept in `total`, so
+ * {@link libraryProfileTitle} reports the coverage as "n of m" exactly
+ * as it does from the sample path.
+ */
+export function libraryProfileFromCounts(
+  counts: {
+    strategies?: readonly LibraryFieldCount[] | null;
+    molecules?: readonly LibraryFieldCount[] | null;
+    selections?: readonly LibraryFieldCount[] | null;
+  },
+  total: number,
+): LibraryProfile {
+  const tally = (
+    entries: readonly LibraryFieldCount[] | null | undefined,
+    label: (raw: string) => string,
+  ): LibraryTally[] =>
+    (entries ?? [])
+      .filter((e) => (e.value ?? "").trim() !== "")
+      .map((e) => ({
+        value: e.value as string,
+        label: label(e.value as string),
+        n: e.numberOfBioAssays,
+      }));
+  return {
+    strategies: tally(counts.strategies, libraryStrategyLabel),
+    molecules: tally(counts.molecules, extractedMoleculeLabel),
+    selections: tally(counts.selections, (v) => v),
+    total,
+  };
+}
+
 /**
  * The dataset's kind, as its samples record it — the header's headline.
  *

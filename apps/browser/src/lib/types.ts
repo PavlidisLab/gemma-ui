@@ -562,6 +562,14 @@ export interface DatasetCharacteristic {
   categoryUri?: string | null;
 }
 
+/** One value of a per-assay library field and how many of the
+ *  dataset's assays carry it. `value` is null for the assays that
+ *  record none. */
+export interface LibraryFieldTally {
+  value: string | null;
+  numberOfBioAssays: number;
+}
+
 export interface Dataset {
   id: number;
   shortName: string;
@@ -579,6 +587,30 @@ export interface Dataset {
    *  same claim as ``false``, so callers must check presence rather
    *  than truthiness before saying "private". */
   isPublic?: boolean;
+  /** Per-dataset tallies of the three per-assay library fields, added
+   *  gemma-side 2026-09-16 on our ask
+   *  (`GEM_TO_UIB_2026_09_16_THE_LIBRARY_FIELDS_ARE_ON_THE_DATASET_PAYLOAD_WITH_COUNTS.md`).
+   *  They replace fetching every sample to read one fact.
+   *
+   *  Ordered by descending count, ties broken on the value, so `[0]` is
+   *  the value that speaks for the dataset and two requests cannot
+   *  order one dataset differently.
+   *
+   *  🛑 `value: null` is a VALUE, not an absence: assays recording
+   *  nothing are counted under a null entry rather than dropped, so the
+   *  counts sum to `numberOfBioAssays` and a microarray dataset's
+   *  `librarySelections` reads `[{value: null, …}]` rather than `[]`.
+   *  An empty list means the dataset has no samples.
+   *
+   *  Spelled exactly as the per-assay fields spell it (GeoLibraryStrategy
+   *  / ExtractedMolecule constant names), so per-dataset and per-sample
+   *  reads compare without a mapping table.
+   *
+   *  Absent from payloads predating the deploy — check presence, and
+   *  fall back to the samples. */
+  libraryStrategies?: LibraryFieldTally[];
+  librarySelections?: LibraryFieldTally[];
+  extractedMolecules?: LibraryFieldTally[];
   searchResult?: {
     score?: number;
     highlights?: Record<string, string> | null;
