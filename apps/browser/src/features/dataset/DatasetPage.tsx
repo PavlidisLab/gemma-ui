@@ -257,22 +257,22 @@ function Banner({
   // 2026-09-16), so this is the first choice rather than a fallback.
   //
   // Shares the Samples tab's query key, so opening that tab costs
-  // nothing extra and its data upgrades this line. Skipped above 300
-  // samples: the route has no pagination — `?limit=` is a 400 — and a
-  // 1,218-sample dataset answers 7 MB. That is 0.6% of datasets
-  // (152 of 23,544), and they still get the line once the Samples tab
-  // has loaded it.
+  // nothing extra and its data upgrades this line.
   //
-  // `numberOfBioAssays` is the right thing to gate on: it matches what
-  // the route returns, including for single-cell, where the thousands
-  // of sub-assays under each sample are not served here (GSE227729,
-  // 224 samples claimed and 224 returned). Rows differ in weight
-  // though — that single-cell dataset is 4.4 MB over 224 rows where a
-  // microarray one is 7 MB over 1,218.
+  // Fetched for every dataset, whatever its size. An earlier version
+  // skipped this above 300 samples and picked the wrong number to
+  // worry about — the DECOMPRESSED JSON, 7 MB for 1,218 samples. What
+  // crosses the wire is gzip: measured on gemma2 2026-09-16, GSE20142
+  // (1,240 samples) is 75 KiB in 0.7s, and the corpus's largest,
+  // GSE2109 (2,158 samples), is 652 KiB in 2.3s. Meanwhile the skip
+  // was plainly wrong on screen: GSE20142 is 1,240 one-colour
+  // microarray samples and the header fell back to the curated tag.
+  // Nothing blocks on this — the fallback renders until the samples
+  // land, then the line sharpens.
   const librarySamples = useQuery({
     queryKey: ["datasetSamples", dataset.id],
     queryFn: ({ signal }) => getDatasetSamples(dataset.id, signal),
-    enabled: dataset.id != null && (dataset.numberOfBioAssays ?? 0) <= 300,
+    enabled: dataset.id != null,
     staleTime: 30 * 60_000,
   });
   const library = useMemo(
