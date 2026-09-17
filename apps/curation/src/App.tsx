@@ -8,6 +8,7 @@ import { ExperimentList } from "@/features/landing/ExperimentList";
 import { CuratorDashboard } from "@/features/landing/CuratorDashboard";
 import { TicketDetailPage } from "@/features/tickets/TicketDetailPage";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
+import { pushRecentExperiment } from "@/features/landing/recentExperiments";
 import { useStickyState } from "@/lib/useStickyState";
 import { isEditableTarget } from "@/lib/isEditableTarget";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
@@ -574,6 +575,25 @@ function Shell({
   // loading render skipped it and the loaded render crashed with
   // "Rendered more hooks than during the previous render".
   useDocumentTitle(pageTitle(draft?.experiment_short_name, "Gemma curation"));
+
+  // Record the visit for the quick-search "recent" list. Here rather
+  // than in the router because an id in the hash is not yet an
+  // experiment the curator got to see — a 404 falls through to
+  // ``ImportPrompt``, and the accession only exists once the draft
+  // lands. Re-writing the entry on every visit is also what keeps the
+  // stored label current after a rename through ``ShortNameEditor``.
+  const visitLabel = draft?.experiment_short_name;
+  const visitTitle = draft?.title;
+  const visitTaxon = draft?.taxon;
+  useEffect(() => {
+    if (!visitLabel) return;
+    pushRecentExperiment({
+      id: String(experimentId),
+      label: visitLabel,
+      title: visitTitle,
+      taxon: visitTaxon,
+    });
+  }, [experimentId, visitLabel, visitTitle, visitTaxon]);
 
   // ALL hooks must run on every render in the same order. Run the
   // proposals query unconditionally, then branch — putting the
