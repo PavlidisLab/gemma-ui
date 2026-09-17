@@ -196,6 +196,14 @@ export function BiomaterialMetaPopover({
       (draft?.biomaterials ?? []).map((b) => b.accession || b.short_name),
     ).map((f) => f.key),
   );
+  // GEO's own sentence about this sample. Both this file and
+  // `SAMPLE_IDENTITY_KEYS` have excluded `description` from the
+  // field list on the grounds that it "is already shown up top" —
+  // and nothing showed it, in this popover or anywhere else in the
+  // app, so the submitter's own description of the sample was
+  // unreadable here. It is the field a curator reads first, so it
+  // goes at the top and stays out of the list below.
+  const geoDescription = (geoSample?.description ?? "").trim();
   const geoEntries = Object.entries(geoSample ?? {}).filter(
     ([k, v]) =>
       k !== "description" &&
@@ -258,6 +266,14 @@ export function BiomaterialMetaPopover({
                 {bm.name && bm.name !== bm.short_name ? (
                   <Section label="Name">
                     <div className="text-slate-800">{bm.name}</div>
+                  </Section>
+                ) : null}
+
+                {geoDescription ? (
+                  <Section label="Description">
+                    <div className="text-slate-700 whitespace-pre-wrap break-words">
+                      {geoDescription}
+                    </div>
                   </Section>
                 ) : null}
 
