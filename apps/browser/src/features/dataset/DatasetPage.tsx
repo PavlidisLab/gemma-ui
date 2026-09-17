@@ -44,6 +44,10 @@ import { VisualizeTab } from "./VisualizeTab";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { middleEllipsis } from "@/lib/middleEllipsis";
+import {
+  parseSampleDescription,
+  sampleDescriptionOneLine,
+} from "@/lib/sampleDescription";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { splitBySampleScope } from "@/lib/annotationScope";
 import {
@@ -1618,6 +1622,14 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
     return fv?.summary || fv?.value || "";
   };
 
+  // A column of em-dashes is worse than no column: plenty of datasets
+  // carry no per-sample text at all, and the ones that do carry it on
+  // every sample.
+  const anyDescription = useMemo(
+    () => samples.some((s) => sampleDescriptionOneLine(s.description) !== ""),
+    [samples],
+  );
+
   const sortedSamples = useMemo(() => {
     if (!sort) return samples;
     const dir = sort.dir === "asc" ? 1 : -1;
@@ -1678,6 +1690,15 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                     </span>
                   </th>
                 ))}
+                {/* The submitter's own sentence about the sample. It
+                    was on the wire all along and reachable only by
+                    opening each row's popover, one sample at a time —
+                    which is no way to read 21 of them. */}
+                {anyDescription ? (
+                  <th className={thCls + " cursor-default hover:bg-transparent"}>
+                    Description
+                  </th>
+                ) : null}
                 <th
                   className="text-left py-1.5 font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-100"
                   onClick={() => onSortClick("flags")}
@@ -1718,6 +1739,16 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                         </td>
                       );
                     })}
+                    {anyDescription ? (
+                      <td className="py-1.5 pr-4 text-slate-600">
+                        <span
+                          className="block max-w-[28rem] truncate"
+                          title={parseSampleDescription(s.description).text || undefined}
+                        >
+                          {sampleDescriptionOneLine(s.description) || "—"}
+                        </span>
+                      </td>
+                    ) : null}
                     <td className="py-1.5">
                       {s.userFlaggedOutlier && <FlagChip label="outlier" color="red" />}
                       {!s.userFlaggedOutlier && s.predictedOutlier && <FlagChip label="predicted outlier" color="amber" />}
@@ -1806,8 +1837,13 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
   const chars = (bm?.characteristics ?? []).filter(
     (c) => (c.value ?? "").trim() !== "",
   );
+  // The submitter's sentence, with Gemma's two appended bookkeeping
+  // lines split off: one repeats the accession this popover already
+  // links, the other is a date that reads better as its own field.
+  const parsedDescription = parseSampleDescription(assay.description);
   const description =
-    (assay.description ?? "").trim() || (bm?.description ?? "").trim() || "";
+    parsedDescription.text || (bm?.description ?? "").trim() || "";
+  const geoLastUpdated = parsedDescription.geoLastUpdated;
   const platform =
     assay.arrayDesign?.shortName || assay.arrayDesign?.name || null;
   const processed = assay.processingDate
@@ -1923,6 +1959,11 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
                     <span className="text-slate-700 tabular-nums">
                       {processed}
                     </span>
+                  </SampleMetaField>
+                ) : null}
+                {geoLastUpdated ? (
+                  <SampleMetaField label="Updated in GEO">
+                    <span className="text-slate-700">{geoLastUpdated}</span>
                   </SampleMetaField>
                 ) : null}
                 {description ? (
