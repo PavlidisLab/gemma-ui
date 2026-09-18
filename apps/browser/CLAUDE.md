@@ -26,6 +26,49 @@ Tailwind 3.4. Path alias `@/` → `src/`. Dev server: port **5183**
 (leaves 5173 for curation app). Typecheck: `npm run typecheck:browser`
 from repo root (or `tsc -p tsconfig.app.json --noEmit` from this dir).
 
+## Tests
+
+| What | Command (from this dir) |
+|---|---|
+| Types | `npx tsc -p tsconfig.app.json --noEmit` |
+| Unit + render (vitest) | `npm test` |
+| Coverage (writes `coverage/index.html`) | `npm run test:coverage` |
+| E2E (Playwright) | `npm run e2e` |
+| E2E, the gate's subset | `npm run e2e:critical` |
+
+Three layers, and which one a change belongs in:
+
+- **Pure-function tests** (`*.test.ts`, node env) — filter
+  construction, the share-link codec, label maps. Most of the suite.
+- **Render tests** (`*.render.test.tsx`, jsdom) — mount a real page at
+  a real route against a stubbed `fetch`, and assert on what a PAYLOAD
+  puts on screen. `test/renderRoute.tsx` mounts the app's own
+  `routeTree` with a memory history; `test/gemmaFetch.ts` replaces
+  `fetch` and records every URL, so a spec can also assert that a call
+  was *not* made — which is how "the payload's tallies mean we skip the
+  samples fetch" is testable at all. `filterOf(url)` reads a request's
+  `filter=` back as the clause string, gunzipping it when `compressArg`
+  compressed it. The browse page's specs mount through
+  `test/browseFixtures.ts` (`mountBrowser`), one small corpus that
+  answers every facet route.
+  The harness uses the app's own `queryDefaults` (30 s `staleTime`), so
+  returning to a filter already asked for is a cache hit and sends no
+  request — assert that step on screen, not on the last request.
+  🛑 jsdom is opted in **per file** by the `@vitest-environment jsdom`
+  docblock. vitest 4 dropped `environmentMatchGlobs`, so a render test
+  without that line fails on `document is not defined`.
+- **E2E** (`e2e/*.spec.ts`) — the built app in a real browser against
+  the `browser-ui` container on :5183 (nothing starts a server; start
+  one with `npm run dev:browser` from the repo root if the container is
+  down). Every spec pins the backend with `mockGemma` from
+  `e2e/_mocks.ts`: this app reads a live public corpus, so an unpinned
+  spec asserts on whatever Gemma holds today and goes red when a
+  dataset is re-annotated.
+
+The pre-commit hook runs this app's **vitest** (since 2026-08-22); the
+Playwright specs are not in it. Adding them means every commit needs the
+:5183 container up, the way the curation specs need :5175.
+
 ## Dev proxy
 
 ```
