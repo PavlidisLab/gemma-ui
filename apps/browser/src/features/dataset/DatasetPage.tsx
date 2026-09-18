@@ -16,7 +16,6 @@ import {
   type StatementGroup,
 } from "@/lib/statementGroups";
 import {
-  getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
   getDatasetOriginalPlatforms,
@@ -41,6 +40,7 @@ import type {
   Factor,
 } from "@gemma/heatmap";
 import { VisualizeTab } from "./VisualizeTab";
+import { useDataset } from "./useDataset";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
 import { middleEllipsis } from "@/lib/middleEllipsis";
@@ -148,10 +148,7 @@ export function DatasetPage() {
       ? "overview"
       : requestedTab;
 
-  const ds = useQuery({
-    queryKey: ["dataset", id],
-    queryFn: ({ signal }) => getDatasetById(id, signal),
-  });
+  const ds = useDataset(id);
 
   // Name the tab after the dataset. Every tab used to read "Gemma
   // Browser", so several open datasets were several identical tabs.
