@@ -361,6 +361,7 @@ function Banner({
               // "private", and rendering one from its absence is how a
               // missing field turns into a stated fact.
               <VisibilityChip
+                variant="chip"
                 tone={dataset.isPublic ? "public" : "restricted"}
                 label={dataset.isPublic ? "Public" : "Private"}
                 title={
