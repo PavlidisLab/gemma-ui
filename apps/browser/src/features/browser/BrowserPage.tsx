@@ -260,8 +260,19 @@ export function BrowserPage() {
     [browseQueries],
   );
   // One message when they agree, which a shared cause makes the norm.
+  // `ApiError.message` opens with the request (`GET /rest/v2/datasets/taxa
+  // → 401 — …`, see client.ts), so six queries failing for one reason
+  // were six distinct strings and the banner printed the server's
+  // sentence six times. The banner already names the queries; drop the
+  // request and compare the rest. Not `detail`: on a non-JSON error
+  // (a proxy's 502 page) that is the whole response body.
   const failureDetail = useMemo(
-    () => [...new Set(failures.map(([, e]) => e.message).filter(Boolean))].join(" · "),
+    () =>
+      [
+        ...new Set(
+          failures.map(([, e]) => e.message.replace(/^[A-Z]+ \S+ → /, "")).filter(Boolean),
+        ),
+      ].join(" · "),
     [failures],
   );
 
