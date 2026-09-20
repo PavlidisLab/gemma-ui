@@ -185,3 +185,74 @@ describe("augmentInferredFromFactors — a statement's own category", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * A qualified FV statement renders IN FULL, not as its leading term.
+ * GSE276387 (eid 40317) is the case: a `disease` factor whose three
+ * arms are all led by `lung adenocarcinoma` and differ only in their
+ * `has modifier` object. Showing the subject alone renders all three
+ * arms as the same word.
+ */
+describe("augmentInferredFromFactors — full statements", () => {
+  const stmt = (
+    subject: string,
+    predicate?: string,
+    object?: string,
+    category = "disease",
+  ) =>
+    ({
+      category: { label: category, uri: null },
+      subject: { label: subject, uri: "http://purl.obolibrary.org/obo/MONDO_0005061" },
+      predicate: predicate ? { label: predicate, uri: null } : null,
+      object: object ? { label: object, uri: null } : null,
+      supporting_evidence: [],
+    }) as any;
+
+  const fvWith = (free_text_label: string, statements: unknown[]) =>
+    ({ id: 0, free_text_label, biomaterial_short_names: [], statements }) as any;
+
+  it("shows a qualified statement in full, not just the subject", () => {
+    const f = factor({
+      category: { label: "disease", uri: "http://www.ebi.ac.uk/efo/EFO_0000408" },
+      factor_values: [
+        fvWith("lung adenocarcinoma with organoid", [
+          stmt("lung adenocarcinoma", "has modifier", "organoid"),
+        ]),
+        fvWith("lung adenocarcinoma", [stmt("lung adenocarcinoma")]),
+      ],
+    });
+    const out = augmentInferredFromFactors([], [f]);
+    expect(out).toHaveLength(1);
+    const values = out[0].value.label.split(", ");
+    expect(values).toContain("lung adenocarcinoma has modifier organoid");
+    // The unqualified arm keeps the curator's own free text.
+    expect(values).toContain("lung adenocarcinoma");
+  });
+
+  it("never emits a comma inside a statement (the renderer splits on it)", () => {
+    const f = factor({
+      factor_values: [
+        fvWith("treated", [stmt("dexamethasone", "has dose", "10 nM", "treatment")]),
+      ],
+    });
+    const out = augmentInferredFromFactors([], [f]);
+    expect(out[0].value.label).toBe("dexamethasone has dose 10 nM");
+  });
+
+  it("carries predicate + object on a cross-category statement too", () => {
+    const f = factor({
+      category: { label: "genotype", uri: null },
+      factor_values: [
+        fvWith("mutant", [
+          stmt("genotype-only", undefined, undefined, "genotype"),
+          stmt("hepatocellular carcinoma", "has modifier", "metastatic", "organism part"),
+        ]),
+      ],
+    });
+    const out = augmentInferredFromFactors([], [f]);
+    const organismPart = out.find((t) => t.category.label === "organism part");
+    expect(organismPart?.value.label).toBe(
+      "hepatocellular carcinoma has modifier metastatic",
+    );
+  });
+});
