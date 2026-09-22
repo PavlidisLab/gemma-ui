@@ -692,6 +692,11 @@ export interface CommittableDesign {
     factor_values?: Array<{
       id: number;
       free_text_label?: string;
+      /** What Gemma STORES in the free-text column, as opposed to the
+       *  rendering `free_text_label` is seeded from. Re-sent verbatim
+       *  on an untouched value — see `freeTextLabelField` and
+       *  `FactorValue.gemma_free_text_value`. */
+      gemma_free_text_value?: string | null;
       is_baseline?: boolean;
       /** Whether the baseline flag was EXPLICIT in what Gemma served —
        *  see `FactorValue.is_baseline_explicit`. */
@@ -878,6 +883,82 @@ export function buildCurationDocument(
     return {};
   }
 
+  /**
+   * The free-text label to write, or nothing at all.
+   *
+   * 🛑 **`free_text_label` is not the stored field.** `composeDesign`
+   * seeds it `v.summary || v.value`, and `summary` is Gemma's own
+   * rendering of the value's statements — unbounded in length, while
+   * `FACTOR_VALUE.VALUE` is `VARCHAR(255)`. This builder used to ship
+   * that field for every value on every commit, so Gemma wrote its own
+   * rendering back into a column the curator owns.
+   *
+   * Measured on experiment 38401 (Gemma side, 2026-09-22): of 18
+   * factor values, 7 had a summary longer than 255 — the longest 318
+   * characters, 7 statements — and the stored value was empty on all
+   * of them. A commit that only DELETED statements came back
+   * `500 … Data truncation: Data too long for column 'VALUE'`.
+   *
+   * The overflow is the loud half. On the same design, 10 of the 18
+   * values DO store something, and on fv 382172 the stored value is
+   * `"0 h"` while the summary renders `"initial time point"` — so
+   * every commit against that dataset quietly replaced the curator's
+   * string with Gemma's rendering, well under any column limit.
+   *
+   * ⇒ Send the curator's label when they actually wrote it, and
+   * otherwise re-send what Gemma already stores:
+   *
+   *   new value    → the label is the only name it has; send it
+   *   label edited → differs from the baseline; send it
+   *   untouched    → echo the stored value, or say nothing
+   *
+   * The echo is deliberate rather than an omission. `design` items are
+   * full replacements — an omitted field is cleared, not left alone
+   * (measured on 657/GSE7866, 2026-09-05: a partial statement item
+   * nulled `subject`, `subjectUri` and `category` and still reported
+   * `updated: 1`) — and whether `freeTextLabel` is exempt is a
+   * question this builder does not have to ask if it sends the stored
+   * value back unchanged. Nothing is emitted only when there is
+   * nothing stored, where cleared and unchanged are the same state.
+   *
+   * ⚠️ **Known limitation: clearing a label does not clear the column.**
+   * An empty label falls through to the echo, so a curator who empties
+   * the field sees the stored value survive. That matches what this
+   * builder did before (it never sent an empty `freeTextLabel`), and
+   * the alternative — sending `""` — is a write whose acceptance on
+   * the Gemma side has not been checked.
+   */
+  function freeTextLabelField(
+    v: {
+      free_text_label?: string;
+      gemma_free_text_value?: string | null;
+    },
+    prior:
+      | { free_text_label?: string; gemma_free_text_value?: string | null }
+      | undefined,
+    existing: boolean,
+  ): { freeTextLabel?: string } {
+    const label = v.free_text_label ?? "";
+    // A value Gemma never issued: whatever it is called, the curator or
+    // the proposal named it, and nothing on the far side can supply it.
+    if (!existing) return label.trim() ? { freeTextLabel: label } : {};
+    // ⚠️ No baseline row, on a value Gemma DID issue: "edited" is not a
+    // question that can be asked, and answering it from the label alone
+    // would send the rendering on every commit — the bug itself. The
+    // commit path always passes the saved design (`commitTarget`), so
+    // this is the fallback, and it falls back to writing nothing new.
+    if (prior) {
+      const priorLabel = prior.free_text_label ?? "";
+      if (label.trim() && label.trim() !== priorLabel.trim()) {
+        return { freeTextLabel: label };
+      }
+    }
+    // The baseline is what Gemma served, so it answers "what is stored"
+    // ahead of the draft — a row the editor rebuilt may not carry it.
+    const stored = prior?.gemma_free_text_value ?? v.gemma_free_text_value ?? "";
+    return stored ? { freeTextLabel: stored } : {};
+  }
+
   const factors: FactorCommit[] = (design.factors ?? []).map((f) => {
     // Gemma's own `gemmaFactorId` where the experiment was imported;
     // `id` is what the editor holds the factor by, and equals it there.
@@ -903,7 +984,11 @@ export function buildCurationDocument(
             "fv",
             issuedByGemma(v.id, priorValues.has(v.id)),
           ),
-          ...(v.free_text_label ? { freeTextLabel: v.free_text_label } : {}),
+          ...freeTextLabelField(
+            v,
+            priorValues.get(v.id),
+            issuedByGemma(v.id, priorValues.has(v.id)),
+          ),
           ...baselineFlag(v, priorValues.get(v.id)),
           ...(v.biomaterial_short_names?.length
             ? { biomaterialShortNames: v.biomaterial_short_names }

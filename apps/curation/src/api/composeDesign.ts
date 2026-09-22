@@ -645,6 +645,13 @@ function composeFactor(
     return {
       id: v.id,
       free_text_label: v.summary || v.value || "",
+      // 🛑 The two are NOT the same field. `summary` is Gemma's
+      // rendering of the statements; `value` is the stored free-text
+      // column the commit writes. Display wants the rendering, so the
+      // label keeps preferring it — but the commit must not send a
+      // rendering back, so the stored value rides along untouched.
+      // See `FactorValue.gemma_free_text_value`.
+      gemma_free_text_value: v.value ?? null,
       is_baseline: ov.is_baseline ?? v.is_baseline ?? false,
       // Absent stays distinguishable from false — see
       // `FactorValue.is_baseline_explicit`. Only the commit builder
