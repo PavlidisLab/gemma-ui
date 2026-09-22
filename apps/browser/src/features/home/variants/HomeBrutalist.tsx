@@ -339,42 +339,49 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
           distinct ontology terms in use
         </span>
       </div>
+      {/* 🛑 Rows, not a two-column <table>. Safari on macOS rendered the
+          tables wider than their grid tracks, so the right-hand column
+          ran past the shaded block and under the next card; Chrome,
+          including Chrome mobile, did not. A table will not lay itself
+          out below its min-content width, and a grid item's automatic
+          minimum is that same width, so the overflow had two places to
+          come from and `w-full` answered neither. A flex row has no
+          min-content floor to hit: the label truncates and the count
+          keeps its place at the right edge. */}
       <div className="grid grid-cols-2 gap-x-8 px-5">
         {columns.map((col, ci) => (
-          <table key={ci} className="w-full text-sm">
-            <tbody>
-              {col.map((r) => (
-                <tr
-                  key={r.label}
-                  className="border-t border-stone-200 first:border-t-0"
-                >
-                  <td className="py-2 text-stone-800">
-                    <span className="inline-flex items-center">
-                      {r.cat ? (
-                        <Link
-                          to="/browser"
-                          search={{
-                            categoryUri: r.cat.uri,
-                            categoryLabel: r.cat.label,
-                          }}
-                          title={`Browse datasets annotated with a ${r.cat.label} term`}
-                          className="text-stone-800 hover:text-blue-700 hover:underline"
-                        >
-                          {r.label}
-                        </Link>
-                      ) : (
-                        r.label
-                      )}
-                      <InfoBadge hint={r.hint} />
-                    </span>
-                  </td>
-                  <td className="py-2 text-right tabular-nums font-semibold text-stone-950">
-                    {fmtCount(r.value, "full", loadingOf(r.value))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul key={ci} className="min-w-0 text-sm">
+            {col.map((r) => (
+              <li
+                key={r.label}
+                className="flex items-baseline justify-between gap-3 border-t border-stone-200 py-2 first:border-t-0"
+              >
+                <span className="inline-flex min-w-0 items-center text-stone-800">
+                  {r.cat ? (
+                    <Link
+                      to="/browser"
+                      search={{
+                        categoryUri: r.cat.uri,
+                        categoryLabel: r.cat.label,
+                      }}
+                      title={`Browse datasets annotated with a ${r.cat.label} term`}
+                      className="truncate text-stone-800 hover:text-blue-700 hover:underline"
+                    >
+                      {r.label}
+                    </Link>
+                  ) : (
+                    <span className="truncate">{r.label}</span>
+                  )}
+                  <span className="shrink-0">
+                    <InfoBadge hint={r.hint} />
+                  </span>
+                </span>
+                <span className="shrink-0 tabular-nums font-semibold text-stone-950">
+                  {fmtCount(r.value, "full", loadingOf(r.value))}
+                </span>
+              </li>
+            ))}
+          </ul>
         ))}
       </div>
     </div>
