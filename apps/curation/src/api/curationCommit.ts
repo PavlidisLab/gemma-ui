@@ -916,10 +916,20 @@ export function buildCurationDocument(
    * full replacements — an omitted field is cleared, not left alone
    * (measured on 657/GSE7866, 2026-09-05: a partial statement item
    * nulled `subject`, `subjectUri` and `category` and still reported
-   * `updated: 1`) — and whether `freeTextLabel` is exempt is a
-   * question this builder does not have to ask if it sends the stored
-   * value back unchanged. Nothing is emitted only when there is
-   * nothing stored, where cleared and unchanged are the same state.
+   * `updated: 1`). The echo is correct whether or not `freeTextLabel`
+   * is exempt from that, so this builder never had to settle the
+   * question. Nothing is emitted only when there is nothing stored,
+   * where cleared and unchanged are the same state.
+   *
+   * ✅ It IS exempt, confirmed on the Gemma side 2026-09-22:
+   * `mapFactorValues` sets the VO's deprecated `value` from
+   * `getFreeTextLabel()`, null when the wire omits the field, and
+   * `applyFactorValueChanges` writes it only under
+   * `if (pv.getValue() != null)`. The 657 case above is the statement
+   * path (`mapStatements`), a different builder, and constrains
+   * nothing here. So an omission would be safe too — the echo stays
+   * because it is a no-op write of the value already there, and needs
+   * no such guarantee to hold.
    *
    * ⚠️ **Known limitation: clearing a label does not clear the column.**
    * An empty label falls through to the echo, so a curator who empties
