@@ -663,6 +663,10 @@ function InlinePredicateObjectPair({
           ? "Gemma holds two predicate/object pairs per statement and refuses a third on the same one. Move this pair to its own statement."
           : undefined
       }
+      // A hook for the marker itself. Selecting it by its title text
+      // caught every predicate <option> the moment the generated
+      // predicate descriptions started using the same sentence.
+      data-over-limit={overLimit ? "true" : undefined}
     >
       <PredicateSelect statement={statement} size="sm" onChange={onChange} />
 
