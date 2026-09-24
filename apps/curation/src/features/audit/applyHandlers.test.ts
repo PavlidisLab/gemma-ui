@@ -8,7 +8,10 @@ import type {
   OntologyTerm,
 } from "@/features/experiment/types";
 import { replaceStatementsDelta, resolveApplyAction } from "./applyHandlers";
-import { findingProposedUris } from "./findingHelpers";
+import {
+  findingProposedUris,
+  findingValueIsFreeText,
+} from "./findingHelpers";
 
 /**
  * Contract tests for the apply-action chain. These lock in the
@@ -1257,6 +1260,52 @@ describe("proposed-tag URI precedence — display and apply must agree", () => {
     expect(findingProposedUris(f).valueUri).toBe(
       "http://purl.obolibrary.org/obo/CLO_0002405",
     );
+  });
+
+  // ``free_text: true`` stands IN PLACE OF ``new_value_uri`` on the
+  // statement-slot kinds (agents 7a8c538). The action is complete
+  // without a URI, and the value it writes is an unbound string — so
+  // the proposer_term fallback above must not supply a grounding the
+  // apply will not write.
+  it("free_text suppresses the proposer_term fallback", () => {
+    const f = finding({
+      target_kind: "fv",
+      target_id: "fv:genotype/pten-k263e",
+      issue_code: "statement_subject_wrong",
+      proposer_term: {
+        label: "K263E/K263E",
+        uri: "http://purl.obolibrary.org/obo/SO_0001059",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "set_statement_subject",
+        match: { subject: "K263E/?" },
+        new_value: "K263E/K263E",
+        free_text: true,
+      },
+    } as unknown as Partial<AuditFinding>);
+    expect(findingProposedUris(f).valueUri).toBeNull();
+    expect(findingValueIsFreeText(f)).toBe(true);
+  });
+
+  it("an explicit new_value_uri still wins over the flag", () => {
+    const f = finding({
+      ...disagreeing,
+      apply_action: {
+        kind: "set_statement_object",
+        new_value: "CGR8",
+        new_value_uri: "http://purl.obolibrary.org/obo/EFO_0006273",
+        free_text: true,
+      },
+    });
+    expect(findingProposedUris(f).valueUri).toBe(
+      "http://purl.obolibrary.org/obo/EFO_0006273",
+    );
+  });
+
+  it("an action without the flag is not free text", () => {
+    expect(findingValueIsFreeText(finding(disagreeing))).toBe(false);
   });
 });
 
