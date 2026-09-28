@@ -84,7 +84,6 @@ import {
   findingDispositionButtonLabels,
   findingDisplayedGoldEmpty,
   findingProposedUris,
-  findingValueIsFreeText,
   findingFixTerm,
   findingShortRationale,
   findingSubjectLabel,
@@ -231,12 +230,6 @@ export function CompactFindingCard({
     () => findingDisplayedGoldEmpty(finding, draft ?? null) === true,
     [finding, draft],
   );
-
-  // The apply writes an UNBOUND string (``free_text: true`` in place of
-  // ``new_value_uri`` on the statement-slot kinds), so the term chip
-  // must not carry a URI: a grounded-looking chip here would show the
-  // curator an ontology term the accept does not write.
-  const valueIsFreeText = findingValueIsFreeText(finding);
 
   // Two boolean axes encode the 3-state card expansion:
   //   collapsed → cardOpen=false, open=false (title row only)
@@ -561,11 +554,7 @@ export function CompactFindingCard({
                             —
                           </span>
                           <Term
-                            uri={
-                              valueIsFreeText
-                                ? null
-                                : finding.proposer_term.uri ?? null
-                            }
+                            uri={findingProposedUris(finding).valueUri}
                             asLink={false}
                             className="!whitespace-normal break-words"
                           >
@@ -947,9 +936,7 @@ export function CompactFindingCard({
                       —
                     </span>
                     <Term
-                      uri={
-                        valueIsFreeText ? null : finding.proposer_term.uri ?? null
-                      }
+                      uri={findingProposedUris(finding).valueUri}
                       asLink={false}
                       className="!whitespace-normal break-words"
                     >

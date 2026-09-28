@@ -1477,6 +1477,121 @@ describe("resolveApplyAction — REPLACE STATEMENTS (replace_statements)", () =>
   });
 });
 
+/**
+ * set_statement_subject / set_statement_object — re-term one slot of a
+ * statement, leaving the rest of it untouched. Before this test the
+ * kind fell through resolveApplyAction to focusOnly: the card showed
+ * the right ungrounded chip but Agree mutated nothing.
+ */
+function genotypeDesign(subjectUri: string | null = null): Design {
+  return design({
+    factors: [
+      factor(41, "genotype", [
+        mfv(263, "K263E/?", {
+          statements: [
+            { subject: term("K263E/?", subjectUri) },
+          ],
+        }),
+      ]),
+    ],
+  });
+}
+
+function subjectFreeTextFinding(): AuditFinding {
+  return finding({
+    target_kind: "fv",
+    target_id: "fv:genotype/k263e-[?]#263",
+    issue_code: "statement_subject_wrong",
+    severity: "major",
+    apply_action: {
+      kind: "set_statement_subject",
+      match: { subject: "K263E/?" },
+      new_value: "K263E/K263E",
+      free_text: true,
+    } as unknown as AuditFinding["apply_action"],
+  });
+}
+
+describe("resolveApplyAction — RE-TERM STATEMENT SLOT (set_statement_subject / set_statement_object)", () => {
+  it("re-terms the subject and leaves the FV label alone", () => {
+    const d = genotypeDesign();
+    const action = resolveApplyAction(subjectFreeTextFinding(), { design: d });
+    expect(action?.mutates).toBe(true);
+    const fv = action!.mutate!(d).factors[0].factor_values.find(
+      (v) => v.id === 263,
+    )!;
+    expect(fv.statements[0].subject).toEqual({ label: "K263E/K263E", uri: null });
+    expect(fv.free_text_label).toBe("K263E/?");
+  });
+
+  it("says already applied once the re-term has landed", () => {
+    const d = genotypeDesign();
+    const f = subjectFreeTextFinding();
+    const applied = resolveApplyAction(f, { design: d })!.mutate!(d);
+    const again = resolveApplyAction(f, { design: applied });
+    expect(again?.mutates).toBe(false);
+    expect(again?.label).toBe("✓ Already applied");
+  });
+
+  it("re-terms the object with a grounded URI when one is proposed", () => {
+    const d = design({
+      factors: [
+        factor(50, "treatment", [
+          mfv(900, "60 min", {
+            statements: [
+              {
+                subject: term("Ccl20"),
+                predicate: term("delivered for duration"),
+                object: term("60 min"),
+              },
+            ],
+          }),
+        ]),
+      ],
+    });
+    const f = finding({
+      target_kind: "fv",
+      target_id: "fv:treatment/60-min#900",
+      issue_code: "wrong_value",
+      apply_action: {
+        kind: "set_statement_object",
+        match: { subject: "Ccl20", predicate: "delivered for duration" },
+        new_value: "30 min",
+        new_value_uri: "http://purl.obolibrary.org/obo/UO_0000031",
+      } as unknown as AuditFinding["apply_action"],
+    });
+    const next = resolveApplyAction(f, { design: d })!.mutate!(d);
+    const fv = next.factors[0].factor_values.find((v) => v.id === 900)!;
+    expect(fv.statements[0].object).toEqual({
+      label: "30 min",
+      uri: "http://purl.obolibrary.org/obo/UO_0000031",
+    });
+    expect(fv.statements[0].subject.label).toBe("Ccl20");
+  });
+
+  it("refuses a match that resolves to more than one row", () => {
+    const d = design({
+      factors: [
+        factor(41, "genotype", [
+          mfv(263, "K263E/?", {
+            statements: [
+              { subject: term("K263E/?") },
+              { subject: term("K263E/?"), predicate: term("other") },
+            ],
+          }),
+        ]),
+      ],
+    });
+    expect(
+      resolveApplyAction(subjectFreeTextFinding(), { design: d })?.mutates,
+    ).toBe(false);
+  });
+
+  it("does not offer an edit without the draft", () => {
+    expect(resolveApplyAction(subjectFreeTextFinding())?.mutates).toBe(false);
+  });
+});
+
 describe("replaceStatementsDelta", () => {
   it("reads the named rows off the draft", () => {
     const delta = replaceStatementsDelta(replaceFinding(), gse391Design())!;

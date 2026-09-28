@@ -88,15 +88,19 @@ export function findingProposedUris(finding: AuditFinding): {
  *  displayed-is-not-applied failure the precedence above exists to
  *  prevent.
  *
- *  Read duck-typed off the payload union: the statement-slot kinds land
- *  on its forward-compat arm, so narrowing on ``kind`` would stop
- *  seeing the flag the moment a new arm is typed. */
+ *  Gated on ``kind`` — only the two statement-slot kinds define
+ *  ``free_text`` on the wire; a malformed or future payload setting
+ *  the flag on an unrelated kind must not silently drop that finding's
+ *  URI fallback everywhere ``findingProposedUris`` is read. */
 export function findingValueIsFreeText(finding: AuditFinding): boolean {
   const aa = finding.apply_action as
-    | { free_text?: unknown }
+    | { kind?: unknown; free_text?: unknown }
     | null
     | undefined;
-  return aa?.free_text === true;
+  if (aa?.kind !== "set_statement_subject" && aa?.kind !== "set_statement_object") {
+    return false;
+  }
+  return aa.free_text === true;
 }
 
 // ---------------------------------------------------------------------------
