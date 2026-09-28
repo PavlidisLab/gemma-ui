@@ -140,7 +140,6 @@ a:hover { text-decoration-color: currentColor; }
 #art { position: relative; z-index: 1; }
 .frame.photo { background: transparent; box-shadow: none; }
 .frame.photo #ornament { z-index: 2; }
-.frame.f-float { background: transparent; padding: 0; box-shadow: 0 30px 50px -26px var(--shadow), 0 4px 10px -4px var(--shadow); }
 #ornament {
   position: absolute;
   left: calc(-1 * var(--orn, 40px));
@@ -153,7 +152,7 @@ a:hover { text-decoration-color: currentColor; }
 /* Colour bars, labels and axes sit on a layer over the art (reaching onto the frame where they need room), shown only while
    the info card below is hovered or focused, so the picture itself carries no text. */
 #annot { position: absolute; z-index: 3; pointer-events: none; opacity: 0; transition: opacity 0.2s ease; }
-.piece:has(.plaque:hover, .plaque:focus) #annot { opacity: 1; }
+.piece:has(.plaque:hover, .plaque:focus, .plaque.pinned) #annot { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { #annot { transition: none; } }
 /* Visitors: photographs of people thresholded to silhouettes, standing in front of the art.
    They sit above the frame and below the caption and wall label, which stay readable. */
@@ -842,12 +841,18 @@ const FRAME_OF = (() => {
 })();
 
 // The curator's frame images (frames/cut_frames.py), decoded once; an exhibit painted before its frame has loaded is painted again.
+// Only one frame is ever on screen at a time, so `src` is set lazily
+// (frameImg, below) rather than decoding all ~20 up front.
 const FRAME_IMG = Object.fromEntries(Object.entries(DATA.frames).map(([k, f]) => {
   const img = new Image();
   img.onload = () => { if (view === "gallery" && FRAME_OF[EX[cur].key] === k) paint(EX[cur]); };
-  img.src = f.src;
   return [k, img];
 }));
+function frameImg(k) {
+  const img = FRAME_IMG[k];
+  if (img && !img.src) img.src = DATA.frames[k].src;
+  return img;
+}
 // Size a photographed frame to the art: the moulding scales by k, and the art's width w fills the room's box. k is the geometric
 // mean of the scales that fit the frame's opening to the art across and down (times the frame's `scale`), so an art shape unlike the opening's stretches
 // the frame's plain runs one way and shortens them the other, rather than stretching one way only.
@@ -865,8 +870,17 @@ function stretchSpans(breaks, srcLen, dstLen, k) {
   for (let i = 1; i < b.length; i++) out.push(out[i - 1] + (b[i] - b[i - 1]) * (i % 2 ? k : Math.max(0.2 * k, run)));
   return { src: b, dst: out.map((v) => v * dstLen / out[out.length - 1]) };
 }
-// The frame drawn over the frame box (W × H canvas pixels) on a canvas reaching `margin` past it, casting a soft shadow.
-function drawPhotoFrame(ctx, f, img, W, H, k, margin) {
+// The 9-slice stretch depends only on (frame, W, H, k) — cache it so an
+// unchanged exhibit at an unchanged size (a debounced resize that landed
+// on the same pixel size, a frame image finishing its lazy load) redraws
+// from the cached slice instead of re-stretching every span again. Small
+// LRU cap: a long session resizing the window shouldn't grow this forever.
+const FRAME_SLICE_CACHE_MAX = 8;
+const frameSliceCache = new Map();
+function slicedFramePanel(frameKey, f, img, W, H, k) {
+  const cacheKey = `${frameKey}|${W}|${H}|${k}`;
+  const hit = frameSliceCache.get(cacheKey);
+  if (hit) { frameSliceCache.delete(cacheKey); frameSliceCache.set(cacheKey, hit); return hit; }
   const off = document.createElement("canvas");
   off.width = W; off.height = H;
   const o = off.getContext("2d"), X = stretchSpans(f.xs, f.w, W, k), Y = stretchSpans(f.ys, f.h, H, k);
@@ -874,6 +888,13 @@ function drawPhotoFrame(ctx, f, img, W, H, k, margin) {
     const sw = X.src[i + 1] - X.src[i], sh = Y.src[j + 1] - Y.src[j];
     if (sw > 0 && sh > 0) o.drawImage(img, X.src[i], Y.src[j], sw, sh, X.dst[i], Y.dst[j], X.dst[i + 1] - X.dst[i] + 0.5, Y.dst[j + 1] - Y.dst[j] + 0.5);
   }
+  if (frameSliceCache.size >= FRAME_SLICE_CACHE_MAX) frameSliceCache.delete(frameSliceCache.keys().next().value);
+  frameSliceCache.set(cacheKey, off);
+  return off;
+}
+// The frame drawn over the frame box (W × H canvas pixels) on a canvas reaching `margin` past it, casting a soft shadow.
+function drawPhotoFrame(ctx, frameKey, f, img, W, H, k, margin) {
+  const off = slicedFramePanel(frameKey, f, img, W, H, k);
   ctx.save();
   ctx.shadowColor = "rgba(28,25,23,0.38)"; ctx.shadowBlur = margin * 0.55; ctx.shadowOffsetY = margin * 0.3;
   ctx.drawImage(off, margin, margin);
@@ -973,11 +994,26 @@ function drawBlend(canvas, W, H, hm, table, alt = table) {
   [[0, 0.24], [0.3, 0.05], [0.55, 0], [0.6, 0.12], [0.66, 0], [1, 0]].forEach(([t, a]) => sheen.addColorStop(t, `rgba(255,255,255,${a})`));
   gloss.fillStyle = sheen; gloss.fillRect(0, 0, W, H);
   const ctx = canvas.getContext("2d"), fs = labelSize(W), A = annot(W, H, { top: Math.max(...hm.panels.map((p) => barsExt(p, fs))) });
+  // Colour-bar geometry doesn't depend on the crossfade's progress — render
+  // each panel's bars once into an offscreen bitmap and composite that at
+  // the current alpha, instead of re-filling and re-measuring every column
+  // on every animation frame.
+  const barsCache = hm.panels.map((p, i) => {
+    const ext = barsExt(p, fs);
+    if (!ext) return null;
+    const oc = document.createElement("canvas");
+    oc.width = W; oc.height = ext;
+    const octx = oc.getContext("2d");
+    octx.translate(0, ext);
+    annotBars(octx, W, p, tables[i], 1);
+    return { canvas: oc, ext };
+  });
   // Each panel's name and colour bars show on the annotation layer while that panel is on the canvas.
   const tag = (i, a, align = "left") => {
     if (a <= 0) return;
-    annotBars(A, W, hm.panels[i], tables[i], a);
+    const cached = barsCache[i];
     A.globalAlpha = a;
+    if (cached) A.drawImage(cached.canvas, 0, -cached.ext);
     labelCard(A, hm.panels[i].name, align === "left" ? fs : W - fs, fs * 1.6, fs, { align });
     A.globalAlpha = 1;
   };
@@ -986,6 +1022,15 @@ function drawBlend(canvas, W, H, hm, table, alt = table) {
     ctx.drawImage(layers[0], 0, 0, W / 2, H, 0, 0, W / 2, H);
     ctx.drawImage(layers[1], W / 2, 0, W / 2, H, W / 2, 0, W / 2, H);
     ctx.fillStyle = "#7f7a73"; ctx.fillRect(W / 2 - 1, 0, 2, H);
+    // Colour bars split down the middle with the picture: each panel's
+    // bar is clipped to the half of the canvas its picture occupies.
+    [0, 1].forEach((i) => {
+      if (!barsCache[i]) return;
+      A.save();
+      A.beginPath(); A.rect(i === 0 ? 0 : W / 2, -barsCache[i].ext, W / 2, barsCache[i].ext); A.clip();
+      A.drawImage(barsCache[i].canvas, 0, -barsCache[i].ext);
+      A.restore();
+    });
     labelCard(A, hm.panels[0].name, fs, fs * 1.6, fs);
     labelCard(A, hm.panels[1].name, W - fs, fs * 1.6, fs, { align: "right" });
     return;
@@ -1200,10 +1245,23 @@ function labelSize(W) {
   const k = W / ($("art").clientWidth || W);
   return Math.round(clamp(W / k / 64, 11, 15) * k);
 }
+// One font-string builder for every label drawn on the annotation layer,
+// so a future size/weight change lands in one place instead of drifting
+// between the paper-card labels below and annotBars' on-strip text.
+const labelFont = (fs, scale = 1) => `600 ${Math.round(fs * scale)}px "Familjen Grotesk", Helvetica, sans-serif`;
 // A label on a small paper card, so it reads over any picture or frame.
-function labelCard(ctx, text, x, y, fs, { align = "left", colour = "#1c1917", paper = "rgba(250,248,242,0.92)" } = {}) {
-  ctx.font = `600 ${fs}px "Familjen Grotesk", Helvetica, sans-serif`;
-  const w = ctx.measureText(text).width + fs * 0.9, h = fs * 1.55;
+// `maxWidth`, when given, shrinks the type (and its card) to fit — the
+// per-column labels in drawSlotBlot need this so a long gene symbol
+// doesn't draw a card wide enough to overlap its neighbour.
+function labelCard(ctx, text, x, y, fs, { align = "left", colour = "#1c1917", paper = "rgba(250,248,242,0.92)", maxWidth } = {}) {
+  ctx.font = labelFont(fs);
+  let textW = ctx.measureText(text).width;
+  if (maxWidth && textW > maxWidth) {
+    fs = fs * maxWidth / textW;
+    ctx.font = labelFont(fs);
+    textW = maxWidth;
+  }
+  const w = textW + fs * 0.9, h = fs * 1.55;
   const x0 = align === "left" ? x : align === "right" ? x - w : x - w / 2;
   ctx.fillStyle = paper; ctx.fillRect(x0, y - h / 2, w, h);
   ctx.fillStyle = colour; ctx.textAlign = "left"; ctx.textBaseline = "middle";
@@ -1257,7 +1315,7 @@ function annotBars(A, W, hm, table, alpha = 1) {
   hm.bars.forEach((b, bi) => {
     const y = top + gap + bi * bh, h = bh - gap;
     for (let j = 0; j < C; j++) { A.fillStyle = levelColour(b, b.codes[j]); A.fillRect(X(j), y, X(j + 1) - X(j), h); }
-    A.font = `600 ${Math.round(fs * 0.85)}px "Familjen Grotesk", Helvetica, sans-serif`; A.textAlign = "center"; A.textBaseline = "middle";
+    A.font = labelFont(fs, 0.85); A.textAlign = "center"; A.textBaseline = "middle";
     for (let j0 = 0, j = 1; j <= C; j++) {
       if (j < C && b.codes[j] === b.codes[j0]) continue;
       const k = b.codes[j0], text = k < 0 ? "" : b.levels[k], w = X(j) - X(j0);
@@ -1342,7 +1400,7 @@ function drawSlotBlot(ctx, W, H, hm) {
     const cx = m + (k % cols + 0.5) * cw, top = m + Math.floor(k / cols) * ch;
     const tangle = fold == null ? hm.base : fold < 0 ? hm.base / -fold : Math.min(1, hm.base * fold);
     const by = top + ch / 2, bw = cw * 0.4 * (0.96 + rnd() * 0.08), bh = ch * 0.26;
-    labelCard(A, name, cx, by - bh / 2 - lfs * 0.9, lfs, { align: "centre" });
+    labelCard(A, name, cx, by - bh / 2 - lfs * 0.9, lfs, { align: "centre", maxWidth: cw * 0.92 });
     band(cx - cw * 0.22, by, bw, bh, hm.base);
     band(cx + cw * 0.22, by, bw, bh, tangle);
   });
@@ -1660,6 +1718,14 @@ function paint(e) {
   if (fr) {
     fit = photoFit(fr, ar, piece.clientWidth, availH);
     artW = Math.max(160, fit.w);
+    // photoFit sizes k and pad for its own (unclamped) w — k and each pad
+    // entry scale linearly with w, so scale them the same way the floor
+    // just scaled artW, or the moulding ends up proportioned for a
+    // narrower picture than what's actually on screen.
+    if (artW !== fit.w) {
+      const s = artW / fit.w;
+      fit = { w: artW, k: fit.k * s, pad: fit.pad.map((v) => v * s) };
+    }
     frame.style.padding = fit.pad.map((v) => `${v.toFixed(2)}px`).join(" ");
     frame.style.width = `${(artW + fit.pad[1] + fit.pad[3]).toFixed(2)}px`;
   } else {
@@ -1690,14 +1756,14 @@ function paint(e) {
     annotBars(annot(W, H, { top: barsExt(hm, labelSize(W)) }), W, hm, LUTS[PALETTE_OF[e.key]]);
   }
   else DRAW[e.art](ctx, W, H, seeded(e.key));
-  const orn = $("ornament"), img = fr && FRAME_IMG[FRAME_OF[e.key]];
+  const orn = $("ornament"), img = fr && frameImg(FRAME_OF[e.key]);
   orn.hidden = !fr;
   if (fr) {
     const margin = Math.round(Math.max(24, frame.clientWidth * 0.06));  // room for the shadow
     frame.style.setProperty("--orn", margin + "px");
     const r = frame.getBoundingClientRect();
     orn.width = Math.round((r.width + 2 * margin) * dpr); orn.height = Math.round((r.height + 2 * margin) * dpr);
-    if (img.complete && img.naturalWidth) drawPhotoFrame(orn.getContext("2d"), fr, img, Math.round(r.width * dpr), Math.round(r.height * dpr), fit.k * dpr, margin * dpr);
+    if (img.complete && img.naturalWidth) drawPhotoFrame(orn.getContext("2d"), FRAME_OF[e.key], fr, img, Math.round(r.width * dpr), Math.round(r.height * dpr), fit.k * dpr, margin * dpr);
   }
   canvas.setAttribute("aria-label", hm && hm.source === "reconstructed" ? "Reconstruction of Figure 2 of Wen et al. 1998" : hm && hm.aria ? hm.aria : hm && hm.kind === "scatter" ? `Principal components of the arrays for ${e.work}` : hm ? `Heatmap for ${e.work}` :e.art === "corr" ? "Correlation matrix of the 62 colon samples" : CAPTIONS[e.art]);
 }
@@ -1860,10 +1926,22 @@ const ENTRANCE_ART = "whitfield2002";
 function paintEntrance() {
   const e = EX.find((x) => x.key === ENTRANCE_ART), c = $("entranceArt");
   if (!e || !e.heatmap || !c.clientWidth) return;
-  const ar = e.heatmap.aspect || 1.3, dpr = Math.min(window.devicePixelRatio || 1, 2);
-  c.style.aspectRatio = String(ar);
-  c.width = Math.round(c.clientWidth * dpr); c.height = Math.round(c.width / ar);
-  drawHeatmap(c.getContext("2d"), c.width, c.height, e.heatmap, LUTS[PALETTE_OF[e.key]]);
+  const hm = e.heatmap, table = LUTS[PALETTE_OF[e.key]];
+  const ar = hm.aspect || 1.3, dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = Math.round(c.clientWidth * dpr), H = Math.round(W / ar);
+  // This canvas has no hover-reveal annotation layer of its own (it's the
+  // small preview on the entrance page, not a gallery exhibit with a
+  // plaque) — the colour bar is baked into its pixels instead, above the
+  // heatmap, the way drawHeatmap used to before bars moved to #annot.
+  const fs = labelSize(W), ext = barsExt(hm, fs);
+  c.style.aspectRatio = String(W / (H + ext));
+  c.width = W; c.height = H + ext;
+  const ctx = c.getContext("2d");
+  ctx.save();
+  ctx.translate(0, ext);
+  drawHeatmap(ctx, W, H, hm, table);
+  if (ext) annotBars(ctx, W, hm, table);
+  ctx.restore();
 }
 
 let view = "gallery";
@@ -1957,7 +2035,16 @@ const fitCard = () => {
 };
 $("artCaption").addEventListener("mouseover", fitCard);
 $("artCaption").addEventListener("focusin", fitCard);
-window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { paint(EX[cur]); spreadMarks(); if (view === "intro") paintEntrance(); }, 150); });
+// #annot (the colour-bar / axis layer) shows on :hover or :focus of the
+// plaque below the art, which touch devices have neither of. A tap
+// toggles a "pinned" class the CSS treats the same as hover/focus, and
+// tapping outside the plaque un-pins it.
+document.addEventListener("click", (ev) => {
+  const p = ev.target.closest(".plaque");
+  document.querySelectorAll(".plaque.pinned").forEach((el) => { if (el !== p) el.classList.remove("pinned"); });
+  if (p) { p.classList.toggle("pinned"); fitCard(); }
+});
+window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => { paint(EX[cur]); spreadMarks(); if (view === "intro") paintEntrance(); fitCard(); }, 150); });
 const initialHash = location.hash;
 const start = Math.max(0, EX.findIndex((e) => "#" + e.key === initialHash));
 go(start, true);
