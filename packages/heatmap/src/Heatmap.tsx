@@ -141,6 +141,38 @@ export function Heatmap({
       hideTimerRef.current = null;
     }
   }
+  // A tap has no `mouseenter`/`mouseleave`, so the popup has to open and
+  // close from `onClick` instead on a touch device. Shared by all three
+  // row-label render paths below so the touch behaviour can't drift
+  // between them. Tapping the already-open row again closes it — the
+  // only way a touch user can dismiss it deliberately short of tapping
+  // elsewhere (see the outside-tap effect below).
+  function handleLabelActivate(rowIndex: number, el: HTMLElement) {
+    if (labelHover?.row === rowIndex) {
+      setLabelHover(null);
+      return;
+    }
+    if (!rowLabelTooltip) return;
+    cancelHide();
+    const rect = el.getBoundingClientRect();
+    setLabelHover({ row: rowIndex, top: rect.top, left: rect.right + 6 });
+  }
+  // `pointerdown` fires for both mouse and touch, so one listener covers
+  // tapping elsewhere on a touch device (which has no `mouseleave` to
+  // trigger `scheduleHide`) without changing mouse behaviour — a mouse
+  // user's popup is already closed by `scheduleHide` before a click
+  // outside would register.
+  useEffect(() => {
+    if (!labelHover) return;
+    function onOutside(ev: PointerEvent) {
+      const node = containerRef.current;
+      if (node && ev.target instanceof Node && !node.contains(ev.target)) {
+        setLabelHover(null);
+      }
+    }
+    document.addEventListener('pointerdown', onOutside);
+    return () => document.removeEventListener('pointerdown', onOutside);
+  }, [labelHover]);
 
   // Observe container width so 'fit' mode reflows when the surrounding layout changes.
   useEffect(() => {
@@ -307,7 +339,6 @@ export function Heatmap({
   };
 
   const handleClick = (ev: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!onCellClick) return;
     const rr = renderResultRef.current;
     if (!rr) return;
     const rect = ev.currentTarget.getBoundingClientRect();
@@ -315,12 +346,19 @@ export function Heatmap({
     const y = ev.clientY - rect.top;
     const cell = rr.cellAt(x, y);
     if (cell) {
-      onCellClick({ kind: 'cell', hit: cell, ev });
+      // A tap has no preceding `mousemove`, so `onPointerOver` — which
+      // drives the value tooltip — never fires from touch otherwise.
+      // Firing it here too means a tap shows the value alongside
+      // whatever `onCellClick` does (e.g. pinning a detail panel), same
+      // as a mouse user gets both from hovering-then-clicking.
+      onPointerOver?.({ kind: 'cell', hit: cell, ev });
+      onCellClick?.({ kind: 'cell', hit: cell, ev });
       return;
     }
     const strip = rr.stripAt(x, y);
     if (strip) {
-      onCellClick({ kind: 'strip', hit: strip, ev });
+      onPointerOver?.({ kind: 'strip', hit: strip, ev });
+      onCellClick?.({ kind: 'strip', hit: strip, ev });
     }
   };
 
@@ -426,7 +464,7 @@ export function Heatmap({
             data-heatmap-matrix="true"
             onMouseMove={wantsCanvasMouse ? handleMouseMove : undefined}
             onMouseLeave={onCellLeave}
-            onClick={onCellClick ? handleClick : undefined}
+            onClick={wantsCanvasMouse ? handleClick : undefined}
             style={{
               display: 'block',
               imageRendering: 'pixelated',
@@ -576,7 +614,14 @@ export function Heatmap({
                       : undefined
                   }
                   onMouseLeave={hasTip ? scheduleHide : undefined}
-                  onClick={onRowLabelClick ? () => onRowLabelClick(i) : undefined}
+                  onClick={
+                    hasTip || onRowLabelClick
+                      ? (e) => {
+                          handleLabelActivate(i, e.currentTarget as HTMLElement);
+                          onRowLabelClick?.(i);
+                        }
+                      : undefined
+                  }
                   style={{
                     height: layout.cellH,
                     cursor: onRowLabelClick
@@ -633,6 +678,10 @@ export function Heatmap({
                   }
                 : undefined;
               const handleLeave = hasTip ? scheduleHide : undefined;
+              const handleActivate = hasTip
+                ? (e: React.MouseEvent<HTMLDivElement>) =>
+                    handleLabelActivate(i, e.currentTarget as HTMLElement)
+                : undefined;
               const dot = data.rowDotColors?.[i] ?? null;
               const dotTitle = data.rowDotTitles?.[i] ?? null;
               return (
@@ -642,6 +691,7 @@ export function Heatmap({
                       title={dotTitle ?? undefined}
                       onMouseEnter={handleEnter}
                       onMouseLeave={handleLeave}
+                      onClick={handleActivate}
                       style={{
                         height: layout.cellH,
                         display: 'flex',
@@ -674,6 +724,7 @@ export function Heatmap({
                         title={hasTip ? undefined : fallbackTitle}
                         onMouseEnter={handleEnter}
                         onMouseLeave={handleLeave}
+                        onClick={handleActivate}
                         style={{
                           height: layout.cellH,
                           lineHeight: `${layout.cellH}px`,
@@ -731,7 +782,14 @@ export function Heatmap({
                       : undefined
                   }
                   onMouseLeave={hasTip ? scheduleHide : undefined}
-                  onClick={onRowLabelClick ? () => onRowLabelClick(i) : undefined}
+                  onClick={
+                    hasTip || onRowLabelClick
+                      ? (e) => {
+                          handleLabelActivate(i, e.currentTarget as HTMLElement);
+                          onRowLabelClick?.(i);
+                        }
+                      : undefined
+                  }
                   style={{
                     height: layout.cellH,
                     lineHeight: `${layout.cellH}px`,

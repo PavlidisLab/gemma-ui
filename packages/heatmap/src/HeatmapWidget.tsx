@@ -483,6 +483,26 @@ export function HeatmapWidget({
     clientY: number;
   } | null>(null);
 
+  // Touch has no `mouseleave`, which is what normally clears `tooltip` /
+  // `hover` (see `onCellLeave` below) — a tap that opened one would
+  // otherwise stay open forever on a touch device. `pointerdown` fires for
+  // both mouse and touch, so one listener covers both; it only needs to
+  // run while a tooltip is actually open. Deliberately doesn't touch
+  // `pinned` — that one is closed by its own explicit control, not by
+  // tapping elsewhere.
+  useEffect(() => {
+    if (!tooltip && !hover) return;
+    function onOutside(ev: PointerEvent) {
+      const root = rootRef.current;
+      if (root && ev.target instanceof Node && !root.contains(ev.target)) {
+        setTooltip(null);
+        setHover(null);
+      }
+    }
+    document.addEventListener('pointerdown', onOutside);
+    return () => document.removeEventListener('pointerdown', onOutside);
+  }, [tooltip, hover]);
+
   // Derive the canvas-input `HeatmapData` from whichever input was
   // supplied. v2 (payload) takes precedence; v1 (data) is the
   // fallback for legacy / synthetic callers.
