@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
 import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
@@ -7,12 +7,15 @@ import { VisibilityChip } from "@/components/VisibilityChip";
 import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "./SearchBox";
 import { gemmaLockup } from "@gemma/assets";
+import { useEscapeKey } from "@gemma/ui";
+import { Menu, X } from "lucide-react";
 
 export function AppBar() {
   const me = useMe();
   const user = me.data;
   const logout = useLogout();
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   // Hide the AppBar search box once the curator is on /browser —
   // the unified search + filter input lives in the page itself
   // there, and the AppBar copy reads as redundant (and submitting
@@ -24,8 +27,19 @@ export function AppBar() {
     "/expressionExperiment/showAllExpressionExperiments.html",
   );
 
+  // Tapping an entry navigates but leaves the panel covering the page it
+  // just opened, so the menu closes on any change of location rather than
+  // per-entry — an ``onClick`` on each would miss the browser's own Back.
+  const href = useRouterState({ select: (s) => s.location.href });
+  useEffect(() => setMenuOpen(false), [href]);
+  useEscapeKey(menuOpen, () => setMenuOpen(false));
+
+  const isAdmin = !!user?.authorities?.includes("GROUP_ADMIN");
+
   return (
-    <header className="shrink-0 flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
+    // ``relative`` anchors the small-screen menu panel, which hangs below
+    // the bar rather than pushing the page down.
+    <header className="relative shrink-0 flex items-center gap-3 h-12 px-4 border-b border-stone-900 bg-stone-100 text-stone-900">
       <Link to="/" className="flex shrink-0 items-center hover:no-underline">
         {/* The lockup — one SVG carrying the mark and the outlined
             wordmark. It replaces a mark plus the word set in the UI face,
@@ -41,75 +55,148 @@ export function AppBar() {
         />
       </Link>
 
-      <nav className="flex items-center gap-1 ml-4">
-        <NavTab to="/browser">Datasets</NavTab>
-        <NavTab to="/platforms">Platforms</NavTab>
-        {/* Genes and Curation are shown only when signed in, and
-            marked so. Curation is a cross-app link into the curator
-            dashboard, a separate vite build on a different origin (see
-            ``lib/appLinks.ts``). */}
-        {user ? (
-          <>
-            <NavTab
-              to="/genes"
-              badge={
-                <VisibilityChip
-                  tone="restricted"
-                  label="signed in"
-                  title="Visitors who are not signed in don't see this tab."
-                />
-              }
-            >
-              Genes
-            </NavTab>
-            <ExternalNavTab
-              href={curationUrl()}
-              badge={
-                <VisibilityChip
-                  tone="restricted"
-                  label="signed in"
-                  title="Visitors who are not signed in don't see this tab."
-                />
-              }
-            >
-              Curation
-            </ExternalNavTab>
-          </>
-        ) : null}
-        {/* Administration — gated on GROUP_ADMIN authority (exposed
-            on /me as of gemma-rest 4a9605c23f). Hidden for anonymous
-            users AND for logged-in non-admins; SystemMonitoringPage's
-            own gate still handles direct URL probes either way. */}
-        {user?.authorities?.includes("GROUP_ADMIN") ? (
-          <NavTab to="/admin/system">Administration</NavTab>
-        ) : null}
+      {/* Below ``lg`` every entry moves into the menu panel below. The bar
+          has no room for them at a phone's width — Datasets / Platforms /
+          Genes / Curation plus the right-side links ran well past a 390px
+          viewport with nothing to scroll or wrap into. ``lg`` is the same
+          breakpoint the browse page splits on, so the bar and the page
+          change shape together. */}
+      <nav className="hidden lg:flex items-center gap-1 ml-4">
+        <PrimaryNav user={user} isAdmin={isAdmin} />
       </nav>
 
       {onBrowser ? null : (
-        <div className="ml-4">
+        <div className="hidden lg:block ml-4">
           <SearchBox variant="compact" />
         </div>
       )}
 
       <div className="flex-1" />
 
-      <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
-      {gemma1Browse ? (
-        <ExtAnchor href={gemma1Browse}>{GEMMA_1_LABEL}</ExtAnchor>
-      ) : null}
-      <ExtAnchor href="https://pavlidislab.github.io/Gemma/">Docs</ExtAnchor>
+      <div className="hidden lg:flex items-center gap-3">
+        <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
+        {gemma1Browse ? (
+          <ExtAnchor href={gemma1Browse}>{GEMMA_1_LABEL}</ExtAnchor>
+        ) : null}
+        <ExtAnchor href="https://pavlidislab.github.io/Gemma/">
+          Docs
+        </ExtAnchor>
 
-      {/* Signed-in identity + sign-out. Signing IN is the footer's
-          "Internal" link. Sign-out POSTs /rest/v2/logout + clears the
-          local copy. */}
-      <AuthControls
-        user={user}
-        loading={me.isPending && !me.data}
-        onSignOut={() => logout.mutate()}
-        signingOut={logout.isPending}
-      />
+        {/* Signed-in identity + sign-out. Signing IN is the footer's
+            "Internal" link. Sign-out POSTs /rest/v2/logout + clears the
+            local copy. */}
+        <AuthControls
+          user={user}
+          loading={me.isPending && !me.data}
+          onSignOut={() => logout.mutate()}
+          signingOut={logout.isPending}
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-expanded={menuOpen}
+        aria-controls="appbar-menu"
+        aria-label={menuOpen ? "Close menu" : "Open menu"}
+        className="lg:hidden inline-flex items-center justify-center h-9 w-9 -mr-2 rounded text-stone-900 hover:bg-gemma-grid/40 bg-transparent border-none cursor-pointer"
+      >
+        {menuOpen ? (
+          <X aria-hidden className="h-5 w-5" />
+        ) : (
+          <Menu aria-hidden className="h-5 w-5" />
+        )}
+      </button>
+
+      {menuOpen ? (
+        <div
+          id="appbar-menu"
+          className="lg:hidden absolute top-full left-0 right-0 z-40 flex flex-col gap-1 items-start p-3 border-b border-stone-900 bg-stone-100 shadow-lg max-h-[calc(100vh-3rem)] overflow-y-auto"
+        >
+          {onBrowser ? null : (
+            <div className="w-full pb-2">
+              <SearchBox variant="compact" />
+            </div>
+          )}
+          {/* Same entries as the bar, one column. Rendered from the same
+              component so a tab added above cannot go missing here. */}
+          <PrimaryNav user={user} isAdmin={isAdmin} />
+          <div className="h-px w-full bg-gemma-grid my-2" />
+          <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
+          {gemma1Browse ? (
+            <ExtAnchor href={gemma1Browse}>{GEMMA_1_LABEL}</ExtAnchor>
+          ) : null}
+          <ExtAnchor href="https://pavlidislab.github.io/Gemma/">
+            Docs
+          </ExtAnchor>
+          <div className="h-px w-full bg-gemma-grid my-2" />
+          <AuthControls
+            user={user}
+            loading={me.isPending && !me.data}
+            onSignOut={() => logout.mutate()}
+            signingOut={logout.isPending}
+          />
+        </div>
+      ) : null}
+
       <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </header>
+  );
+}
+
+/** The route tabs, in bar order. One definition so the wide bar and the
+ *  small-screen panel cannot drift: the panel is the same elements in a
+ *  column, and each component carries its own padding and type, none of
+ *  which is row-specific. */
+function PrimaryNav({
+  user,
+  isAdmin,
+}: {
+  user: { authorities?: string[] | null } | null | undefined;
+  isAdmin: boolean;
+}) {
+  return (
+    <>
+      <NavTab to="/browser">Datasets</NavTab>
+      <NavTab to="/platforms">Platforms</NavTab>
+      {/* Genes and Curation are shown only when signed in, and
+          marked so. Curation is a cross-app link into the curator
+          dashboard, a separate vite build on a different origin (see
+          ``lib/appLinks.ts``). */}
+      {user ? (
+        <>
+          <NavTab
+            to="/genes"
+            badge={
+              <VisibilityChip
+                tone="restricted"
+                label="signed in"
+                title="Visitors who are not signed in don't see this tab."
+              />
+            }
+          >
+            Genes
+          </NavTab>
+          <ExternalNavTab
+            href={curationUrl()}
+            badge={
+              <VisibilityChip
+                tone="restricted"
+                label="signed in"
+                title="Visitors who are not signed in don't see this tab."
+              />
+            }
+          >
+            Curation
+          </ExternalNavTab>
+        </>
+      ) : null}
+      {/* Administration — gated on GROUP_ADMIN authority (exposed
+          on /me as of gemma-rest 4a9605c23f). Hidden for anonymous
+          users AND for logged-in non-admins; SystemMonitoringPage's
+          own gate still handles direct URL probes either way. */}
+      {isAdmin ? <NavTab to="/admin/system">Administration</NavTab> : null}
+    </>
   );
 }
 

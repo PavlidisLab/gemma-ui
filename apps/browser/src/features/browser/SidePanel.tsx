@@ -142,9 +142,20 @@ export function SidePanel({
 
   return (
     <>
+    {/* Stacked above the results below ``lg``, so the width and the
+        right-hand rule are both column-form only. ``max-h-[40vh]`` is what
+        keeps the stack usable: without it the filters are a full screen of
+        scrolling before the first experiment row, which reads as the list
+        still being missing. The resizable width is a desktop-only idea —
+        below ``lg`` the panel is always ``w-full`` — so it's passed through
+        a CSS custom property rather than the ``style`` prop directly: an
+        inline ``width`` would win over the ``w-full`` class at every size
+        and undo the stacking. */}
     <aside
-      style={{ width }}
-      className="shrink-0 border-r border-gemma-grid bg-white overflow-y-auto p-3"
+      style={{ "--panel-w": `${width}px` } as React.CSSProperties}
+      className="w-full lg:w-[var(--panel-w)] lg:shrink-0 max-h-[40vh] lg:max-h-none
+                 border-b lg:border-b-0 lg:border-r border-gemma-grid
+                 bg-white overflow-y-auto p-3"
     >
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-sm font-medium inline-flex items-center gap-1.5">
@@ -289,9 +300,11 @@ export function SidePanel({
         </label>
       ) : null}
     </aside>
+    {/* Drag-to-resize is a desktop idea — the panel is full-width and
+        stacked below ``lg``, so there's nothing to drag. */}
     <div
       onMouseDown={startResize}
-      className="w-1.5 -ml-1.5 shrink-0 cursor-col-resize relative z-10 group"
+      className="hidden lg:block w-1.5 -ml-1.5 shrink-0 cursor-col-resize relative z-10 group"
       title="Drag to resize the filter panel"
       role="separator"
       aria-orientation="vertical"
