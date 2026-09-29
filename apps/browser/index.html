@@ -9,6 +9,20 @@
          effect at all. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="32x32" />
+
+    <!-- Home-screen icons. iOS does NOT use an SVG favicon for the home
+         screen and does not read the manifest for it either; without an
+         apple-touch-icon it falls back to the 32px .ico and upscales, which
+         is what a blurry home-screen icon is. These rasters are generated —
+         `packages/assets/scripts/emit-app-icons.sh apps/browser`.
+
+         `display: browser` in the manifest, and no
+         `apple-mobile-web-app-capable`, so the icon still opens a normal
+         browser tab with its URL bar and back button. Making it launch
+         chrome-less is a one-line change in each, deliberately not taken
+         here. -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gemma Browser</title>
   </head>

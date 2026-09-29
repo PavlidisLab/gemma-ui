@@ -13,6 +13,7 @@
     "test": "vitest run",
     "check:annotations": "node scripts/check-annotation-contract.mjs",
     "emit:favicon": "node ../../packages/assets/scripts/emit-favicon.mjs --variant colour --out public/favicon.svg",
+    "emit:app-icons": "bash ../../packages/assets/scripts/emit-app-icons.sh .",
     "emit:mark-component": "node ../../packages/assets/scripts/emit-mark-component.mjs",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
