@@ -15,7 +15,7 @@
  * claimed it preserved the tab, and had claimed it for months.
  */
 import { describe, expect, it } from "vitest";
-import { experimentRoute, siblingExperimentRoute, currentExperimentTab } from "./routes";
+import { experimentRoute, siblingExperimentRoute, currentExperimentTab, parseRoute } from "./routes";
 
 function at(hash: string) {
   window.location.hash = hash;
@@ -107,5 +107,25 @@ describe("currentExperimentTab", () => {
   it("is undefined off an experiment page", () => {
     at("#/tickets/188");
     expect(currentExperimentTab()).toBeUndefined();
+  });
+});
+
+describe("parseRoute — tolerates a second hash", () => {
+  // @gemma/expression-analysis's GeneExpressionPanel persists its gene
+  // selection as a second `#…` appended after the route (mirrors
+  // apps/browser's own `#/dataset/9#genes=1,2` convention). The route
+  // regex used to be `$`-anchored right after the query, so this fell
+  // through to `{kind: "landing"}` — reproduced here with the id and
+  // tab still parsing correctly despite the trailing fragment.
+  it("still resolves the experiment + tab with a trailing #genes=… fragment", () => {
+    at("#/experiments/12822?tab=gene-expression#genes=1,2,3");
+    const route = parseRoute();
+    expect(route).toMatchObject({ kind: "experiment", id: "12822", tab: "gene-expression" });
+  });
+
+  it("tolerates a trailing fragment with no query at all", () => {
+    at("#/experiments/12822#genes=1,2,3");
+    const route = parseRoute();
+    expect(route).toMatchObject({ kind: "experiment", id: "12822" });
   });
 });

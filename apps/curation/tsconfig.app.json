@@ -23,6 +23,7 @@
       "@/*": ["src/*"],
       "@gemma/assets": ["../../packages/assets/src/index.ts"],
       "@gemma/diagnostics": ["../../packages/diagnostics/src/index.ts"],
+      "@gemma/expression-analysis": ["../../packages/expression-analysis/src/index.ts"],
       "@gemma/heatmap": ["../../packages/heatmap/src/index.ts"],
       "@gemma/ontology": ["../../packages/ontology/src/index.ts"],
       "@gemma/ui": ["../../packages/ui/src/index.ts"]
@@ -32,6 +33,7 @@
     "src",
     "../../packages/assets/src",
     "../../packages/diagnostics/src",
+    "../../packages/expression-analysis/src",
     "../../packages/heatmap/src",
     "../../packages/ontology/src",
     "../../packages/ui/src"

@@ -23,7 +23,9 @@ export type ExperimentTab =
   | "diagnostics"
   | "notes"
   | "pipeline"
-  | "single-cell";
+  | "single-cell"
+  | "gene-expression"
+  | "differential-expression";
 
 export type Route =
   | { kind: "landing" }
@@ -72,8 +74,18 @@ export function parseRoute(): Route {
   // some encoders (incl. our older experimentRoute) escape it.
   // Downstream consumers treat the id as an opaque string after
   // decoding.
+  // 🛑 The query capture stops at a `#`, and a trailing `#…` is allowed
+  // and ignored: `@gemma/expression-analysis`'s GeneExpressionPanel
+  // persists its gene selection as a SECOND hash appended after the
+  // route (`#/experiments/123?tab=gene-expression#genes=1,2`) — the
+  // same convention apps/browser's CLAUDE.md documents for its own
+  // TanStack-router-based hash history (`#/dataset/9#genes=1,2`).
+  // Before this, the old `$`-anchored regex required the WHOLE hash to
+  // be nothing but the route, so picking a gene on that tab silently
+  // fell through every branch below to `{kind: "landing"}` on the next
+  // parse (including a plain page reload).
   const m = h.match(
-    /^#\/experiments\/(preboarding(?::|%3A|%3a)\d+|\d+)(?:\?(.*))?$/,
+    /^#\/experiments\/(preboarding(?::|%3A|%3a)\d+|\d+)(?:\?([^#]*))?(?:#.*)?$/,
   );
   if (m) {
     const params = m[2] ? new URLSearchParams(m[2]) : null;

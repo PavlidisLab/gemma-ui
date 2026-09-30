@@ -20,10 +20,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import {
-  setFragmentParam,
-  splitFragment,
-} from "@/features/dataset/VisualizeTab";
+import { setFragmentParam, splitFragment } from "@gemma/expression-analysis";
 
 function mkRouter() {
   const root = createRootRoute();

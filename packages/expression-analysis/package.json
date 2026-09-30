@@ -1,0 +1,19 @@
+{
+  "name": "@gemma/expression-analysis",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Shared gene-expression browse (gene/GO-term picker + heatmap) and differential-expression browse (analyses, contrasts, p-value distributions, TSV download) panels. Consumed by apps/browser (public dataset page Visualize + Differential Expression tabs) and apps/curation (experiment Gene expression + Differential expression tabs). Presentation + orchestration only — each app supplies its own API functions (see the *Api interfaces in src/types.ts and src/deTypes.ts) so the package never assumes a transport or wire casing.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@gemma/heatmap": "*",
+    "@gemma/diagnostics": "*"
+  },
+  "peerDependencies": {
+    "react": "^18.3.0"
+  }
+}
