@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Pencil as PencilIcon } from "lucide-react";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { inferModality } from "@/features/experiment/modality";
 import { useProposalsForExperiment } from "@/api/proposals";
 import { GuidelineSnippetBody } from "@/components/ui/GuidelinePopup";
 import { HelpPopup } from "@/components/ui/HelpPopup";
@@ -303,6 +304,7 @@ export function OverviewPanel() {
         factors={draft.factors}
         biomaterials={draft.biomaterials}
         nTags={draft.tags.length}
+        isSingleCell={inferModality(draft) === "single-cell"}
       />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">

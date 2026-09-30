@@ -166,10 +166,20 @@ export function DesignSummary({
   factors,
   biomaterials,
   nTags,
+  isSingleCell = false,
 }: {
   factors: Factor[];
   biomaterials: Biomaterial[];
   nTags: number;
+  /** A single-cell experiment's cell types live on its subsets
+   *  (cell-level), never on the biomaterial itself — see
+   *  SingleCellPanel's "belongs to no factor" note and the identical
+   *  gate in SampleDetailsPanel. A `cell type` Factor here can never
+   *  carry real per-sample assignments, so every row renders
+   *  "(unassigned)" and the crosstab reads as a curation gap that
+   *  isn't one. Drop it before the nuisance/continuous split so it
+   *  never becomes a column. */
+  isSingleCell?: boolean;
 }) {
   const NUISANCE_KEYWORDS = ["block", "batch"];
   const isNuisance = (f: Factor) => {
@@ -177,10 +187,13 @@ export function DesignSummary({
     return NUISANCE_KEYWORDS.some((kw) => cat.includes(kw));
   };
   const isContinuous = (f: Factor) => f.type === "continuous";
+  const isCellTypeOnSingleCell = (f: Factor) =>
+    isSingleCell && (f.category?.label || "").trim().toLowerCase() === "cell type";
 
-  const standard = factors.filter((f) => !isNuisance(f) && !isContinuous(f));
-  const continuous = factors.filter((f) => isContinuous(f));
-  const nuisance = factors.filter((f) => isNuisance(f));
+  const eligible = factors.filter((f) => !isCellTypeOnSingleCell(f));
+  const standard = eligible.filter((f) => !isNuisance(f) && !isContinuous(f));
+  const continuous = eligible.filter((f) => isContinuous(f));
+  const nuisance = eligible.filter((f) => isNuisance(f));
 
   // Build the crosstab. For each biomaterial we compute a tuple of
   // FV labels across the standard factors; identical tuples
