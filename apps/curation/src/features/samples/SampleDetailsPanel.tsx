@@ -3,6 +3,7 @@ import { groupStatementsBySharedSubject } from "@gemma/ontology";
 import { geneDisplayLabel } from "@/lib/gene";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { inferModality } from "@/features/experiment/modality";
 import {
   addCategoricalFactorFromCharacteristic,
   addContinuousFactorFromCharacteristic,
@@ -265,14 +266,26 @@ function SampleTable({
     () => collectCharacteristicKeys(design.biomaterials),
     [design.biomaterials],
   );
-  const fvByBmPerFactor = useMemo(
-    () =>
-      design.factors.map((f) => ({
+  // A single-cell experiment's cell types live on its subsets
+  // (cell-level), never on the biomaterial itself — see
+  // SingleCellPanel's "belongs to no factor" note. A `cell type`
+  // Factor here can never carry real per-sample assignments, so
+  // every row would show as unassigned and invite a curator to
+  // hand-assign cell types that don't apply at the sample level.
+  // Keep the column on the Single-cell tab only.
+  const fvByBmPerFactor = useMemo(() => {
+    const isSingleCell = inferModality(design) === "single-cell";
+    return design.factors
+      .filter(
+        (f) =>
+          !isSingleCell ||
+          (f.category.label || "").trim().toLowerCase() !== "cell type",
+      )
+      .map((f) => ({
         factor: f,
         index: indexFvByBiomaterial(f),
-      })),
-    [design.factors],
-  );
+      }));
+  }, [design]);
   // Char keys whose values are mostly numeric — eligible for the
   // "promote to continuous factor" affordance in the column header.
   // Computed once across the whole cohort so flipping the threshold
