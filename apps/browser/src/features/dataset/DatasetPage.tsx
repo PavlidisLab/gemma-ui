@@ -175,7 +175,7 @@ export function DatasetPage() {
       <Banner dataset={dataset} activeTab={activeTab} onTabChange={setTab} isAdmin={isAdmin} />
       <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6 py-6 space-y-6`}>
         {activeTab === "overview"   && <OverviewTab   dataset={dataset} />}
-        {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} isSingleCell={dataset.isSingleCell} />}
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
         {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
@@ -925,7 +925,13 @@ function PublicationsSection({ publications, loading, failed }: { publications: 
  *
  *  No editing affordances. Browse users see structure, not chrome.
  */
-function DesignTab({ datasetId }: { datasetId: number }) {
+function DesignTab({
+  datasetId,
+  isSingleCell,
+}: {
+  datasetId: number;
+  isSingleCell?: boolean | null;
+}) {
   const q = useQuery({
     queryKey: ["datasetDesign", datasetId],
     queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
@@ -938,12 +944,26 @@ function DesignTab({ datasetId }: { datasetId: number }) {
     return <SectionCard title="Experimental design"><Empty msg="no experimental design recorded" /></SectionCard>;
 
   const design: ExperimentalDesign = q.data;
+  // A single-cell dataset's cell types live on its subsets
+  // (cell-level), never on the biomaterial itself, and Gemma
+  // auto-creates one `cell type` Factor per CellTypeAssignment
+  // pipeline run — none of them ever carries real per-sample
+  // assignments. Drop before the bio/nuisance split so they never
+  // become a "no samples" / "(unassigned)" row on an otherwise
+  // perfectly fine dataset. Mirrors the curation UI's identical
+  // exclusion (SampleDetailsPanel / DesignSummary / FactorList /
+  // validateDesign).
+  const eligibleFactors = design.experimentalFactors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.category || "").trim().toLowerCase() !== "cell type",
+  );
   // Split bio vs nuisance. EFC category trumps factor name — a
   // factor named "treatment_batch" but categorised as ``treatment``
   // is still biological. Match curation's lower-case label check.
   const bio: typeof design.experimentalFactors = [];
   const nuisance: typeof design.experimentalFactors = [];
-  for (const f of design.experimentalFactors) {
+  for (const f of eligibleFactors) {
     if (isNuisanceFactor(f)) nuisance.push(f);
     else bio.push(f);
   }
@@ -962,7 +982,7 @@ function DesignTab({ datasetId }: { datasetId: number }) {
           of how samples partition across the design (mirrors the
           curator-ui overview's Design table). The per-factor detail
           cards stay below for the value-by-value / statement view. */}
-      <DesignBreakdown design={design} />
+      <DesignBreakdown design={design} isSingleCell={isSingleCell} />
       <SectionCard
         title="Factor details"
         subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}`}
@@ -1062,8 +1082,20 @@ const UNASSIGNED = "(unassigned)";
  *  Sortable by any column. Continuous + nuisance factors are noted but
  *  kept out of the row tuples (per the curator-ui convention). Built to
  *  stand alone as the primary design view. */
-function DesignBreakdown({ design }: { design: ExperimentalDesign }) {
-  const factors = design.experimentalFactors;
+function DesignBreakdown({
+  design,
+  isSingleCell,
+}: {
+  design: ExperimentalDesign;
+  isSingleCell?: boolean | null;
+}) {
+  // Same exclusion as DesignTab's bio/nuisance split, and for the same
+  // reason — see that comment.
+  const factors = design.experimentalFactors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.category || "").trim().toLowerCase() !== "cell type",
+  );
   const assignments = design.bioMaterialAssignments;
 
   const isContinuous = (f: ExperimentalFactorEntry) => f.type === "continuous";

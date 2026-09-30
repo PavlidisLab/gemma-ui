@@ -581,6 +581,14 @@ export interface Dataset {
   geeq?: GeeqScores | null;
   characteristics?: DatasetCharacteristic[];
   curationNote?: string;
+  /** Emitted by gemma-rest on ``/datasets/{id}`` (verified against
+   *  51178, a CMC single-cell dataset). Optional because older
+   *  payloads may omit it — absent is not the same claim as `false`.
+   *  Single-cell datasets carry `cell type` Factors auto-generated
+   *  per CellTypeAssignment run that never have real per-sample
+   *  assignments (cell type lives on subsets, not biomaterials) — see
+   *  the exclusion in `DesignTab` / `DesignBreakdown`. */
+  isSingleCell?: boolean | null;
   /** Whether everyone can see this dataset. Emitted by gemma-rest on
    *  ``/datasets/{id}`` (verified against 28143). Optional because a
    *  store-backed payload may omit it — and an ABSENT flag is not the
