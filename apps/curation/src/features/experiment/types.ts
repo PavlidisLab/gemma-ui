@@ -1159,10 +1159,31 @@ export function tagReachesOntology(t: Tag): boolean {
 // validator flags any URI not in this set as ``unknown_predicates``.
 import { KNOWN_PREDICATE_URIS } from "@/generated/predicates";
 import { curieToUrl } from "@/lib/curie";
+import { inferModality } from "./modality";
 
 export function validateDesign(design: Design): DesignValidationState {
   const allBmNames = new Set(design.biomaterials.map((b) => b.short_name));
-  const factorStates: FactorValidationState[] = design.factors.map((f) => {
+  // A single-cell experiment's cell types live on its subsets
+  // (cell-level), never on the biomaterial — see SingleCellPanel's
+  // "belongs to no factor" note and the identical gate in
+  // SampleDetailsPanel / DesignSummary / FactorList. Gemma
+  // auto-creates one `cell type` Factor per CellTypeAssignment
+  // pipeline run, so a reprocessed experiment can carry several; none
+  // of them can ever have per-sample assignments, so validating them
+  // as if they were an ordinary factor produces only false positives
+  // (100% "unassigned", every value "no samples", and near-identical
+  // value sets across runs reading as "duplicate factors") on
+  // experiments that are otherwise perfectly valid. They're already
+  // hidden from every display surface for this experiment; validating
+  // a factor the curator can't see or edit here would just gate a
+  // commit on something nobody can act on.
+  const isSingleCell = inferModality(design) === "single-cell";
+  const validatedFactors = design.factors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.label || "").trim().toLowerCase() !== "cell type",
+  );
+  const factorStates: FactorValidationState[] = validatedFactors.map((f) => {
     const seen = new Map<string, number>();
     let unknownPredicates = 0;
     let baselineCount = 0;

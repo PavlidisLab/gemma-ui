@@ -20,6 +20,7 @@ import type {
   Tag,
 } from "@/features/experiment/types";
 import { isNonCanonicalBaselineLabel } from "@/features/experiment/types";
+import { inferModality } from "@/features/experiment/modality";
 import type {
   FactorProposal,
   FactorValueProposal,
@@ -227,13 +228,27 @@ export function factorStatementSignature(factor: Factor): string {
 export function findDuplicateFactorPairs(
   design: Design,
 ): Array<{ a: Factor; b: Factor; signature: string }> {
+  // Every CellTypeAssignment-derived `cell type` factor on a
+  // single-cell experiment annotates the same cell-type vocabulary —
+  // that is what makes it a duplicate SIGNATURE-wise, not a curation
+  // mistake. Same exclusion as validateDesign / FactorList / the
+  // Samples + Overview tabs: these factors are already hidden
+  // everywhere else in this experiment, so flagging them as
+  // duplicates-to-resolve here would point at something the curator
+  // has no way to act on.
+  const isSingleCell = inferModality(design) === "single-cell";
+  const factors = design.factors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.label || "").trim().toLowerCase() !== "cell type",
+  );
   const sigByFactor = new Map<number, string>();
-  for (const f of design.factors) {
+  for (const f of factors) {
     const sig = factorStatementSignature(f);
     if (sig) sigByFactor.set(f.id, sig);
   }
   const buckets = new Map<string, Factor[]>();
-  for (const f of design.factors) {
+  for (const f of factors) {
     const sig = sigByFactor.get(f.id);
     if (!sig) continue;
     const arr = buckets.get(sig) ?? [];

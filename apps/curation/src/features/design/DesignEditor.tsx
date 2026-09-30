@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSessionState } from "@/lib/useStickyState";
 import { useIsReadOnly } from "@/features/comparison/FlowContext";
+import { inferModality } from "@/features/experiment/modality";
 import { ContinuousFactorView } from "./ContinuousFactorView";
 import { FactorList } from "./FactorList";
 import { FactorValueList } from "./FactorValueList";
@@ -82,6 +83,22 @@ export function DesignEditor({
   // ``DesignDraftContext`` (and surfaces as amber diffs) — there's no
   // separate frozen-snapshot view to swap in.
   const draft = live.draft;
+
+  // A single-cell experiment's cell types live on its subsets
+  // (cell-level), never on the biomaterial — see SingleCellPanel's
+  // "belongs to no factor" note and the identical gate in
+  // SampleDetailsPanel / DesignSummary. Gemma auto-creates one `cell
+  // type` Factor per CellTypeAssignment pipeline run, so a repeatedly
+  // reprocessed experiment can carry several — none of them ever
+  // gets real per-sample assignments here, so don't offer them for
+  // editing on this tab either.
+  const visibleFactors = useMemo(() => {
+    if (!draft) return [];
+    if (inferModality(draft) !== "single-cell") return draft.factors;
+    return draft.factors.filter(
+      (f) => (f.category?.label || "").trim().toLowerCase() !== "cell type",
+    );
+  }, [draft]);
 
   // Persist the selected factor per-experiment-per-tab-session so
   // switching to another tab and back doesn't reset the selection to
@@ -358,7 +375,7 @@ export function DesignEditor({
         onApply={apply}
       />
       <FactorList
-        factors={draft.factors}
+        factors={visibleFactors}
         design={draft}
         subsetUsedFactorIds={subsetUsedFactorIds}
         selectedId={effectiveSelected}
