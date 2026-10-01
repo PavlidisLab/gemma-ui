@@ -156,6 +156,34 @@ export function missingHalfOfPair(s: Statement): "predicate" | "object" | null {
 export interface FactorValue {
   id: number;
   free_text_label: string;
+  /**
+   * What Gemma actually STORES in the free-text field
+   * (`FactorValue.value`, `VARCHAR(255)`), carried so the commit can
+   * send it back unchanged. `null` / absent when Gemma stores nothing.
+   *
+   * 🛑 `free_text_label` is NOT that field. `composeDesign` seeds it
+   * `v.summary || v.value`, and `summary` is Gemma's own rendering of
+   * the statements (`FactorValueUtils.getSummaryString`, every
+   * statement joined with ", ", no length bound). Every display surface
+   * reads it and wants the rendering, so the seed stays — but the
+   * commit used to send it back as `freeTextLabel`, which Gemma writes
+   * verbatim into the column. On experiment 38401, 7 of 18 values had a
+   * summary over 255 characters (longest 318) and an EMPTY stored
+   * value, so the commit both overflowed the column — a 500 out of the
+   * flush, on a commit that only deleted statements — and, under 255,
+   * filled a curator's field with a rendering of the statements it is
+   * supposed to be independent of.
+   *
+   * ⇒ The commit sends this for an untouched value and the curator's
+   * own label only when it differs from the baseline. See
+   * `freeTextLabelField` in `api/curationCommit.ts`.
+   *
+   * Carried beside the label rather than replacing it, the way
+   * `is_baseline_explicit` is carried beside `is_baseline`: ~60
+   * non-test sites read `free_text_label` for display and matching and
+   * are right to, and only the commit builder needs the stored value.
+   */
+  gemma_free_text_value?: string | null;
   is_baseline: boolean;
   /**
    * Whether the SOURCE carried an explicit baseline flag.
@@ -1131,10 +1159,31 @@ export function tagReachesOntology(t: Tag): boolean {
 // validator flags any URI not in this set as ``unknown_predicates``.
 import { KNOWN_PREDICATE_URIS } from "@/generated/predicates";
 import { curieToUrl } from "@/lib/curie";
+import { inferModality } from "./modality";
 
 export function validateDesign(design: Design): DesignValidationState {
   const allBmNames = new Set(design.biomaterials.map((b) => b.short_name));
-  const factorStates: FactorValidationState[] = design.factors.map((f) => {
+  // A single-cell experiment's cell types live on its subsets
+  // (cell-level), never on the biomaterial — see SingleCellPanel's
+  // "belongs to no factor" note and the identical gate in
+  // SampleDetailsPanel / DesignSummary / FactorList. Gemma
+  // auto-creates one `cell type` Factor per CellTypeAssignment
+  // pipeline run, so a reprocessed experiment can carry several; none
+  // of them can ever have per-sample assignments, so validating them
+  // as if they were an ordinary factor produces only false positives
+  // (100% "unassigned", every value "no samples", and near-identical
+  // value sets across runs reading as "duplicate factors") on
+  // experiments that are otherwise perfectly valid. They're already
+  // hidden from every display surface for this experiment; validating
+  // a factor the curator can't see or edit here would just gate a
+  // commit on something nobody can act on.
+  const isSingleCell = inferModality(design) === "single-cell";
+  const validatedFactors = design.factors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.label || "").trim().toLowerCase() !== "cell type",
+  );
+  const factorStates: FactorValidationState[] = validatedFactors.map((f) => {
     const seen = new Map<string, number>();
     let unknownPredicates = 0;
     let baselineCount = 0;

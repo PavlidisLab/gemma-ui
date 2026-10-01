@@ -27,8 +27,9 @@ import { AboutModal } from "@/features/about/AboutModal";
 import { SearchBox } from "@/features/shared/SearchBox";
 import { gemmaLockup } from "@gemma/assets";
 import { isBaselineTerm } from "@/lib/baseline";
-import { museumUrl } from "@/lib/gemmaConfig";
-import museumArt from "../museum-human-cell-cycle.png";
+// Museum card temporarily hidden 2026-09-15 — see MuseumCard below.
+// import { museumUrl } from "@/lib/gemmaConfig";
+// import museumArt from "../museum-human-cell-cycle.png";
 import { tintForIndex } from "@/lib/valueTint";
 import { InfoBadge } from "../panels";
 import { MorePlotsModal, GENOTYPE_CATEGORY_URI } from "../MorePlotsModal";
@@ -56,7 +57,7 @@ export function HomeBrutalist() {
         <div className="px-1 pt-1 pb-2">
           <SearchBox
             variant="hero"
-            placeholder="Search datasets — by name, accession, or gene…"
+            placeholder="Search data sets by name, accession, topic, or leave blank to browse the collection"
           />
         </div>
 
@@ -113,10 +114,11 @@ export function HomeBrutalist() {
   );
 }
 
-/** Column template shared by the info row (what we provide · how to
- *  access · museum card) and the shaded-card row (annotation coverage ·
- *  recent activity across the last two), so the column edges line up
- *  from one row to the next. */
+/** Column template for the shaded-card row: annotation coverage, then
+ *  recent activity across the last two tracks.
+ *
+ *  The info row above used to share it, back when a third card (the
+ *  museum) filled the 15rem track — see GeneralInfo. */
 const THREE_COLUMNS =
   "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,15rem)]";
 
@@ -124,25 +126,29 @@ const THREE_COLUMNS =
  *  exhibits in miniature. The image is the canvas art of the exhibit
  *  "The human cell cycle" (key ``whitfield2002``), rendered by the
  *  museum's own drawHeatmap and exported without its frame or dark
- *  margin (2026-09-14). */
-function MuseumCard() {
-  return (
-    <a
-      href={museumUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="group block px-5 py-4 hover:no-underline"
-    >
-      <div className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-900 font-semibold group-hover:text-blue-700">
-        Visit the Museum of Gene Expression
-        <span aria-hidden className="ml-1 font-normal text-stone-500 group-hover:text-blue-700">
-          ↗
-        </span>
-      </div>
-      <img src={museumArt} alt="" className="block w-full h-auto" />
-    </a>
-  );
-}
+ *  margin (2026-09-14).
+ *
+ *  Temporarily hidden 2026-09-15. To restore: uncomment this function,
+ *  the museumUrl / museumArt imports at the top of the file, and the
+ *  <MuseumCard /> render in GeneralInfo. */
+// function MuseumCard() {
+//   return (
+//     <a
+//       href={museumUrl}
+//       target="_blank"
+//       rel="noopener noreferrer"
+//       className="group block px-5 py-4 hover:no-underline"
+//     >
+//       <div className="mb-3 text-[10px] uppercase tracking-[0.2em] text-stone-900 font-semibold group-hover:text-blue-700">
+//         Visit the Museum of Gene Expression
+//         <span aria-hidden className="ml-1 font-normal text-stone-500 group-hover:text-blue-700">
+//           ↗
+//         </span>
+//       </div>
+//       <img src={museumArt} alt="" className="block w-full h-auto" />
+//     </a>
+//   );
+// }
 
 function StatsRow({ s }: { s: GemmaSummary }) {
   // 5 primary tiles. Samples nests a per-technology breakdown
@@ -333,42 +339,49 @@ function AnnotationCoverageBreakdown({ s }: { s: GemmaSummary }) {
           distinct ontology terms in use
         </span>
       </div>
+      {/* 🛑 Rows, not a two-column <table>. Safari on macOS rendered the
+          tables wider than their grid tracks, so the right-hand column
+          ran past the shaded block and under the next card; Chrome,
+          including Chrome mobile, did not. A table will not lay itself
+          out below its min-content width, and a grid item's automatic
+          minimum is that same width, so the overflow had two places to
+          come from and `w-full` answered neither. A flex row has no
+          min-content floor to hit: the label truncates and the count
+          keeps its place at the right edge. */}
       <div className="grid grid-cols-2 gap-x-8 px-5">
         {columns.map((col, ci) => (
-          <table key={ci} className="w-full text-sm">
-            <tbody>
-              {col.map((r) => (
-                <tr
-                  key={r.label}
-                  className="border-t border-stone-200 first:border-t-0"
-                >
-                  <td className="py-2 text-stone-800">
-                    <span className="inline-flex items-center">
-                      {r.cat ? (
-                        <Link
-                          to="/browser"
-                          search={{
-                            categoryUri: r.cat.uri,
-                            categoryLabel: r.cat.label,
-                          }}
-                          title={`Browse datasets annotated with a ${r.cat.label} term`}
-                          className="text-stone-800 hover:text-blue-700 hover:underline"
-                        >
-                          {r.label}
-                        </Link>
-                      ) : (
-                        r.label
-                      )}
-                      <InfoBadge hint={r.hint} />
-                    </span>
-                  </td>
-                  <td className="py-2 text-right tabular-nums font-semibold text-stone-950">
-                    {fmtCount(r.value, "full", loadingOf(r.value))}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul key={ci} className="min-w-0 text-sm">
+            {col.map((r) => (
+              <li
+                key={r.label}
+                className="flex items-baseline justify-between gap-3 border-t border-stone-200 py-2 first:border-t-0"
+              >
+                <span className="inline-flex min-w-0 items-center text-stone-800">
+                  {r.cat ? (
+                    <Link
+                      to="/browser"
+                      search={{
+                        categoryUri: r.cat.uri,
+                        categoryLabel: r.cat.label,
+                      }}
+                      title={`Browse datasets annotated with a ${r.cat.label} term`}
+                      className="truncate text-stone-800 hover:text-blue-700 hover:underline"
+                    >
+                      {r.label}
+                    </Link>
+                  ) : (
+                    <span className="truncate">{r.label}</span>
+                  )}
+                  <span className="shrink-0">
+                    <InfoBadge hint={r.hint} />
+                  </span>
+                </span>
+                <span className="shrink-0 tabular-nums font-semibold text-stone-950">
+                  {fmtCount(r.value, "full", loadingOf(r.value))}
+                </span>
+              </li>
+            ))}
+          </ul>
         ))}
       </div>
     </div>
@@ -820,7 +833,18 @@ function Masthead() {
 
 function GeneralInfo() {
   return (
-    <div className={`my-3 grid grid-cols-1 md:grid-cols-2 ${THREE_COLUMNS} md:gap-x-3`}>
+    // Two equal columns, spanning the full row. This used to carry
+    // THREE_COLUMNS so its edges lined up with the shaded-card row
+    // below, but the third track held the museum card — hidden
+    // 2026-09-15 — and an empty 15rem track is not alignment, it is a
+    // hole: it squeezed both columns to ~420px at max-w-6xl while the
+    // row below spent the same 15rem on recent activity. The two
+    // columns now split it, ~546px each, and "how to access" stops
+    // truncating its hints.
+    //
+    // Restoring <MuseumCard /> means putting ${THREE_COLUMNS} back here
+    // so the card gets its track.
+    <div className="my-3 grid grid-cols-1 md:grid-cols-2 md:gap-x-3">
       {/* Column 1 — data + analysis catalogue. Two-column
           definition list: bold lead on the left, muted body on
           the right. Bullets dropped — the typography +
@@ -888,7 +912,9 @@ function GeneralInfo() {
         </ul>
       </InfoColumn>
 
-      <MuseumCard />
+      {/* Museum of Gene Expression card temporarily hidden 2026-09-15.
+          Its grid track went with it — see the note on this row. */}
+      {/* <MuseumCard /> */}
     </div>
   );
 }

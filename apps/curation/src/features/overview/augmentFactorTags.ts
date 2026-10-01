@@ -1,4 +1,48 @@
-import type { Factor, Tag } from "@/features/experiment/types";
+import type { Factor, Statement, Tag } from "@/features/experiment/types";
+
+/** A statement rendered as text: ``subject predicate object``, the
+ *  same reading order ``TagStatementInline`` and the Design tab's
+ *  ``FvDisplayRow`` use. Empty when the statement carries no subject.
+ *
+ *  Kept comma-free on purpose — the chip renderer splits a synth
+ *  value on ``,`` to get one chip per value, so a comma inside a
+ *  statement would tear it in half. */
+function statementText(st: Statement): string {
+  const parts = [
+    (st.subject?.label || "").trim(),
+    (st.predicate?.label || "").trim(),
+    (st.object?.label || "").trim(),
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
+/** Does this statement say more than its bare subject? A statement
+ *  with no predicate and no object IS the leading term, so the FV's
+ *  own free-text label is the better display. */
+function isQualified(st: Statement): boolean {
+  return !!(st.predicate?.label || "").trim() || !!(st.object?.label || "").trim();
+}
+
+/** What a projected FV chip shows.
+ *
+ *  A qualified statement is shown IN FULL — ``lung adenocarcinoma has
+ *  modifier organoid``, not the leading ``lung adenocarcinoma``. The
+ *  leading term alone makes two different arms of a factor render as
+ *  the same chip, and it makes an experiment-level tag carrying that
+ *  same term look like a duplicate of the whole arm when it is not
+ *  (design review 2026-09-20, GSE276387: three ``disease`` arms all led by
+ *  ``lung adenocarcinoma``). Unqualified FVs keep their free-text
+ *  label, which is the curator's own spelling. */
+function fvDisplayLabel(
+  fv: NonNullable<Factor["factor_values"]>[number],
+): string {
+  const qualified = (fv.statements ?? []).filter(isQualified);
+  if (qualified.length > 0) {
+    const texts = qualified.map(statementText).filter(Boolean);
+    if (texts.length > 0) return texts.join(" · ");
+  }
+  return (fv.free_text_label || "").trim();
+}
 
 /** Inferred-tag augmenter: synthesises one chip per factor from
  *  ``design.factors``, with the factor's FV labels comma-joined in
@@ -48,7 +92,7 @@ export function augmentInferredFromFactors(
     const seen = new Set<string>();
     const values: string[] = [];
     for (const fv of factor.factor_values ?? []) {
-      const label = (fv.free_text_label || "").trim();
+      const label = fvDisplayLabel(fv);
       if (!label) continue;
       const k = label.toLowerCase();
       if (seen.has(k)) continue;
@@ -105,7 +149,9 @@ export function augmentInferredFromFactors(
         // No category of its own, or the same one the factor already
         // projected — either way the chip above covers it.
         if (!catLabel || catLabel.toLowerCase() === factorCat) continue;
-        const subject = (st.subject?.label || "").trim();
+        // Full statement, not the bare subject — same rule as the
+        // projection above.
+        const subject = statementText(st);
         if (!subject) continue;
         const key = catLabel.toLowerCase();
         const entry =

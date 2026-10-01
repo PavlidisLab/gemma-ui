@@ -418,21 +418,16 @@ export function SampleCorrelationCard({
   );
   // Size each square cell so the matrix fills the panel body regardless
   // of sample count — few-sample datasets otherwise leave the box empty.
-  // One strip per factor the payload carries — that is what the widget
-  // will draw above the matrix, and it comes out of the same box.
-  // What the matrix may occupy: the measured box, less the widget's own
-  // padding and the strips above it. Falls back to the fixed-panel
+  //
+  // 🛑 Subtract NOTHING here. `matrixMaxHeight` is the box the whole
+  // canvas must fit in, and the widget now takes its own chrome — the
+  // annotation strips, their gap and the marker gutter — off that
+  // number itself (`verticalChromeFor`). Hand-subtracting the strips
+  // here as well double-counted them. Falls back to the fixed-panel
   // figure until the first measurement lands.
   const stripCount = payload ? payload.factors.length : 0;
-  // 🛑 Subtract NOTHING but the strips. The observer is on the box the
-  // widget is given, and the widget's own padding is inside that box —
-  // taking it off again double-counted, which is why the matrix came
-  // out ~100px short of the space it had. The strips are the one thing
-  // above the canvas that is not already accounted for.
   const matrixBoxPx =
-    boxH > 0
-      ? Math.max(40, boxH - (stripCount > 0 ? stripCount * 14 + 4 : 0))
-      : sampleCorrelationMatrixPx(stripCount);
+    boxH > 0 ? Math.max(40, boxH) : sampleCorrelationMatrixPx(stripCount);
   const cellPx = Math.max(2, matrixBoxPx / (data?.bio_assay_ids.length || 1));
 
 

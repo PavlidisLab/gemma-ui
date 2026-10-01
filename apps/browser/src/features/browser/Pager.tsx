@@ -16,11 +16,12 @@ export function Pager({ page, pageSize, total, pageSizeOptions, onChangePage, on
   const end = Math.min(page * pageSize, total);
 
   return (
-    <div className="flex items-center gap-2 text-sm">
+    <div className="flex flex-wrap items-center gap-2 text-sm">
       <span className="text-gemma-subtle">Page size</span>
       <select
         value={pageSize}
         onChange={(e) => onChangePageSize(Number(e.target.value))}
+        aria-label="Page size"
         className="input py-0.5 w-auto"
       >
         {pageSizeOptions.map((n) => (
@@ -30,17 +31,17 @@ export function Pager({ page, pageSize, total, pageSizeOptions, onChangePage, on
       <span className="text-gemma-subtle tabular-nums">
         {formatNumber(start)}–{formatNumber(end)} of {formatNumber(total)}
       </span>
-      <button className="btn btn-ghost" onClick={() => onChangePage(1)} disabled={page <= 1}>
+      <button className="btn btn-ghost" onClick={() => onChangePage(1)} disabled={page <= 1} aria-label="First page">
         <ChevronsLeft className="h-4 w-4" />
       </button>
-      <button className="btn btn-ghost" onClick={() => onChangePage(page - 1)} disabled={page <= 1}>
+      <button className="btn btn-ghost" onClick={() => onChangePage(page - 1)} disabled={page <= 1} aria-label="Previous page">
         <ChevronLeft className="h-4 w-4" />
       </button>
       <span className="tabular-nums">{page} / {totalPages}</span>
-      <button className="btn btn-ghost" onClick={() => onChangePage(page + 1)} disabled={page >= totalPages}>
+      <button className="btn btn-ghost" onClick={() => onChangePage(page + 1)} disabled={page >= totalPages} aria-label="Next page">
         <ChevronRight className="h-4 w-4" />
       </button>
-      <button className="btn btn-ghost" onClick={() => onChangePage(totalPages)} disabled={page >= totalPages}>
+      <button className="btn btn-ghost" onClick={() => onChangePage(totalPages)} disabled={page >= totalPages} aria-label="Last page">
         <ChevronsRight className="h-4 w-4" />
       </button>
     </div>

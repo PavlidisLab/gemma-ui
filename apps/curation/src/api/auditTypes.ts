@@ -609,6 +609,21 @@ export type ApplyActionPayload =
       statements?: StatementProposal[] | null;
     }
   | {
+      /** Re-term the SUBJECT / OBJECT slot of one statement — label
+       *  and URI together — leaving the statement's other slots
+       *  untouched. ``match`` picks the statement; ``new_value(_uri)``
+       *  carries the replacement. When the slot being replaced is
+       *  itself free text (e.g. an allele string ``K263E/?`` →
+       *  ``K263E/K263E``), the agent sends ``free_text: true`` INSTEAD
+       *  of ``new_value_uri`` — required-field group
+       *  ``("new_value_uri", "free_text")``. */
+      kind: "set_statement_subject" | "set_statement_object";
+      match?: ApplyActionMatch | null;
+      new_value?: string | null;
+      new_value_uri?: string | null;
+      free_text?: boolean | null;
+    }
+  | {
       /** Forward-compat placeholder so shapes we don't model yet
        *  type-narrow cleanly when they ship. */
       kind: string;

@@ -1,4 +1,4 @@
-import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, startTransition, useEffect, useRef, useState, type ReactNode } from "react";
 import { useActiveBaselineSource } from "@/features/comparison/useActiveBaselineSource";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMe } from "@/api/session";
@@ -8,6 +8,7 @@ import { ExperimentList } from "@/features/landing/ExperimentList";
 import { CuratorDashboard } from "@/features/landing/CuratorDashboard";
 import { TicketDetailPage } from "@/features/tickets/TicketDetailPage";
 import { ImportPrompt } from "@/features/landing/ImportPrompt";
+import { pushRecentExperiment } from "@/features/landing/recentExperiments";
 import { useStickyState } from "@/lib/useStickyState";
 import { isEditableTarget } from "@/lib/isEditableTarget";
 import { ProposalsInbox } from "@/features/inbox/ProposalsInbox";
@@ -56,6 +57,19 @@ import { AppHeader } from "@/components/ui/AppHeader";
 import { PageMask, useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useProposeStream } from "@/api/proposeStream";
 import { useAuditStream } from "@/api/auditStream";
+import { geneExpressionApi } from "@/api/geneExpression";
+import { differentialExpressionApi } from "@/api/differentialExpression";
+
+// Lazy: these two tabs pull in `@gemma/expression-analysis` (the
+// gene/GO picker, the heatmap orchestration, the DE analyses browser)
+// — real weight most curation sessions never touch. Split out of the
+// main bundle rather than eagerly imported above.
+const GeneExpressionPanel = lazy(() =>
+  import("@gemma/expression-analysis").then((m) => ({ default: m.GeneExpressionPanel })),
+);
+const DifferentialExpressionPanel = lazy(() =>
+  import("@gemma/expression-analysis").then((m) => ({ default: m.DifferentialExpressionPanel })),
+);
 import { useServicesHealth } from "@/api/health";
 import {
   useProposeSchema,
@@ -575,6 +589,25 @@ function Shell({
   // "Rendered more hooks than during the previous render".
   useDocumentTitle(pageTitle(draft?.experiment_short_name, "Gemma curation"));
 
+  // Record the visit for the quick-search "recent" list. Here rather
+  // than in the router because an id in the hash is not yet an
+  // experiment the curator got to see — a 404 falls through to
+  // ``ImportPrompt``, and the accession only exists once the draft
+  // lands. Re-writing the entry on every visit is also what keeps the
+  // stored label current after a rename through ``ShortNameEditor``.
+  const visitLabel = draft?.experiment_short_name;
+  const visitTitle = draft?.title;
+  const visitTaxon = draft?.taxon;
+  useEffect(() => {
+    if (!visitLabel) return;
+    pushRecentExperiment({
+      id: String(experimentId),
+      label: visitLabel,
+      title: visitTitle,
+      taxon: visitTaxon,
+    });
+  }, [experimentId, visitLabel, visitTitle, visitTaxon]);
+
   // ALL hooks must run on every render in the same order. Run the
   // proposals query unconditionally, then branch — putting the
   // If the experiment id resolves to nothing in storage, the
@@ -877,6 +910,8 @@ function MainGrid({
     }
   }, [auditSchema.data]);
   const { draft } = useDesignDraft();
+  const me = useMe();
+  const isAdmin = me.data?.authorities?.includes("GROUP_ADMIN") ?? false;
   // Per-experiment data presence: drives sidebar toggle visibility.
   // Hide the Audit toggle when no kind=audit reviews exist on the
   // experiment; hide Proposal review when no kind=proposal reviews
@@ -1179,6 +1214,22 @@ function MainGrid({
           <PipelinePanel experimentId={experimentId} />
         ) : activeTab === "single-cell" ? (
           <SingleCellPanel />
+        ) : activeTab === "gene-expression" ? (
+          <Suspense fallback={<div className="text-sm text-slate-500 p-4">Loading…</div>}>
+            <GeneExpressionPanel
+              api={geneExpressionApi}
+              entityId={Number(experimentId)}
+              taxon={draft?.taxon}
+              isAdmin={isAdmin}
+            />
+          </Suspense>
+        ) : activeTab === "differential-expression" ? (
+          <Suspense fallback={<div className="text-sm text-slate-500 p-4">Loading…</div>}>
+            <DifferentialExpressionPanel
+              api={differentialExpressionApi}
+              entityId={Number(experimentId)}
+            />
+          </Suspense>
         ) : (
           <QuantitationTypesPanel experimentId={experimentId} />
         )}

@@ -81,6 +81,14 @@ function renderEditable(statements: Statement[]) {
  *  of this test passed against a still-broken cap for that reason. */
 const addPairButtons = () => screen.getAllByText("+ pred/obj");
 
+/** The over-limit markers, by the attribute the marker carries.
+ *  🛑 Not by their title text: the predicate picker renders every
+ *  predicate's description as an <option title>, and the generated
+ *  description of `has background` says "REFUSES a third" too — so a
+ *  title regex matched three options in a card with no marker at all. */
+const overLimitMarkers = () =>
+  document.querySelectorAll("[data-over-limit='true']");
+
 describe("statement pair limit — per statement, not per subject", () => {
   it("offers '+ pred/obj' on a subject that already holds two pairs", () => {
     const { onAddSiblingStatement } = renderEditable([
@@ -110,7 +118,7 @@ describe("statement pair limit — per statement, not per subject", () => {
       pair("has role", "initial time point"),
     ]);
     expect(screen.queryByText(/refuses a/i)).toBeNull();
-    expect(screen.queryAllByTitle(/refuses a third/i)).toHaveLength(0);
+    expect(overLimitMarkers()).toHaveLength(0);
   });
 
   it("marks the third pair on ONE stored statement, and only that one", () => {
@@ -120,7 +128,7 @@ describe("statement pair limit — per statement, not per subject", () => {
       pair("has role", "treatment", 7),
     ]);
     expect(screen.getByText(/refuses a/i)).toBeInTheDocument();
-    expect(screen.getAllByTitle(/refuses a third/i)).toHaveLength(1);
+    expect(overLimitMarkers()).toHaveLength(1);
   });
 
   it("does not count pairs of two different stored statements together", () => {
@@ -129,6 +137,6 @@ describe("statement pair limit — per statement, not per subject", () => {
       pair("delivered for duration", "2 week", 7),
       pair("has role", "treatment", 8),
     ]);
-    expect(screen.queryAllByTitle(/refuses a third/i)).toHaveLength(0);
+    expect(overLimitMarkers()).toHaveLength(0);
   });
 });

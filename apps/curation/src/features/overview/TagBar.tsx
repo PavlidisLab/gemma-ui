@@ -327,11 +327,14 @@ function TagBarLegend() {
           </li>
           <li>
             A <span className="text-violet-500 dark:text-violet-400">violet
-            glint</span> on a direct chip means every sample already carries
-            that exact ontology term as a characteristic — the tag is
-            redundant with the per-sample annotation (the tag still wins;
-            the glint just flags it). A grounded tag over free-text
-            characteristics is NOT redundant, so it does not glint.
+            glint</span> on a direct chip means the same exact ontology term
+            is already carried elsewhere — by every sample as a
+            characteristic, or by a factor value on the Design tab. The tag
+            is redundant with that annotation, and a redundant tag is a
+            deletion candidate, so it is always shown and never hidden (hover
+            the chip to see which one carries it). A grounded tag over
+            free-text characteristics is NOT redundant, so it does not
+            glint.
           </li>
         </ul>
       </div>
@@ -604,6 +607,37 @@ export function TagBar({
     return universal;
   }, [biomaterials]);
 
+  // ``category|value_uri`` keys carried by a FACTOR VALUE — the design
+  // already asserts this exact ontology term on some arm. Sibling of
+  // ``universalCharTerms`` above and feeds the same violet glint; the
+  // two differ only in what does the carrying (every sample vs. an
+  // arm), which is why each gets its own set and its own sentence in
+  // the chip's hover title.
+  //
+  // Built from the DRAFT's factors, NOT from the FV-synth chips: those
+  // have already been through the "Hide variables" filter, and a noise
+  // toggle must not decide how curation content is marked.
+  //
+  // Keyed on the statement's own category when it has one — a
+  // ``genotype`` factor whose FV statements are categorised
+  // ``organism part`` asserts an organism part, not a genotype.
+  const factorTermKeys = useMemo(() => {
+    const out = new Set<string>();
+    for (const f of draft?.factors ?? []) {
+      const factorCat = (f.category?.label || f.name || "").trim().toLowerCase();
+      for (const fv of f.factor_values ?? []) {
+        for (const st of fv.statements ?? []) {
+          const uri = (st.subject?.uri || "").trim();
+          if (!uri) continue;
+          const cat = (st.category?.label || "").trim().toLowerCase() || factorCat;
+          if (!cat) continue;
+          out.add(`${cat}|${uri}`);
+        }
+      }
+    }
+    return out;
+  }, [draft?.factors]);
+
   // Drop block / batch tags here — they're nuisance variables
   // (date_run codes, scan-batch ids, …) and a single batch
   // factor with 11+ levels swamps the bar. The batch factor
@@ -630,39 +664,26 @@ export function TagBar({
     return true;
   });
 
-  // A direct experiment-level tag is redundant with the design ONLY
-  // when its VALUE is actually one of the factor's FV values — e.g.
-  // GSE208707 ships 8 ``cell type: <X>`` direct tags beside a
-  // ``cell type`` factor whose FVs ARE those 8 cell types; the factor
-  // encodes them, so hide the duplicate direct chips. Keying on the
-  // CATEGORY alone (the old behaviour) was wrong: a ``genotype`` factor
-  // whose FVs are mouse-model conditions (``NPp53 (Nkx3-1CreERT2/+;
-  // Ptenf/f;p53f/f;…)``) does NOT make a ``genotype: Trp53`` gene tag
-  // redundant — the gene is not an FV value — yet every direct genotype
-  // tag was dropped, hiding real EE-tags the agent was proposing to
-  // remove. So suppress a direct tag only when its (category, value)
-  // matches a factor's FV value. Design review 2026-07-21 (GSE… 91268).
-  const fvSynthValues = new Set<string>();
-  for (const t of visibleTags) {
-    if (!(t.inferred && t.inferred_source === "FactorValue")) continue;
-    const catLc = (t.category.label || t.category.uri || "").toLowerCase();
-    // FV-synth value is the FV labels comma-joined (same split the
-    // renderer's ``splitTagValues`` uses).
-    for (const part of (t.value.label || "").split(",")) {
-      const p = part.trim().toLowerCase();
-      if (p) fvSynthValues.add(`${catLc}|${p}`);
-    }
-  }
-  const direct = visibleTags.filter((t) => {
-    if (t.inferred) return false;
-    // A statement-shaped EE-tag carries more than its bare value
-    // (``genotype: Trp53 has_genotype Homozygous negative``) — never
-    // suppress it, even if the bare value coincidentally matches an FV.
-    if ((t.statements ?? []).length > 0) return true;
-    const catLc = (t.category.label || t.category.uri || "").toLowerCase();
-    const valLc = (t.value.label || "").trim().toLowerCase();
-    return !fvSynthValues.has(`${catLc}|${valLc}`);
-  });
+  // A direct EE-tag whose term is also a factor value is REDUNDANT
+  // with the design — but it is still the curator's own annotation, so
+  // it renders and carries the violet redundancy glint instead of
+  // being dropped.
+  //
+  // It used to be dropped (design review 2026-07-21, GSE208707: 8 ``cell
+  // type`` direct tags beside a ``cell type`` factor whose FVs are
+  // those 8 cell types). Two things were wrong with dropping it.
+  // First, the set it tested against was built from the POST-filter
+  // tags, so "Hide variables" — a noise toggle — decided whether
+  // curation content rendered: with the box unchecked the FV-synth
+  // chip was present and the EE-tag vanished; checking the box removed
+  // the FV-synth chip and the EE-tag reappeared (GSE276387 eid 40317,
+  // ``disease: lung adenocarcinoma`` MONDO_0005061, which is also FV
+  // 290745). Second, and the reason the fix is to SHOW rather than to
+  // make the hiding consistent: a tag that duplicates the design is a
+  // deletion candidate, and a chip the curator cannot see is a chip
+  // they cannot delete — the same lesson the free-text filter already
+  // learned (mark it, never hide it). Design review 2026-09-20.
+  const direct = visibleTags.filter((t) => !t.inferred);
   const inferred = visibleTags.filter((t) => t.inferred);
 
   // Dedup direct + inferred chips. Two rules, applied together
@@ -1061,6 +1082,7 @@ export function TagBar({
                 tags={directByGroup.get(g) ?? []}
                 addedTagIds={addedTagIds}
                 inheritedMatchKeys={universalCharTerms}
+                factorMatchKeys={factorTermKeys}
               />
               <TagGroups
                 tags={nonFvInferredSorted}
@@ -1434,6 +1456,7 @@ function EditableDirectTagGroups({
   tags,
   addedTagIds,
   inheritedMatchKeys,
+  factorMatchKeys,
 }: {
   tags: Tag[];
   /** Tag ids present in the draft but not the saved server state.
@@ -1444,6 +1467,9 @@ function EditableDirectTagGroups({
    *  characteristic — a flat direct chip with that exact term gets the
    *  violet redundancy glint. */
   inheritedMatchKeys?: ReadonlySet<string>;
+  /** ``category|value_uri`` keys a FACTOR VALUE carries — same glint,
+   *  different carrier. */
+  factorMatchKeys?: ReadonlySet<string>;
 }) {
   if (tags.length === 0) return null;
   return (
@@ -1455,6 +1481,7 @@ function EditableDirectTagGroups({
           tags={[tag]}
           addedTagIds={addedTagIds}
           inheritedMatchKeys={inheritedMatchKeys}
+          factorMatchKeys={factorMatchKeys}
         />
       ))}
     </>
@@ -1727,6 +1754,7 @@ export function EditableDirectGroupChip({
   tags,
   addedTagIds,
   inheritedMatchKeys,
+  factorMatchKeys,
 }: {
   category: Tag["category"];
   tags: Tag[];
@@ -1740,6 +1768,9 @@ export function EditableDirectGroupChip({
    *  characteristic. A flat direct chip whose exact ontology term matches
    *  gets the violet redundancy glint. */
   inheritedMatchKeys?: ReadonlySet<string>;
+  /** ``category|value_uri`` keys a FACTOR VALUE carries. Same glint:
+   *  the design already asserts this term, so the tag duplicates it. */
+  factorMatchKeys?: ReadonlySet<string>;
 }) {
   const { draft, apply } = useDesignDraft();
   const readOnly = useIsReadOnly();
@@ -1803,6 +1834,14 @@ export function EditableDirectGroupChip({
       : "";
     const hasInheritedMatch =
       isFlatTag && !!inheritedKey && !!inheritedMatchKeys?.has(inheritedKey);
+    // Same glint, other carrier: a FACTOR VALUE asserts this exact
+    // term, so the tag repeats the design. Shown, never hidden — the
+    // curator is the one who decides whether an experiment-level tag
+    // still earns its place beside the factor, and they can only
+    // decide about a chip they can see. Design review 2026-09-20.
+    const hasFactorMatch =
+      isFlatTag && !!inheritedKey && !!factorMatchKeys?.has(inheritedKey);
+    const hasRedundancy = hasInheritedMatch || hasFactorMatch;
     return (
       <span
         // Audit focus hook — Apply & focus on a tag finding scrolls
@@ -1839,7 +1878,7 @@ export function EditableDirectGroupChip({
           // Stays offset-less so it still yields visually to the amber
           // "new" ring (which adds ring-offset) when both would apply.
           !isNew &&
-            hasInheritedMatch &&
+            hasRedundancy &&
             "ring-2 ring-violet-500 shadow-[0_0_8px_-1px_rgba(139,92,246,0.85)] dark:ring-violet-400",
         )}
         title={
@@ -1851,6 +1890,9 @@ export function EditableDirectGroupChip({
           (tag.value.uri ? ` — ${shortenUri(tag.value.uri)}` : "") +
           (hasInheritedMatch
             ? " · violet glint: redundant — every sample carries this exact ontology term"
+            : "") +
+          (hasFactorMatch
+            ? " · violet glint: redundant — a factor value on the Design tab carries this exact ontology term"
             : "")
         }
       >

@@ -98,6 +98,16 @@ describe("termValidation — which statuses earn an inline mark", () => {
   it("does NOT mark ok", () => {
     expect(statusEarnsInlineMark("ok")).toBe(false);
   });
+
+  // The verdict that says the URI names nothing at all. It is the pair
+  // to `unknown` and the opposite judgement: the index DOES carry that
+  // namespace, it cannot name this URI, and Gemma disowns it too. Left
+  // grey, a fabricated EFO_9999999 wears the same not-checked chip as
+  // an NCBITaxon pair nobody can confirm either way — the ambiguity
+  // the agents-side split removed.
+  it("marks not_found — a fabricated URI is a finding, not silence", () => {
+    expect(statusEarnsInlineMark("not_found")).toBe(true);
+  });
 });
 
 describe("termValidation — summary", () => {
@@ -160,6 +170,50 @@ describe("termValidation — summary", () => {
     expect(summaryRows(run)).toEqual([]);
     expect(run.counts).toEqual({ unknown: 1 });
     expect(run.total).toBe(1);
+  });
+
+  // A binding that points at nothing outranks one pointing at the
+  // right term under the wrong name, and both outrank a term the
+  // ontology has retired.
+  it("ranks not_found above every other row", () => {
+    const a = ref("Hek293F", HEK_S, "cell line");
+    const b = ref("OCI-AML3", "CLO:0009853", "cell line");
+    const c = ref("old staging", "EFO:0000410", "tag");
+    const d = ref("made up", "http://www.ebi.ac.uk/efo/EFO_9999999", "tag");
+    const run = buildRun(
+      [a, b, c, d],
+      response([
+        { id: b.id, status: "non_canonical" },
+        { id: c.id, status: "obsolete" },
+        { id: a.id, status: "label_mismatch" },
+        { id: d.id, status: "not_found" },
+      ]),
+    );
+    expect(summaryRows(run).map((r) => r.result.status)).toEqual([
+      "not_found",
+      "label_mismatch",
+      "obsolete",
+      "non_canonical",
+    ]);
+  });
+
+  // No canonical_label and no successor come back on this verdict —
+  // there is nothing to re-bind TO — so neither one-click repair may
+  // offer itself on the row.
+  it("offers no re-bind on not_found", () => {
+    const a = ref("made up", "http://www.ebi.ac.uk/efo/EFO_9999999", "tag");
+    const result: TermValidationResult = {
+      id: a.id,
+      status: "not_found",
+      canonical_uri: "http://www.ebi.ac.uk/efo/EFO_9999999",
+      detail:
+        "EFO is in the ontology index, which cannot name this URI, and " +
+        "Gemma does not know it either — this term does not exist",
+    };
+    const run = buildRun([a], response([result]));
+    expect(summaryRows(run).map((r) => r.result.status)).toEqual(["not_found"]);
+    expect(successorFor(result, a)).toBeNull();
+    expect(rebindTargetFor(result, a)).toBeNull();
   });
 
   it("prefers the server's counts", () => {
@@ -262,6 +316,23 @@ describe("termValidation — Gemma's category list outranks the index", () => {
       withCat,
     );
     expect(run.byKey.get(a.id)?.status).toBe("label_mismatch");
+  });
+
+  // The carve-out answers gaps. `not_found` is a judgement — the
+  // agents side excludes published categories before that check runs,
+  // so a category URI comes back `unknown`, never fabricated. If one
+  // ever did arrive fabricated, Gemma would be publishing a URI as a
+  // category while disowning it as a term, and that contradiction is
+  // for a curator to see rather than for this to rewrite to ok.
+  it("does not override not_found off the category list", () => {
+    const a = ref("disease", DISEASE, "disease (category)");
+    const run = buildRun(
+      [a],
+      response([{ id: a.id, status: "not_found" }]),
+      CATEGORIES,
+    );
+    expect(run.byKey.get(a.id)?.status).toBe("not_found");
+    expect(run.counts).toEqual({ not_found: 1 });
   });
 
   // Categories not loaded yet (or an offline list) must degrade to the

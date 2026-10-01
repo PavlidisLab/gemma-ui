@@ -63,9 +63,44 @@ export function findingProposedUris(finding: AuditFinding): {
   const str = (v: unknown): string | null =>
     typeof v === "string" && v.trim() ? v.trim() : null;
   return {
-    valueUri: str(aa?.new_value_uri) ?? finding.proposer_term?.uri ?? null,
+    valueUri:
+      str(aa?.new_value_uri) ??
+      (findingValueIsFreeText(finding)
+        ? null
+        : finding.proposer_term?.uri ?? null),
     categoryUri: str(aa?.new_category_uri) ?? null,
   };
+}
+
+/** Does this finding's apply action declare its new value FREE TEXT?
+ *
+ *  ``set_statement_subject`` / ``set_statement_object`` take
+ *  ``free_text: true`` INSTEAD OF ``new_value_uri`` — the agents-side
+ *  required-field group is ``("new_value_uri", "free_text")``, so an
+ *  action carrying the flag and no URI is complete, not half-filled.
+ *  The agents-side parser sets it only when the slot being replaced is
+ *  itself free text (an allele string such as ``K263E/?`` →
+ *  ``K263E/K263E``); the model never sends it. Agents 7a8c538.
+ *
+ *  It matters here because ``findingProposedUris`` otherwise falls back
+ *  to ``proposer_term.uri``, and that fallback would put a grounded
+ *  term on screen for a value the apply writes unbound — the same
+ *  displayed-is-not-applied failure the precedence above exists to
+ *  prevent.
+ *
+ *  Gated on ``kind`` — only the two statement-slot kinds define
+ *  ``free_text`` on the wire; a malformed or future payload setting
+ *  the flag on an unrelated kind must not silently drop that finding's
+ *  URI fallback everywhere ``findingProposedUris`` is read. */
+export function findingValueIsFreeText(finding: AuditFinding): boolean {
+  const aa = finding.apply_action as
+    | { kind?: unknown; free_text?: unknown }
+    | null
+    | undefined;
+  if (aa?.kind !== "set_statement_subject" && aa?.kind !== "set_statement_object") {
+    return false;
+  }
+  return aa.free_text === true;
 }
 
 // ---------------------------------------------------------------------------

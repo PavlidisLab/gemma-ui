@@ -16,7 +16,6 @@ import {
   type StatementGroup,
 } from "@/lib/statementGroups";
 import {
-  getDatasetById,
   getDatasetAnnotations,
   getDatasetDesign,
   getDatasetOriginalPlatforms,
@@ -41,8 +40,14 @@ import type {
   Factor,
 } from "@gemma/heatmap";
 import { VisualizeTab } from "./VisualizeTab";
+import { useDataset } from "./useDataset";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
+import { middleEllipsis } from "@/lib/middleEllipsis";
+import {
+  parseSampleDescription,
+  sampleDescriptionOneLine,
+} from "@/lib/sampleDescription";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
 import { splitBySampleScope } from "@/lib/annotationScope";
 import {
@@ -55,6 +60,11 @@ import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
   assayKindLabel,
+  extractedMoleculeLabel,
+  libraryKindLabel,
+  libraryProfile,
+  libraryProfileFromCounts,
+  libraryProfileTitle,
   libraryStrategyLabel,
   platformDisplay,
   platformRouteParam,
@@ -106,6 +116,20 @@ const TABS: { id: TabId; label: string; adminOnly?: boolean }[] = [
   { id: "quantitationtypes", label: "Quantitation Types", adminOnly: true },
 ];
 
+
+/** Page content width, per tab.
+ *
+ *  Diagnostics is four plots side by side; at 1200px the square
+ *  correlation matrix gets a ~275px column and the row runs out of
+ *  width long before it runs out of height. Every other tab is prose
+ *  and tables, where a longer measure is harder to read, so they keep
+ *  the narrower cap. The banner reads the same value — content wider
+ *  than the tab strip would leave the two edges misaligned. */
+const PAGE_WIDTH_CLS: Partial<Record<TabId, string>> = {
+  diagnostics: "max-w-[1600px]",
+};
+const pageWidthCls = (tab: TabId) => PAGE_WIDTH_CLS[tab] ?? "max-w-[1200px]";
+
 function isTabId(s: unknown): s is TabId {
   return typeof s === "string" && TABS.some((t) => t.id === s);
 }
@@ -124,10 +148,7 @@ export function DatasetPage() {
       ? "overview"
       : requestedTab;
 
-  const ds = useQuery({
-    queryKey: ["dataset", id],
-    queryFn: ({ signal }) => getDatasetById(id, signal),
-  });
+  const ds = useDataset(id);
 
   // Name the tab after the dataset. Every tab used to read "Gemma
   // Browser", so several open datasets were several identical tabs.
@@ -152,9 +173,9 @@ export function DatasetPage() {
   return (
     <PageShell>
       <Banner dataset={dataset} activeTab={activeTab} onTabChange={setTab} isAdmin={isAdmin} />
-      <div className="mx-auto w-full max-w-[1200px] px-6 py-6 space-y-6">
+      <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6 py-6 space-y-6`}>
         {activeTab === "overview"   && <OverviewTab   dataset={dataset} />}
-        {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "design"     && <DesignTab     datasetId={dataset.id ?? Number(id)} isSingleCell={dataset.isSingleCell} />}
         {activeTab === "diffex"     && <DifferentialExpressionTab datasetId={dataset.id ?? Number(id)} />}
         {activeTab === "samples"    && <SamplesTab    datasetId={dataset.id ?? Number(id)} nSamples={dataset.numberOfBioAssays} />}
         {activeTab === "diagnostics" && <ExpressionTab datasetId={dataset.id ?? Number(id)} />}
@@ -231,17 +252,69 @@ function Banner({
     platforms,
     originals,
   );
-  // The dataset's own curated `assay` annotation first. The platform's
-  // technologyType is the fallback and a poor one: Gemma maps
-  // sequencing onto generic gene-list platforms, so ordinary RNA-seq
-  // reports GENELIST, which the tech vocabulary labels "Other".
-  // The ORIGINAL platform's technology is the honest fallback: the
-  // generic stand-in Gemma switches sequencing onto reports GENELIST,
-  // which the vocabulary labels "Other".
+  // What the samples themselves record, which is where the answer is
+  // moving to: the curated `assay` tag is on its way out, and the
+  // per-assay libraryStrategy / extractedMolecule / librarySelection
+  // replace it. 23,517 of 23,545 datasets carry a strategy (gemma2,
+  // 2026-09-16), so this is the first choice rather than a fallback.
+  //
+  // The payload's own tallies when it has them — one row, and the
+  // reason to prefer it is what the fallback below costs.
+  const payloadTallies = dataset.libraryStrategies ?? null;
+  // Fetching every sample to read one fact is the fallback, for
+  // payloads predating the tallies. It shares the Samples tab's query
+  // key, so opening that tab costs nothing extra.
+  //
+  // An earlier version skipped this above 300 samples and picked the
+  // wrong number to worry about — the DECOMPRESSED JSON, 7 MB for
+  // 1,218 samples. What crosses the wire is gzip: measured on gemma2
+  // 2026-09-16, GSE20142 (1,240 samples) is 75 KiB in 0.7s, and the
+  // corpus's largest, GSE2109 (2,158 samples), is 652 KiB in 2.3s. The
+  // skip was also plainly wrong on screen: GSE20142 is 1,240
+  // one-colour microarray samples and the header fell back to the
+  // curated tag. Nothing blocks on either path — the fallback renders
+  // until the samples land, then the line sharpens.
+  const librarySamples = useQuery({
+    queryKey: ["datasetSamples", dataset.id],
+    queryFn: ({ signal }) => getDatasetSamples(dataset.id, signal),
+    enabled: dataset.id != null && payloadTallies == null,
+    staleTime: 30 * 60_000,
+  });
+  const library = useMemo(
+    () =>
+      payloadTallies
+        ? libraryProfileFromCounts(
+            {
+              strategies: payloadTallies,
+              molecules: dataset.extractedMolecules,
+              selections: dataset.librarySelections,
+            },
+            dataset.numberOfBioAssays ?? 0,
+          )
+        : libraryProfile(librarySamples.data),
+    [
+      payloadTallies,
+      dataset.extractedMolecules,
+      dataset.librarySelections,
+      dataset.numberOfBioAssays,
+      librarySamples.data,
+    ],
+  );
+  // The curated `assay` annotation next, then the platform's
+  // technologyType — a poor last resort: Gemma maps sequencing onto
+  // generic gene-list platforms, so ordinary RNA-seq reports GENELIST,
+  // which the tech vocabulary labels "Other". The ORIGINAL platform's
+  // technology is the better of the two for the same reason.
   const kind =
+    libraryKindLabel(library) ??
     assayKindLabel(dataset.characteristics) ??
     technologyTypeLabel(originals[0]?.technologyType) ??
     technologyTypeLabel(platforms[0]?.technologyType);
+  // Only when the kind IS the library record — otherwise the tooltip
+  // would describe a source the label didn't come from.
+  const kindTitle = libraryKindLabel(library)
+    ? libraryProfileTitle(library)
+    : null;
   const geeq = dataset.geeq;
   const gemma1Url = useGemma1Url(
     `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
@@ -264,7 +337,7 @@ function Banner({
   return (
     <section className="sticky top-0 z-10 bg-white border-b border-slate-200">
       <div className="h-1 bg-gradient-to-r from-amber-500 via-slate-900 to-sky-500" />
-      <div className="mx-auto w-full max-w-[1200px] px-6 py-3 flex gap-4 flex-wrap items-start">
+      <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6 py-3 flex gap-4 flex-wrap items-start`}>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-3 flex-wrap">
             {/* Plain text, not a link: this used to jump to the Gemma
@@ -288,6 +361,7 @@ function Banner({
               // "private", and rendering one from its absence is how a
               // missing field turns into a stated fact.
               <VisibilityChip
+                variant="chip"
                 tone={dataset.isPublic ? "public" : "restricted"}
                 label={dataset.isPublic ? "Public" : "Private"}
                 title={
@@ -299,7 +373,11 @@ function Banner({
             ) : null}
             <span>{dataset.taxon?.commonName ?? "—"}</span>
             <span>{dataset.numberOfBioAssays} samples</span>
-            {kind ? <span className="text-slate-800">{kind}</span> : null}
+            {kind ? (
+              <span className="text-slate-800" title={kindTitle ?? undefined}>
+                {kind}
+              </span>
+            ) : null}
             {dataset.lastUpdated ? (
               /* This is `curationDetails.lastUpdated` — verified
                  identical on the wire — so it moves when ANY audit
@@ -405,7 +483,7 @@ function Banner({
           </span>
         )}
       </div>
-      <div className="mx-auto w-full max-w-[1200px] px-6">
+      <div className={`mx-auto w-full ${pageWidthCls(activeTab)} px-6`}>
         <nav className="flex items-center gap-1 -mb-px overflow-x-auto">
           {TABS.filter((t) => !t.adminOnly || isAdmin).map((t) => (
             <button key={t.id} type="button" onClick={() => onTabChange(t.id)}
@@ -826,10 +904,10 @@ function PublicationsSection({ publications, loading, failed }: { publications: 
  * because they live behind a few small components in curation:
  *
  *  - **Batch / block factors are nuisance variables**, not real
- *    biological factors. They sort last and live under a separate
- *    "Nuisance variables" header so the reader's eye lands on the
- *    biological factors first. EFC category ``block`` or factor
- *    name ``batch`` triggers the bucket.
+ *    biological factors. They sort last and sit behind a collapsed
+ *    toggle so the reader's eye lands on the biological factors
+ *    first. EFC category ``block`` or factor name ``batch``
+ *    triggers the bucket.
  *  - **Factor card palette = sky** (mirrors the curation factor
  *    cards). One consistent colour learns the reader "blue = factor".
  *  - **FV identity comes from S-P-O statements when present**, with
@@ -847,11 +925,18 @@ function PublicationsSection({ publications, loading, failed }: { publications: 
  *
  *  No editing affordances. Browse users see structure, not chrome.
  */
-function DesignTab({ datasetId }: { datasetId: number }) {
+function DesignTab({
+  datasetId,
+  isSingleCell,
+}: {
+  datasetId: number;
+  isSingleCell?: boolean | null;
+}) {
   const q = useQuery({
     queryKey: ["datasetDesign", datasetId],
     queryFn: ({ signal }) => getDatasetDesign(datasetId, signal),
   });
+  const [showNuisance, setShowNuisance] = useState(false);
 
   if (q.isLoading) return <SectionCard title="Experimental design"><LoadingRow /></SectionCard>;
   if (q.isError)   return <SectionCard title="Experimental design"><ErrorRow /></SectionCard>;
@@ -859,12 +944,26 @@ function DesignTab({ datasetId }: { datasetId: number }) {
     return <SectionCard title="Experimental design"><Empty msg="no experimental design recorded" /></SectionCard>;
 
   const design: ExperimentalDesign = q.data;
+  // A single-cell dataset's cell types live on its subsets
+  // (cell-level), never on the biomaterial itself, and Gemma
+  // auto-creates one `cell type` Factor per CellTypeAssignment
+  // pipeline run — none of them ever carries real per-sample
+  // assignments. Drop before the bio/nuisance split so they never
+  // become a "no samples" / "(unassigned)" row on an otherwise
+  // perfectly fine dataset. Mirrors the curation UI's identical
+  // exclusion (SampleDetailsPanel / DesignSummary / FactorList /
+  // validateDesign).
+  const eligibleFactors = design.experimentalFactors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.category || "").trim().toLowerCase() !== "cell type",
+  );
   // Split bio vs nuisance. EFC category trumps factor name — a
   // factor named "treatment_batch" but categorised as ``treatment``
   // is still biological. Match curation's lower-case label check.
   const bio: typeof design.experimentalFactors = [];
   const nuisance: typeof design.experimentalFactors = [];
-  for (const f of design.experimentalFactors) {
+  for (const f of eligibleFactors) {
     if (isNuisanceFactor(f)) nuisance.push(f);
     else bio.push(f);
   }
@@ -883,14 +982,17 @@ function DesignTab({ datasetId }: { datasetId: number }) {
           of how samples partition across the design (mirrors the
           curator-ui overview's Design table). The per-factor detail
           cards stay below for the value-by-value / statement view. */}
-      <DesignBreakdown design={design} />
+      <DesignBreakdown design={design} isSingleCell={isSingleCell} />
       <SectionCard
         title="Factor details"
-        subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}${
-          nuisance.length ? ` · ${nuisance.length} nuisance` : ""
-        }`}
+        subtitle={`${bio.length} biological factor${bio.length === 1 ? "" : "s"}`}
       >
         <div className="space-y-3">
+          {bio.length === 0 ? (
+            <p className="text-[11px] text-slate-500 italic">
+              No biological factors recorded.
+            </p>
+          ) : null}
           {bio.map((f) => (
             <FactorCard
               key={f.id}
@@ -898,21 +1000,33 @@ function DesignTab({ datasetId }: { datasetId: number }) {
               sampleCountByFvId={sampleCountByFvId}
             />
           ))}
+          {/* Nuisance factors stay collapsed. A scan-date batch factor
+              routinely carries one level per sample (60 here), which
+              buries the biological factors under rows nobody browsing
+              reads. Counted and reachable, not rendered by default. */}
           {nuisance.length > 0 ? (
             <div className="pt-2 mt-2 border-t border-slate-200">
-              <div className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1.5 px-1">
-                Nuisance variables
-              </div>
-              <div className="space-y-2">
-                {nuisance.map((f) => (
-                  <FactorCard
-                    key={f.id}
-                    factor={f}
-                    nuisance
-                    sampleCountByFvId={sampleCountByFvId}
-                  />
-                ))}
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowNuisance((v) => !v)}
+                className="text-[10px] uppercase tracking-wide text-slate-400 hover:text-slate-600 font-semibold px-1"
+                title="Batch / block factors — technical bookkeeping, not biology"
+              >
+                {showNuisance ? "▾" : "▸"} {nuisance.length} nuisance variable
+                {nuisance.length === 1 ? "" : "s"}
+              </button>
+              {showNuisance ? (
+                <div className="space-y-2 mt-1.5">
+                  {nuisance.map((f) => (
+                    <FactorCard
+                      key={f.id}
+                      factor={f}
+                      nuisance
+                      sampleCountByFvId={sampleCountByFvId}
+                    />
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -968,8 +1082,20 @@ const UNASSIGNED = "(unassigned)";
  *  Sortable by any column. Continuous + nuisance factors are noted but
  *  kept out of the row tuples (per the curator-ui convention). Built to
  *  stand alone as the primary design view. */
-function DesignBreakdown({ design }: { design: ExperimentalDesign }) {
-  const factors = design.experimentalFactors;
+function DesignBreakdown({
+  design,
+  isSingleCell,
+}: {
+  design: ExperimentalDesign;
+  isSingleCell?: boolean | null;
+}) {
+  // Same exclusion as DesignTab's bio/nuisance split, and for the same
+  // reason — see that comment.
+  const factors = design.experimentalFactors.filter(
+    (f) =>
+      !isSingleCell ||
+      (f.category?.category || "").trim().toLowerCase() !== "cell type",
+  );
   const assignments = design.bioMaterialAssignments;
 
   const isContinuous = (f: ExperimentalFactorEntry) => f.type === "continuous";
@@ -1286,6 +1412,8 @@ function FactorCard({
         <span className="text-sm font-semibold text-slate-800">
           {factor.name || categoryLabel || `Factor ${factor.id}`}
         </span>
+        {/* No `asLink`: a factor's category is a categoryUri, and the
+            browse filter reads valueUri. */}
         {categoryLabel ? (
           <OntologyTermChip uri={categoryUri}>{categoryLabel}</OntologyTermChip>
         ) : null}
@@ -1398,7 +1526,7 @@ function FactorValueRow({
       ) : !value.isMeasurement && visibleChars.length > 0 ? (
         <div className="flex items-baseline gap-1 flex-wrap flex-1 min-w-0">
           {visibleChars.map((c, i) => (
-            <OntologyTermChip key={c.id ?? i} uri={c.valueUri ?? null}>
+            <OntologyTermChip key={c.id ?? i} uri={c.valueUri ?? null} asLink>
               {c.value ?? fallbackLabel}
             </OntologyTermChip>
           ))}
@@ -1438,8 +1566,12 @@ function StatementLine({ group }: { group: StatementGroup }) {
   const pairs = group.statements.filter(statementHasPair);
   return (
     <div className="flex items-baseline gap-1 flex-wrap text-[12px]">
+      {/* Only the subject browses. Gemma stores it in the value column
+          the browse filter reads; the predicate and the object sit in
+          their own columns, so a link on either answers a different
+          set of datasets — see `asLink` on OntologyTermChip. */}
       {hasSubject ? (
-        <OntologyTermChip uri={group.subjectUri ?? null}>
+        <OntologyTermChip uri={group.subjectUri ?? null} asLink>
           {group.subject ?? ""}
         </OntologyTermChip>
       ) : null}
@@ -1546,6 +1678,14 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
     return fv?.summary || fv?.value || "";
   };
 
+  // A column of em-dashes is worse than no column: plenty of datasets
+  // carry no per-sample text at all, and the ones that do carry it on
+  // every sample.
+  const anyDescription = useMemo(
+    () => samples.some((s) => sampleDescriptionOneLine(s.description) !== ""),
+    [samples],
+  );
+
   const sortedSamples = useMemo(() => {
     if (!sort) return samples;
     const dir = sort.dir === "asc" ? 1 : -1;
@@ -1606,6 +1746,15 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                     </span>
                   </th>
                 ))}
+                {/* The submitter's own sentence about the sample. It
+                    was on the wire all along and reachable only by
+                    opening each row's popover, one sample at a time —
+                    which is no way to read 21 of them. */}
+                {anyDescription ? (
+                  <th className={thCls + " cursor-default hover:bg-transparent"}>
+                    Description
+                  </th>
+                ) : null}
                 <th
                   className="text-left py-1.5 font-medium text-slate-600 cursor-pointer select-none hover:bg-slate-100"
                   onClick={() => onSortClick("flags")}
@@ -1646,6 +1795,16 @@ function SamplesTab({ datasetId, nSamples }: { datasetId: number; nSamples: numb
                         </td>
                       );
                     })}
+                    {anyDescription ? (
+                      <td className="py-1.5 pr-4 text-slate-600">
+                        <span
+                          className="block max-w-[28rem] truncate"
+                          title={parseSampleDescription(s.description).text || undefined}
+                        >
+                          {sampleDescriptionOneLine(s.description) || "—"}
+                        </span>
+                      </td>
+                    ) : null}
                     <td className="py-1.5">
                       {s.userFlaggedOutlier && <FlagChip label="outlier" color="red" />}
                       {!s.userFlaggedOutlier && s.predictedOutlier && <FlagChip label="predicted outlier" color="amber" />}
@@ -1734,8 +1893,13 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
   const chars = (bm?.characteristics ?? []).filter(
     (c) => (c.value ?? "").trim() !== "",
   );
+  // The submitter's sentence, with Gemma's two appended bookkeeping
+  // lines split off: one repeats the accession this popover already
+  // links, the other is a date that reads better as its own field.
+  const parsedDescription = parseSampleDescription(assay.description);
   const description =
-    (assay.description ?? "").trim() || (bm?.description ?? "").trim() || "";
+    parsedDescription.text || (bm?.description ?? "").trim() || "";
+  const geoLastUpdated = parsedDescription.geoLastUpdated;
   const platform =
     assay.arrayDesign?.shortName || assay.arrayDesign?.name || null;
   const processed = assay.processingDate
@@ -1746,7 +1910,7 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
     assay.libraryStrategy ? libraryStrategyLabel(assay.libraryStrategy) : null,
     assay.librarySelection ? `${assay.librarySelection} selection` : null,
     assay.extractedMolecule
-      ? (EXTRACTED_MOLECULE_LABELS[assay.extractedMolecule] ?? assay.extractedMolecule)
+      ? extractedMoleculeLabel(assay.extractedMolecule)
       : null,
   ].filter(Boolean);
   const sequencing = [
@@ -1853,6 +2017,11 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
                     </span>
                   </SampleMetaField>
                 ) : null}
+                {geoLastUpdated ? (
+                  <SampleMetaField label="Updated in GEO">
+                    <span className="text-slate-700">{geoLastUpdated}</span>
+                  </SampleMetaField>
+                ) : null}
                 {description ? (
                   <SampleMetaField label="Description">
                     <div className="text-slate-700 whitespace-pre-wrap break-words">
@@ -1883,7 +2052,7 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
                             </td>
                             <td className="py-0.5 text-slate-800 break-words">
                               {c.valueUri ? (
-                                <OntologyTermChip uri={c.valueUri}>
+                                <OntologyTermChip uri={c.valueUri} asLink>
                                   {c.value}
                                 </OntologyTermChip>
                               ) : (
@@ -1904,17 +2073,6 @@ function SampleMetaPopover({ assay }: { assay: BioAssay }) {
     </>
   );
 }
-
-/** Readable names for Gemma's ExtractedMolecule constants. */
-const EXTRACTED_MOLECULE_LABELS: Record<string, string> = {
-  totalRNA: "total RNA",
-  polyARNA: "poly(A)+ RNA",
-  cytoplasmicRNA: "cytoplasmic RNA",
-  nuclearRNA: "nuclear RNA",
-  genomicDNA: "genomic DNA",
-  protein: "protein",
-  other: "other molecule",
-};
 
 function SampleMetaField({
   label,
@@ -2277,6 +2435,7 @@ function AnalysisCard({
                 resultSet={rs}
                 datasetId={datasetId}
                 subsetSamplesLabel={subLabel ?? null}
+                isSubsetAnalysis={Boolean(analysis.isSubset)}
               />
             ))}
           </ul>
@@ -2286,6 +2445,10 @@ function AnalysisCard({
   );
 }
 
+/** How many of a factor's levels the row names before it collapses to
+ *  a count. Two fits on one line beside the DE columns. */
+const INLINE_LEVELS = 2;
+
 /** One result-set row: factor labels, baseline, DE counts + up/down
  *  split chip, and per-row "Top genes heatmap" / "Download TSV"
  *  actions. The heatmap expands inline below the row to keep the
@@ -2294,16 +2457,22 @@ function ResultSetRow({
   resultSet,
   datasetId,
   subsetSamplesLabel,
+  isSubsetAnalysis,
 }: {
   resultSet: DiffExNestedResultSet;
   datasetId: number;
   /** Subset cell-type / tissue label, threaded into the heatmap
    *  caption so the curator sees which samples the matrix is over. */
   subsetSamplesLabel: string | null;
+  /** Whether this row's analysis runs over a SUBSET of the experiment.
+   *  The top-genes route cannot serve those, so the heatmap's empty
+   *  state has to say which of the two it is looking at. */
+  isSubsetAnalysis: boolean;
 }) {
   const [heatmapOpen, setHeatmapOpen] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloadErr, setDownloadErr] = useState<string | null>(null);
+  const [levelsOpen, setLevelsOpen] = useState(false);
 
   const factorLabels = (resultSet.experimentalFactors ?? [])
     .map((f) => f.name?.trim() || f.category?.trim())
@@ -2411,16 +2580,48 @@ function ResultSetRow({
                 {contrastLabel}
               </span>
               <span className="text-[11px] text-slate-400">·</span>
-              {conditionTerms.map((t, i) => (
-                // Long ontology labels (e.g. gene-marker cell types) would
-                // otherwise run under the DE metric columns — cap the width
-                // so the label ellipsizes; the full term is on hover.
-                <span key={i} className="inline-flex min-w-0 max-w-[22rem]">
-                  <OntologyTermChip uri={t.uri} labelTitle={t.label}>
-                    {t.label}
-                  </OntologyTermChip>
-                </span>
-              ))}
+              {/* A factor with many levels used to spill every one of
+                  them across five wrapped lines, and the row's single DE
+                  number belongs to the result set as a whole, not to any
+                  one level — so the pile of chips looked like data it
+                  was not. Past two levels the row states the COUNT and
+                  the levels open on demand. GSE239820's treatment factor
+                  is the case: 6 levels, 4 of them differing only by a
+                  leading timepoint. */}
+              {conditionTerms.length > INLINE_LEVELS && !levelsOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setLevelsOpen(true)}
+                  className="text-[11px] text-slate-600 underline underline-offset-2 decoration-dotted hover:text-slate-900"
+                  title={conditionTerms.map((c) => c.label).join("\n")}
+                >
+                  {conditionTerms.length} levels
+                </button>
+              ) : (
+                <>
+                  {conditionTerms.map((t, i) => (
+                    // Long ontology labels (e.g. gene-marker cell types)
+                    // would otherwise run under the DE metric columns —
+                    // shorten from the middle so the label fits AND two
+                    // levels that differ only in their tail stay
+                    // distinguishable; the full term is on hover.
+                    <span key={i} className="inline-flex min-w-0 max-w-[22rem]">
+                      <OntologyTermChip uri={t.uri} labelTitle={t.label} asLink>
+                        {middleEllipsis(t.label)}
+                      </OntologyTermChip>
+                    </span>
+                  ))}
+                  {conditionTerms.length > INLINE_LEVELS ? (
+                    <button
+                      type="button"
+                      onClick={() => setLevelsOpen(false)}
+                      className="text-[11px] text-slate-500 underline underline-offset-2 decoration-dotted hover:text-slate-800"
+                    >
+                      fewer
+                    </button>
+                  ) : null}
+                </>
+              )}
               <span className="text-[11px] text-slate-400">vs</span>
               <span
                 className="text-[11px] text-slate-500 italic truncate max-w-[22rem]"
@@ -2516,6 +2717,7 @@ function ResultSetRow({
           onClose={() => setHeatmapOpen(false)}
         >
           <ResultSetHeatmap
+            isSubsetAnalysis={isSubsetAnalysis}
             datasetId={datasetId}
             resultSetId={resultSet.id}
             contrastLabel={contrastLabel}
@@ -3006,10 +3208,13 @@ function ResultSetHeatmap({
   contrastLabel,
   contrastFactorId,
   subsetSamplesLabel,
+  isSubsetAnalysis,
 }: {
   datasetId: number;
   resultSetId: number;
   contrastLabel: string;
+  /** See {@link ResultSetRow}. Decides which empty state is honest. */
+  isSubsetAnalysis: boolean;
   /** Owning contrast factor id — used to default the heatmap's group
    *  strips to the factor this result set actually contrasts. */
   contrastFactorId: number | null;
@@ -3100,9 +3305,37 @@ function ResultSetHeatmap({
     );
   }
   if (!data || !data.values.length) {
+    // Two different silences, and saying the wrong one sends a reader
+    // looking for missing data that is not missing.
+    //
+    // `GET /datasets/{id}/expressions/differential` answers 200 with an
+    // empty `geneExpressionLevels` for every result set belonging to a
+    // SUBSET analysis: the parent dataset's id does not resolve them,
+    // and the subset's own id (`bioAssaySetId`) is not a `/datasets/`
+    // resource, so there is no id to ask with. Measured on gemma2
+    // 2026-09-16 over a random sample: 7 whole-experiment result sets
+    // returned 23–50 genes, both subset ones returned 0, and all three
+    // of GSE239820's did.
+    //
+    // The stats themselves are fine either way — `/resultSets/{id}`
+    // serves the subset result sets, which is what Download TSV uses,
+    // so the row's counts and the download are unaffected.
+    //
+    // ⏳ This branch is TEMPORARY. It describes a backend bug, not a
+    // design limit: the vectors are stamped with the subset's id and
+    // the route matched them against the path's dataset id, so the
+    // filter never matched and the empty list was the result. A fix
+    // that makes the parent's id resolve subset result sets is written
+    // gemma-core-side (2026-09-16) and not yet on gemma2. When
+    // `/datasets/{parentId}/expressions/differential?diffExSet=573164`
+    // returns genes for GSE239820, drop the `isSubsetAnalysis` branch
+    // and the prop that feeds it — leaving it in would tell a reader a
+    // working feature is unavailable.
     return (
       <div className="mt-2 px-2 py-3 border border-slate-200 rounded text-xs text-slate-500 italic">
-        No expression vectors returned for this result set.
+        {isSubsetAnalysis
+          ? "Top-genes heatmaps aren't available for per-subset analyses — the expression route only answers for whole-experiment result sets. The DE counts and Download TSV are unaffected."
+          : "No expression vectors returned for this result set."}
       </div>
     );
   }
@@ -3155,14 +3388,19 @@ function ResultSetHeatmap({
         defaultPalette="ambsky"
         defaultRowScale
         defaultControlsOpen={false}
-        // DE result sets typically have a handful of samples (5–30)
-        // and 50 genes. We want the matrix dense, not poster-sized;
-        // the legacy Gemma popup paints cells ~14×11px which lets a
-        // 50×18 matrix fit on a ~400px-wide pane alongside legible row
-        // labels. Match that proportion as the minimum-target footprint.
-        // Curators can still pull the Cell H / Cell W sliders to grow
-        // the matrix from the Options popover.
-        defaultFitMode="expand"
+        // Cell caps: the legacy Gemma popup paints cells ~14×11px,
+        // which lets a 50×18 matrix fit on a ~400px-wide pane alongside
+        // legible row labels. Match that proportion as the target
+        // footprint. Readers can still pull the Cell H / Cell W sliders
+        // to grow the matrix from the Options popover.
+        //
+        // Squeeze, not expand: in expand mode cells hold 14px whatever
+        // the sample count, so a contrast over hundreds of samples
+        // (GSE48023) runs off the pane and the reader sees a slice of
+        // the matrix plus a scrollbar. Squeeze caps cells at the same
+        // 14px — small DE sets render identically — and shrinks or
+        // merges columns beyond that so the whole contrast is on screen.
+        defaultFitMode="squeeze"
         defaultMaxWidth={14}
         defaultMaxHeight={18}
         rowLabelGutterWidth={370}
@@ -3386,6 +3624,11 @@ function buildDeHeatmapPayload(
     return {
       id: ef.id,
       name: ef.name ?? label,
+      // The design endpoint's ``description`` — what the strip gutter
+      // labels the factor with, and what the side panel shows. Dropping
+      // it here left both reading "treatment" with no idea of what the
+      // treatment was.
+      description: ef.description ?? undefined,
       category: { label, uri: ef.category?.categoryUri ?? null },
       type: isContinuous ? "continuous" : "categorical",
       factor_values: (ef.values ?? []).map((fv) => {

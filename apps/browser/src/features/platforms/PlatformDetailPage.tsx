@@ -53,6 +53,7 @@ import {
   pickGenericPlatform,
   platformHasAnnotationFile,
   platformRouteParam,
+  type PlatformAnnotationFileType,
 } from "@/lib/platformConstants";
 
 const ELEMENTS_PAGE = 50;
@@ -308,6 +309,25 @@ function Stat({
 }
 
 /**
+ * Where one of a platform's three annotation files is downloaded from.
+ *
+ * Addresses the platform through `platformRouteParam`, not its raw
+ * short name: six short names carry a `/`, which Apache 404s in a path
+ * segment before it proxies (the helper's own comment lists them).
+ * None of the six is SEQUENCING, so `AnnotationFileCard` rendered all
+ * three rows and all three were dead. Measured on gemma2 2026-09-10:
+ * `/platforms/HG-U133A/B/Plus_2/annotations` and
+ * `/platforms/NIA_Mouse_17K_A/B/annotations` answer 404 where the same
+ * platforms by id (226, 1010) answer 200.
+ */
+export function platformAnnotationFileUrl(
+  p: { id: number; shortName?: string | null },
+  type: PlatformAnnotationFileType,
+): string {
+  return platformAnnotationsDownloadUrl(platformRouteParam(p), type);
+}
+
+/**
  * The platform's annotation file, offered as a download.
  *
  * This is NOT the ontology-annotation idea the dataset page shows —
@@ -334,7 +354,6 @@ function AnnotationFileCard({ platform: p }: { platform: Platform }) {
   if (!platformHasAnnotationFile(p.technologyType)) {
     return <SwitchedAnnotationFileCard platform={p} />;
   }
-  const id = p.shortName ?? p.id;
   return (
     <section className="bg-white border border-gemma-grid rounded-md p-5 space-y-3">
       <div className="text-xs uppercase tracking-wide font-semibold text-gemma-subtle">
@@ -351,7 +370,7 @@ function AnnotationFileCard({ platform: p }: { platform: Platform }) {
           <li key={v.type}>
             <a
               className="text-gemma-accent hover:underline"
-              href={platformAnnotationsDownloadUrl(id, v.type)}
+              href={platformAnnotationFileUrl(p, v.type)}
             >
               {v.label} (TSV)
             </a>

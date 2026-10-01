@@ -63,6 +63,24 @@ const MONO_INK_ON_DARK = "#ffffff";
 
 export const VARIANTS = ["colour", "mono"];
 
+/** Home-screen icon geometry. Separate constants from the favicon's because
+ *  the two are drawn under different rules:
+ *
+ *  - **Opaque ground.** iOS does not honour alpha in a home-screen icon; a
+ *    transparent pixel composites to BLACK. The mark's teal and oranges are
+ *    drawn for a light ground, so the tile carries white explicitly rather
+ *    than inheriting whatever the platform fills.
+ *  - **More margin.** iOS masks the tile to a squircle and Android may mask
+ *    a maskable icon to a circle, both of which cut the corners. At the
+ *    favicon's 2/64 the arcs sit where the mask bites. 12% keeps the whole
+ *    mark inside the safe area on either shape.
+ *
+ *  512 is the canvas because it is the largest size a manifest asks for;
+ *  every smaller raster is downsampled from this one cut. */
+const ICON_SIZE = 512;
+const ICON_MARGIN_RATIO = 0.12;
+const ICON_BACKGROUND = "#ffffff";
+
 /** Pull the mark apart into the two things every derived artifact needs.
  *  Shared with emit-mark-component.mjs so a change to the mark's file
  *  shape — paths wrapped in a `<g>`, say — breaks one place rather than
@@ -120,6 +138,34 @@ export function buildFaviconSvg(markSvg, variant = "colour") {
   ].join("\n");
 }
 
+/** Build the square, opaque home-screen icon from the mark's own source
+ *  text. Colour cut only — a home-screen tile is not a tab strip and has no
+ *  theme to match. Pure, like `buildFaviconSvg`. */
+export function buildAppIconSvg(markSvg) {
+  const { w, h, paths } = readMark(markSvg);
+  const margin = ICON_SIZE * ICON_MARGIN_RATIO;
+  const scale = (ICON_SIZE - 2 * margin) / h;
+  const dx = (ICON_SIZE - w * scale) / 2;
+  return [
+    `<!-- GENERATED (app-icon cut) by packages/assets/scripts/emit-favicon.mjs`,
+    `     from packages/assets/src/images/logo/gemma-mark.svg — do not edit by hand.`,
+    `     Rasters come from this file; run \`npm run emit:app-icons\`. -->`,
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${ICON_SIZE} ${ICON_SIZE}" width="${ICON_SIZE}" height="${ICON_SIZE}" role="img" aria-label="Gemma">`,
+    `<rect width="${ICON_SIZE}" height="${ICON_SIZE}" fill="${ICON_BACKGROUND}"/>`,
+    `<g transform="translate(${dx.toFixed(3)} ${margin.toFixed(3)}) scale(${scale.toFixed(6)})">`,
+    ...paths.map((p) => `  ${p}`),
+    `</g>`,
+    `</svg>`,
+    ``,
+  ].join("\n");
+}
+
+export const APP_ICON = {
+  SIZE: ICON_SIZE,
+  MARGIN_RATIO: ICON_MARGIN_RATIO,
+  BACKGROUND: ICON_BACKGROUND,
+};
+
 // Only write when run as a script — importing this module (the tests do)
 // must not touch the working tree.
 if (
@@ -135,11 +181,14 @@ if (
   const out = arg("out");
   if (!out) {
     process.stderr.write(
-      "usage: emit-favicon.mjs --out <path> [--variant colour|mono]\n",
+      "usage: emit-favicon.mjs --out <path> [--variant colour|mono|app-icon]\n",
     );
     process.exit(2);
   }
-  const svg = buildFaviconSvg(readFileSync(MARK_PATH, "utf8"), variant);
+  const svg =
+    variant === "app-icon"
+      ? buildAppIconSvg(readFileSync(MARK_PATH, "utf8"))
+      : buildFaviconSvg(readFileSync(MARK_PATH, "utf8"), variant);
   writeFileSync(resolve(out), svg);
   process.stdout.write(`emit-favicon: wrote ${resolve(out)} (${variant})\n`);
 }

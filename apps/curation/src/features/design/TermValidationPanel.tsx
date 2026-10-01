@@ -65,6 +65,17 @@ const STATUS_COPY: Record<
     label: "wrong label",
     cls: "bg-red-50 border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300",
   },
+  // Red, and the same red as `label_mismatch` — both are "we checked
+  // and this is wrong", which is the axis this palette encodes. Grey
+  // is reserved for "we did not check", and that is the whole reason
+  // this status was split out of `unknown`: a fabricated EFO_9999999
+  // used to wear the same not-checked chip as a real `derives from`.
+  // The wording names the claim rather than the fix — there is no fix
+  // to offer here, no canonical label and no successor.
+  not_found: {
+    label: "term does not exist",
+    cls: "bg-red-50 border-red-300 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300",
+  },
   non_canonical: {
     label: "non-canonical",
     cls: "bg-amber-50 border-amber-200 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-300",
@@ -242,6 +253,19 @@ export function TermValidationPanel({
                   {result.status === "label_mismatch" && ref?.uri ? (
                     <span className="font-mono"> for {shortenUri(ref.uri)}</span>
                   ) : null}
+                  {/* For a fabricated term the URI IS the finding, so
+                      the badge carries it rather than making a curator
+                      go look at the binding to see which ID is the bad
+                      one. `canonical_uri` echoes the URI that failed;
+                      the ref is preferred because that is the string
+                      actually on screen. */}
+                  {result.status === "not_found" &&
+                  (ref?.uri || result.canonical_uri) ? (
+                    <span className="font-mono">
+                      {" "}
+                      {shortenUri(ref?.uri ?? result.canonical_uri ?? "")}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="min-w-0">
                   <span className="font-mono">{ref?.label ?? result.id}</span>
@@ -364,6 +388,21 @@ export function TermValidationPanel({
                       off the Gemma import) the cue stops at the fact
                       rather than asking for something that can't be
                       done. */}
+                  {/* The exit. A `not_found` row carries no canonical
+                      label and no successor — the agent has nothing to
+                      offer, because the URI names nothing — so the row
+                      would otherwise state a problem and stop. Where
+                      the term isn't editable from here (a sample
+                      characteristic off the Gemma import carries no
+                      locator) it stops at the fact rather than asking
+                      for something that can't be done here. */}
+                  {result.status === "not_found" ? (
+                    <span className="text-slate-500 dark:text-slate-400">
+                      {" · "}
+                      the URI names no term
+                      {ref?.locator ? " — re-pick a term" : ""}
+                    </span>
+                  ) : null}
                   {result.status === "obsolete" && !successor ? (
                     <span className="text-slate-500 dark:text-slate-400">
                       {" · "}
@@ -486,6 +525,12 @@ function isTombstoneOf(
  * in copy: Gemma's category list resolves the categories the index
  * can't name before this line ever counts them. What is left is a
  * genuine gap, so name the terms and stop.
+ *
+ * "Neither could name" is the accurate description as of 2026-09-16:
+ * the check asks Gemma before it answers, so a URI its own index
+ * doesn't carry can still come back named. A URI Gemma DOES disown, in
+ * a namespace the index carries, is `not_found` and is a red row —
+ * this line counts only what is left over.
  */
 function notCheckedTooltip(run: TermValidationRun): string {
   const names = [...run.byKey.values()]
@@ -495,9 +540,9 @@ function notCheckedTooltip(run: TermValidationRun): string {
   const shown = names.slice(0, 6).join(", ");
   const more = names.length > 6 ? ` +${names.length - 6} more` : "";
   return (
-    "The ontology index has no entry for these URIs, so there was no " +
-    "term name to compare the stored label against. They were skipped, " +
-    "not judged — nothing here is a reported problem." +
+    "Neither the ontology index nor Gemma could name these URIs, so " +
+    "there was no term name to compare the stored label against. They " +
+    "were skipped, not judged — nothing here is a reported problem." +
     (shown ? `\n\n${shown}${more}` : "")
   );
 }

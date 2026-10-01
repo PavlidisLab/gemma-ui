@@ -163,6 +163,17 @@ export interface ProvenanceRef {
   doi?: string | null;
   /** Display convenience and last-resort match. NOT the key. */
   target_id?: string | null;
+  /** A tag's own evidence, carried straight off the design wire (same
+   *  object `category_uri`/`value_uri` came from) — not an identity
+   *  field and never matched on. Lets the client-side join
+   *  (`assembleTraces`, remote mode) recover a trace for a tag written
+   *  straight to Gemma with no tracked proposal/review, the same gap
+   *  `augment_traces_with_gemma_tag_evidence` closes store-side. Local
+   *  mode's store ignores unknown fields (`extra="ignore"`) and does
+   *  its own live-Gemma fallback, so sending these there is harmless
+   *  and unused. */
+  supporting_evidence?: FindingEvidence[] | null;
+  evidence_code?: string | null;
 }
 
 /**

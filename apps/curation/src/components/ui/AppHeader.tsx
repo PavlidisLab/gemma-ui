@@ -192,6 +192,7 @@ export function AppHeader({
         {onDashboard ? null : (
           <ExperimentQuickSearch
             variant="compact"
+            excludeExperimentId={experimentId}
             onSelect={(id, ticketId) =>
               navigate(
                 `#/experiments/${id}${ticketId ? `?ticket=${ticketId}` : ""}`,

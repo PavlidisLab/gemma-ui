@@ -511,3 +511,63 @@ describe("CompactFindingCard — displayed URI matches the applied URI", () => {
     expect(html).not.toContain("CLO_0002405");
   });
 });
+
+describe("CompactFindingCard — a free-text replacement renders ungrounded", () => {
+  // ``set_statement_subject`` / ``set_statement_object`` carry
+  // ``free_text: true`` INSTEAD OF ``new_value_uri`` when the slot being
+  // replaced is itself free text — an allele string like ``K263E/?`` →
+  // ``K263E/K263E`` (agents 7a8c538). The accept writes an unbound
+  // string, so the chip must not read as an ontology term.
+  const freeTextFinding = (extra: Record<string, unknown> = {}) =>
+    ({
+      target_kind: "fv",
+      target_id: "fv:genotype/pten-k263e",
+      severity: "major",
+      issue_code: "statement_subject_wrong",
+      rationale: "",
+      rationale_summary: "",
+      rationale_bin: "",
+      citation: "",
+      citation_url: "",
+      supporting_evidence: [],
+      why: null,
+      reviews: [],
+      comparison: null,
+      proposer_term: {
+        label: "K263E/K263E",
+        uri: "http://purl.obolibrary.org/obo/SO_0001059",
+      },
+      apply_action: {
+        kind: "set_statement_subject",
+        match: { subject: "K263E/?" },
+        new_value: "K263E/K263E",
+        ...extra,
+      },
+    }) as unknown as AuditFinding;
+
+  it("shows the value without its proposer_term URI", () => {
+    const finding = freeTextFinding({ free_text: true });
+    const { container } = renderWithProviders(
+      <CompactFindingCard finding={finding} />,
+      {
+        audit: makeAuditCtx({ findings: [finding] }),
+        draft: makeDraftCtx(emptyDraft()),
+      },
+    );
+    const html = container.innerHTML;
+    expect(html).toContain("K263E/K263E");
+    expect(html).not.toContain("SO_0001059");
+  });
+
+  it("the same finding without the flag still renders the term", () => {
+    const finding = freeTextFinding();
+    const { container } = renderWithProviders(
+      <CompactFindingCard finding={finding} />,
+      {
+        audit: makeAuditCtx({ findings: [finding] }),
+        draft: makeDraftCtx(emptyDraft()),
+      },
+    );
+    expect(container.innerHTML).toContain("SO_0001059");
+  });
+});

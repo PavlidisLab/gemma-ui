@@ -18,7 +18,9 @@ export type TabId =
   | "qt"
   | "history"
   | "pipeline"
-  | "single-cell";
+  | "single-cell"
+  | "gene-expression"
+  | "differential-expression";
 
 // Order mirrors the Confluence Experiment Checklist workflow:
 // design / sample details before QC, real expression diagnostics
@@ -36,6 +38,8 @@ export const EXPERIMENT_TABS: { id: TabId; label: string }[] = [
   { id: "diagnostics", label: "Diagnostics" },
   { id: "qt", label: "Quantitation types" },
   { id: "single-cell", label: "Single-cell" },
+  { id: "gene-expression", label: "Gene expression" },
+  { id: "differential-expression", label: "Differential expression" },
   { id: "history", label: "History" },
   { id: "pipeline", label: "Pipeline" },
 ];

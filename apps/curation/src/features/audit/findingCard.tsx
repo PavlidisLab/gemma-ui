@@ -554,7 +554,7 @@ export function CompactFindingCard({
                             —
                           </span>
                           <Term
-                            uri={finding.proposer_term.uri ?? null}
+                            uri={findingProposedUris(finding).valueUri}
                             asLink={false}
                             className="!whitespace-normal break-words"
                           >
@@ -936,7 +936,7 @@ export function CompactFindingCard({
                       —
                     </span>
                     <Term
-                      uri={finding.proposer_term.uri ?? null}
+                      uri={findingProposedUris(finding).valueUri}
                       asLink={false}
                       className="!whitespace-normal break-words"
                     >

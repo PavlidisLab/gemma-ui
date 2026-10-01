@@ -117,6 +117,7 @@ export function buildContinuousStrip(
   return {
     kind: 'continuous',
     name: factor.name,
+    description: factor.description,
     values,
     scale,
     palette,

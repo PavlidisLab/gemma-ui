@@ -167,6 +167,12 @@ export function resolveApplyAction(
   );
   if (statementsApply) return statementsApply;
 
+  const statementSlotApply = resolveSetStatementSlotApply(
+    finding,
+    ctx?.design ?? null,
+  );
+  if (statementSlotApply) return statementSlotApply;
+
   // Calibration findings carry a custom target_id shape
   // (``calibration:<status>:<category>/<value>``) the standard
   // parser doesn't recognise, so we handle them ahead of the
@@ -1987,6 +1993,121 @@ function resolveReplaceStatementsApply(
       }));
     },
     appliedFix: `replace ${from} → ${to}`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// set_statement_subject / set_statement_object — re-term one statement slot
+// ---------------------------------------------------------------------------
+
+type SetStatementSlotAction = Extract<
+  NonNullable<AuditFinding["apply_action"]>,
+  { kind: "set_statement_subject" | "set_statement_object" }
+>;
+
+function setStatementSlotAction(
+  finding: AuditFinding,
+): SetStatementSlotAction | null {
+  const aa = finding.apply_action;
+  if (
+    !aa ||
+    (aa.kind !== "set_statement_subject" && aa.kind !== "set_statement_object")
+  ) {
+    return null;
+  }
+  return aa as SetStatementSlotAction;
+}
+
+/** The single row ``match`` names on the finding's target FV. Null when
+ *  it resolves to zero or more than one row — an ambiguous match must
+ *  not silently pick one. */
+function locateStatementSlot(
+  finding: AuditFinding,
+  action: SetStatementSlotAction,
+  design: Design,
+): { factor: Factor; fv: FactorValue; index: number } | null {
+  const match = action.match;
+  if (!match) return null;
+  const target = resolveTargetFv(finding, design);
+  if (!target) return null;
+  const indices = target.fv.statements.flatMap((s, i) =>
+    statementMatchesSlots(s, match) ? [i] : [],
+  );
+  return indices.length === 1 ? { ...target, index: indices[0] } : null;
+}
+
+/** Apply for ``set_statement_subject`` / ``set_statement_object``:
+ *  re-term ONE slot of the statement ``match`` names, label and URI
+ *  together, leaving the statement's other slots untouched. When
+ *  ``free_text`` is set the replacement is unbound prose (an allele
+ *  string such as ``K263E/?`` → ``K263E/K263E``), not a grounding the
+ *  agent failed to find — see ``findingValueIsFreeText``. */
+function resolveSetStatementSlotApply(
+  finding: AuditFinding,
+  design: Design | null,
+): ApplyAction | null {
+  const action = setStatementSlotAction(finding);
+  if (!action || !design) return null;
+  const newValue = action.new_value?.trim();
+  if (!newValue) return null;
+  const newValueUri = action.free_text ? null : action.new_value_uri?.trim() || null;
+  const role: "subject" | "object" =
+    action.kind === "set_statement_object" ? "object" : "subject";
+  const target = resolveTargetFv(finding, design);
+  if (!target) return null;
+  const fvLabel = target.fv.free_text_label;
+
+  const hit = locateStatementSlot(finding, action, design);
+  if (!hit) {
+    // Idempotency: the slot already reads the replacement (label, and
+    // URI when one was proposed). Say so, so a second Agree isn't a
+    // dead button.
+    const already = target.fv.statements.some((s) => {
+      const term = role === "object" ? s.object : s.subject;
+      return (
+        labelEq(term?.label, newValue) &&
+        (newValueUri ? uriEq(term?.uri, newValueUri) : true)
+      );
+    });
+    if (already) {
+      return {
+        mutates: false,
+        label: "✓ Already applied",
+        tooltip: `The ${role} on "${fvLabel}" is already "${newValue}". Agree to record the ruling without re-applying.`,
+        successMessage: "",
+      };
+    }
+    return null;
+  }
+
+  const current = hit.fv.statements[hit.index];
+  const from = (role === "object" ? current.object : current.subject)?.label ?? "(unset)";
+  return {
+    mutates: true,
+    label: "Agree →",
+    tooltip:
+      `Re-term the ${role} from "${from}" to "${newValue}"` +
+      `${newValueUri ? ` (${newValueUri})` : ""} on factor value "${fvLabel}". ` +
+      `Commit the draft to save.`,
+    successMessage: `Re-termed ${role} "${from}" → "${newValue}" on "${fvLabel}". Commit to save.`,
+    mutate: (draft) => {
+      const currentHit = locateStatementSlot(finding, action, draft);
+      if (!currentHit) return draft;
+      const row = currentHit.fv.statements[currentHit.index];
+      const term: OntologyTerm = { label: newValue, uri: newValueUri };
+      const patched: Statement = {
+        ...row,
+        ...(role === "object" ? { object: term } : { subject: term }),
+      };
+      return setStatement(
+        draft,
+        currentHit.factor.id,
+        currentHit.fv.id,
+        currentHit.index,
+        patched,
+      );
+    },
+    appliedFix: finding.suggested_fix?.trim() || `re-term ${role} ${from} → ${newValue}`,
   };
 }
 

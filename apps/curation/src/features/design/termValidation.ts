@@ -126,6 +126,22 @@ function normLabel(s: string | null | undefined): string {
  * publishes.
  * Any future "we couldn't judge this" status belongs in this guard too.
  *
+ * 🛑 `not_found` deliberately does NOT, and it is a reachable case,
+ * not a hypothetical one. The agents-side carve-out
+ * (`_is_gemma_category_uri`) reads a static table of its own
+ * (`category_filter._PUBLISHED_URI_TO_LOCAL`), so a category URI that
+ * neither table carries yet is carved out on neither side and arrives
+ * here fabricated. That is two Gemma surfaces disagreeing about
+ * whether a URI names a term — precisely what a curator should see,
+ * and rewriting it to `ok` would hide the disagreement in the one
+ * place someone could act on it.
+ *
+ * The asymmetry: `unknown` and `obsolete` are statements about our
+ * CHECKER's reach, and a URI Gemma publishes as a category outranks
+ * that. `not_found` is a statement about Gemma's own term service, so
+ * overriding it with another Gemma surface just picks a winner
+ * silently. Settled 2026-09-16 with the agents side.
+ *
  * Returns `null` when there is nothing to say.
  */
 const CATEGORY_OVERRIDABLE: ReadonlySet<string> = new Set([
@@ -282,8 +298,8 @@ export function runIsStale(
 /**
  * Whether a status earns an inline mark on the chip.
  *
- * Only `label_mismatch` does. The other three are all reasons NOT to
- * mark:
+ * `label_mismatch` and `not_found` do. The other four are all reasons
+ * NOT to mark:
  *  - `ok` needs no chrome.
  *  - `unknown` is the validator's index having no entry for the URI.
  *    That is not an error and not even a suspicion — the check simply
@@ -299,11 +315,18 @@ export function runIsStale(
  *    the annotation was right when it was made, so it is a job for
  *    the worklist, not a mark on a chip a curator is reading past.
  *
+ * `not_found` marks for the same reason `label_mismatch` does, and it
+ * is the harder case: the URI names nothing at all. Grouping it with
+ * `unknown` — the other verdict the index couldn't name — would hand a
+ * fabricated `EFO_9999999` the same grey "not checked" chip as
+ * `derives from`, which is the ambiguity the agents-side split was
+ * made to remove (`CAB_TO_UIB_2026_09_16_VALIDATE_TERMS_HAS_A_SIXTH_VERDICT_NOT_FOUND_AND_IT_IS_THE_RED_ONE.md`).
+ *
  * Single source of truth on purpose: the moment this predicate exists
  * in two places, one of them starts marking `unknown`.
  */
 export function statusEarnsInlineMark(status: TermValidationStatus): boolean {
-  return status === "label_mismatch";
+  return status === "label_mismatch" || status === "not_found";
 }
 
 /**
@@ -335,8 +358,16 @@ export function statusEarnsInlineMark(status: TermValidationStatus): boolean {
  * declares, so the row can offer the repair rather than just the
  * complaint. It sits above `non_canonical` because "this term is dead"
  * outranks "this term is spelled a non-preferred way".
+ *
+ * `not_found` is first. It is the only verdict that says the binding
+ * points at nothing — a label mismatch still names a real term, an
+ * obsolete one named a real term until upstream retired it. It is also
+ * the only row here with no repair to offer: no `canonical_label` and
+ * no successor, because there is nothing to re-bind to, so the row
+ * says what happened and asks for a different term.
  */
 export const SUMMARY_STATUS_ORDER: TermValidationStatus[] = [
+  "not_found",
   "label_mismatch",
   "obsolete",
   "non_canonical",

@@ -3,6 +3,7 @@ import { groupStatementsBySharedSubject } from "@gemma/ontology";
 import { geneDisplayLabel } from "@/lib/gene";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useDesignDraft } from "@/features/design/DesignDraftContext";
+import { inferModality } from "@/features/experiment/modality";
 import {
   addCategoricalFactorFromCharacteristic,
   addContinuousFactorFromCharacteristic,
@@ -18,6 +19,12 @@ import { CurieLink } from "@/components/ui/CurieLink";
 import { useStickyState, useSessionState } from "@/lib/useStickyState";
 import { useEscape } from "@/lib/useEscape";
 import { fvDisplayLabel } from "@/features/samples/fvLabels";
+import {
+  canvasTextMeasurer,
+  fitColumnWidths,
+  fontOf,
+  type FitColumnInput,
+} from "@/features/samples/fitColumns";
 import type {
   Biomaterial,
   Design,
@@ -41,6 +48,7 @@ import { onSamplesScrollRow } from "@/lib/scrollToSample";
 import { tintForIndex, compareValuesNatural } from "@/lib/valueTint";
 import { capitalizeCategory } from "@/lib/ontologyTerm";
 import { BiomaterialMetaPopover } from "./BiomaterialMetaPopover";
+import { geoSampleFor, useSourceMetadata } from "@/api/sourceMetadata";
 import { EvidenceTrigger } from "@/features/audit/EvidencePopover";
 import { evidenceSourceMeta } from "@/features/audit/evidenceSource";
 import { characteristicEvidence } from "@/features/experiment/characteristicValues";
@@ -258,14 +266,26 @@ function SampleTable({
     () => collectCharacteristicKeys(design.biomaterials),
     [design.biomaterials],
   );
-  const fvByBmPerFactor = useMemo(
-    () =>
-      design.factors.map((f) => ({
+  // A single-cell experiment's cell types live on its subsets
+  // (cell-level), never on the biomaterial itself — see
+  // SingleCellPanel's "belongs to no factor" note. A `cell type`
+  // Factor here can never carry real per-sample assignments, so
+  // every row would show as unassigned and invite a curator to
+  // hand-assign cell types that don't apply at the sample level.
+  // Keep the column on the Single-cell tab only.
+  const fvByBmPerFactor = useMemo(() => {
+    const isSingleCell = inferModality(design) === "single-cell";
+    return design.factors
+      .filter(
+        (f) =>
+          !isSingleCell ||
+          (f.category.label || "").trim().toLowerCase() !== "cell type",
+      )
+      .map((f) => ({
         factor: f,
         index: indexFvByBiomaterial(f),
-      })),
-    [design.factors],
-  );
+      }));
+  }, [design]);
   // Char keys whose values are mostly numeric — eligible for the
   // "promote to continuous factor" affordance in the column header.
   // Computed once across the whole cohort so flipping the threshold
@@ -508,6 +528,31 @@ function SampleTable({
     [design.biomaterials],
   );
 
+  // GEO's own sentence about each sample, keyed by the biomaterial it
+  // belongs to. It lives on the source record, not on the curation
+  // wire — neither `Biomaterial` nor its `bio_assays` carry a
+  // description — so this is the only place it can come from.
+  //
+  // 🛑 `accession` first, `short_name` only as the fallback, the same
+  // join `BiomaterialMetaPopover` uses: `short_name` is a GSM only when
+  // Gemma minted the name with a pipe, and a miss reads exactly like a
+  // sample with no description.
+  const sourceMeta = useSourceMetadata(design.experiment_id);
+  const descByShortName = useMemo(() => {
+    const doc =
+      sourceMeta.data?.state === "document" ? sourceMeta.data.doc : undefined;
+    const out = new Map<string, string>();
+    if (!doc) return out;
+    for (const b of design.biomaterials) {
+      const text = (
+        geoSampleFor(doc, b.accession || b.short_name)?.description ?? ""
+      ).trim();
+      if (text) out.set(b.short_name, text);
+    }
+    return out;
+  }, [sourceMeta.data, design.biomaterials]);
+  const hasDescription = descByShortName.size > 0;
+
   // Column-filtering state: a substring search over column labels,
   // and a toggle that hides any column whose value is identical
   // across every visible row. ``hideConstant`` is sticky across
@@ -528,6 +573,17 @@ function SampleTable({
     "samples.colWidths",
     {},
   );
+  /** A column's own `max-w-*` cap, dropped once the column carries a
+   *  pinned width.
+   *
+   *  🛑 The cap and the pin fight each other: `SortableTh` pins the
+   *  column via min/width/max, but a cell capped at `max-w-[16rem]`
+   *  keeps truncating at 16rem inside it — so widening a column past
+   *  its cap, by dragging or by "fit columns", revealed nothing. The
+   *  pinned width is the curator's answer to how wide this column
+   *  should be; the cap is only there for the auto-sized case. */
+  const cellCap = (colKey: string, cap: string) =>
+    colWidths[colKey] ? "" : cap;
   const setColWidth = (colKey: string, width: number | null) => {
     setColWidths((prev) => {
       if (width == null) {
@@ -676,6 +732,7 @@ function SampleTable({
     const out: string[] = [];
     if (hasDistinctBmName) out.push("name");
     if (hasBioAssays) out.push("bio_assay");
+    if (hasDescription) out.push("description");
     for (const { factor } of orderedFactors) {
       out.push(`factor:${factor.id}`);
     }
@@ -683,7 +740,13 @@ function SampleTable({
       out.push(`char:${k}`);
     }
     return out;
-  }, [hasBioAssays, hasDistinctBmName, orderedFactors, visibleCharKeys]);
+  }, [
+    hasBioAssays,
+    hasDescription,
+    hasDistinctBmName,
+    orderedFactors,
+    visibleCharKeys,
+  ]);
 
   const [savedColOrder, setSavedColOrder] = useSessionState<string[]>(
     `samples.colOrder.${design.experiment_id}`,
@@ -809,8 +872,8 @@ function SampleTable({
   }, [design.biomaterials, filter, charKeys, fvByBmPerFactor]);
 
   const sorted = useMemo(
-    () => sortBiomaterials(filtered, sort, fvByBmPerFactor),
-    [filtered, sort, fvByBmPerFactor],
+    () => sortBiomaterials(filtered, sort, fvByBmPerFactor, descByShortName),
+    [filtered, sort, fvByBmPerFactor, descByShortName],
   );
 
   // Per-column "first-seen-value index" map. For each column,
@@ -1060,6 +1123,96 @@ function SampleTable({
     // ref'd element, which works fine on a table row.
   });
 
+  /** A `<select>`'s arrow and padding, plus the fixed confidence-
+   *  warning slot beside it. The label shares the cell with all of
+   *  it, so a factor column fitted to the label alone still cuts. */
+  const SELECT_CHROME = 48;
+  /** The audit dot and the "i" chip that follow the short name. */
+  const SHORT_NAME_CHROME = 44;
+
+  /**
+   * Fit every visible column to its own content, in one click.
+   *
+   * Widths go through the same `colWidths` the drag handle writes, so
+   * a fitted column is a pinned column: it can be dragged afterwards,
+   * reset one at a time by double-clicking its handle, or cleared
+   * wholesale by "reset widths".
+   *
+   * 🛑 Measured from the DATA, not the rendered rows — the body is
+   * virtualized, so the DOM only ever holds the rows near the
+   * viewport and a DOM pass would fit the columns to wherever the
+   * curator happened to have scrolled.
+   */
+  const fitAllColumns = () => {
+    const table = scrollRef.current?.querySelector("table") ?? null;
+    const measure = canvasTextMeasurer(fontOf(table));
+    // No canvas to measure with: leave the widths alone rather than
+    // pin every column to a guess.
+    if (!measure) return;
+    const bms = sorted;
+    const cols: FitColumnInput[] = [
+      {
+        key: "short_name",
+        header: "short name",
+        values: bms.map((b) => b.short_name),
+        chrome: SHORT_NAME_CHROME,
+      },
+    ];
+    for (const key of orderedMovableKeys) {
+      if (key === "name") {
+        cols.push({
+          key,
+          header: "name",
+          values: bms.map((b) => b.name ?? ""),
+        });
+      } else if (key === "description") {
+        cols.push({
+          key,
+          header: "description",
+          values: bms.map((b) => descByShortName.get(b.short_name) ?? ""),
+        });
+      } else if (key === "bio_assay") {
+        cols.push({
+          key,
+          header: "bio_assay",
+          values: bms.flatMap((b) =>
+            (b.bio_assays ?? []).map((a) => a.short_name ?? ""),
+          ),
+        });
+      } else if (key.startsWith("char:")) {
+        const k = key.slice("char:".length);
+        if (!visibleCharKeys.includes(k)) continue;
+        cols.push({
+          key,
+          header: k,
+          values: bms.map((b) => b.characteristics?.[k] ?? ""),
+        });
+      } else if (key.startsWith("factor:")) {
+        const fid = Number(key.slice("factor:".length));
+        const entry = orderedFactors.find((e) => e.factor.id === fid);
+        if (!entry) continue;
+        const { factor } = entry;
+        cols.push({
+          key,
+          header: factor.name || `factor#${factor.id}`,
+          // Only values something is assigned to can appear in a
+          // cell; the rest are options in the open dropdown, which
+          // is free to be wider than the column.
+          values: factor.factor_values
+            .filter((fv) => (fv.biomaterial_short_names ?? []).length > 0)
+            .map(
+              (fv) =>
+                fvDisplayLabel(fv, factor.factor_values, { compact: true })
+                  .text,
+            ),
+          chrome: SELECT_CHROME,
+        });
+      }
+    }
+    const fitted = fitColumnWidths(cols, measure);
+    setColWidths((prev) => ({ ...prev, ...fitted }));
+  };
+
   // Cross-tab "jump to this sample" — see scrollToSample.ts. When
   // the target row's index is currently outside the virtualized
   // window we ask the virtualizer to scroll to it first, then on
@@ -1199,6 +1352,24 @@ function SampleTable({
               title="reset column order to the default (factors then characteristics)"
             >
               reset column order
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="text-[11px] text-slate-500 hover:text-slate-900 underline underline-offset-2"
+            onClick={fitAllColumns}
+            title="Widen every column to fit what is in it, so nothing is cut off. Drag a handle to adjust one afterwards, or double-click a handle to put that column back to auto. A column of run-on text stops at 640px."
+          >
+            fit columns
+          </button>
+          {Object.keys(colWidths).length > 0 ? (
+            <button
+              type="button"
+              className="text-[11px] text-slate-500 hover:text-slate-900 underline underline-offset-2"
+              onClick={() => setColWidths({})}
+              title="drop every column width — back to browser auto-sizing"
+            >
+              reset widths
             </button>
           ) : null}
           <span
@@ -1410,6 +1581,20 @@ function SampleTable({
                       onSortChange={onSortChange}
                       width={colWidths["name"]}
                       onResize={(w) => setColWidth("name", w)}
+                      {...dragHandlers}
+                    />
+                  );
+                }
+                if (key === "description") {
+                  return (
+                    <SortableTh
+                      key="description"
+                      label="description"
+                      colKey="description"
+                      sort={sort}
+                      onSortChange={onSortChange}
+                      width={colWidths["description"]}
+                      onResize={(w) => setColWidth("description", w)}
                       {...dragHandlers}
                     />
                   );
@@ -1754,7 +1939,10 @@ function SampleTable({
                       return (
                         <td
                           key={`${repr.short_name}-name`}
-                          className="px-3 py-0.5 text-slate-700 whitespace-nowrap max-w-[16rem] truncate"
+                          className={cn(
+                            "px-3 py-0.5 text-slate-700 whitespace-nowrap truncate",
+                            cellCap("name", "max-w-[16rem]"),
+                          )}
                           title={repr.name}
                         >
                           {/* Read-only: provenance, not a curation
@@ -1770,6 +1958,30 @@ function SampleTable({
                               not. */}
                           {repr.name ? (
                             <span>{repr.name}</span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                      );
+                    }
+                    if (key === "description") {
+                      // GEO's free text, one line like the name column.
+                      // Descriptions run long — several sentences of
+                      // protocol — so the cell truncates and the whole
+                      // thing is the tooltip, with the popover holding
+                      // it wrapped for anything longer than a hover.
+                      const text = descByShortName.get(repr.short_name) ?? "";
+                      return (
+                        <td
+                          key={`${repr.short_name}-desc`}
+                          className={cn(
+                            "px-3 py-0.5 text-slate-700 whitespace-nowrap truncate",
+                            cellCap("description", "max-w-[24rem]"),
+                          )}
+                          title={text || undefined}
+                        >
+                          {text ? (
+                            <span>{text}</span>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
@@ -1881,7 +2093,16 @@ function SampleTable({
                             cellTint ? { backgroundColor: cellTint } : undefined
                           }
                         >
-                          <span className="inline-flex items-center gap-1">
+                          <span
+                            className={cn(
+                              "inline-flex items-center gap-1",
+                              // A pinned column is as wide as the
+                              // curator asked for; the dropdown takes
+                              // the room rather than sitting at its
+                              // own 14rem cap with the rest empty.
+                              colWidths[key] ? "flex w-full" : "",
+                            )}
+                          >
                             {/* Confidence-warning slot — fixed width so
                                 rows with a warning don't push the
                                 FvSelect right vs rows without one.
@@ -1917,6 +2138,7 @@ function SampleTable({
                               factor={factor}
                               currentFvId={agg.fvId}
                               isMixed={agg.isMixed}
+                              fill={!!colWidths[key]}
                               onChange={(fvId) => {
                                 for (const sn of allShortNames) {
                                   onReassign(sn, factor.id, fvId);
@@ -1975,7 +2197,8 @@ function SampleTable({
                         <td
                           key={`${repr.short_name}-${k}`}
                           className={cn(
-                            "px-3 py-0.5 border-l border-slate-100 whitespace-nowrap max-w-[16rem] truncate",
+                            "px-3 py-0.5 border-l border-slate-100 whitespace-nowrap truncate",
+                            cellCap(key, "max-w-[16rem]"),
                             agg.isMixed
                               ? "italic text-slate-500"
                               : isOntology
@@ -2403,10 +2626,16 @@ function FvSelect({
   factor,
   currentFvId,
   isMixed,
+  fill,
   onChange,
 }: {
   factor: Factor;
   currentFvId: number | null;
+  /** Take the whole cell instead of the default 14rem cap — set when
+   *  the factor column carries a pinned width, so a column widened
+   *  on purpose (dragged, or "fit columns") shows the whole label
+   *  rather than ellipsizing it with empty cell beside it. */
+  fill?: boolean;
   /** True when this row represents a collapsed group of BioMaterials
    *  whose siblings disagree on this factor. Visually flags the
    *  cell as a curation smell — design factors should apply at the
@@ -2473,7 +2702,8 @@ function FvSelect({
         if (Number.isFinite(id) && (isMixed || id !== currentFvId)) onChange(id);
       }}
       className={cn(
-        "text-xs border rounded px-1 py-0.5 bg-white max-w-[14rem] truncate",
+        "text-xs border rounded px-1 py-0.5 bg-white truncate",
+        fill ? "flex-1 min-w-0 w-full" : "max-w-[14rem]",
         stateCls,
       )}
       // Native ``title`` only on cells without statements to surface —
@@ -2946,13 +3176,14 @@ function sortBiomaterials(
   rows: Biomaterial[],
   sort: SortState,
   fvByBmPerFactor: { factor: Factor; index: Map<string, { label: string; fv_id: number }> }[],
+  descByShortName?: Map<string, string>,
 ): Biomaterial[] {
   const copy = rows.slice();
   const dir = sort.dir === "asc" ? 1 : -1;
 
   const cmp = (a: Biomaterial, b: Biomaterial): number => {
-    const av = sortValue(a, sort.key, fvByBmPerFactor);
-    const bv = sortValue(b, sort.key, fvByBmPerFactor);
+    const av = sortValue(a, sort.key, fvByBmPerFactor, descByShortName);
+    const bv = sortValue(b, sort.key, fvByBmPerFactor, descByShortName);
     if (av === bv) return 0;
     // empty values sort last regardless of direction
     if (av === "" && bv !== "") return 1;
@@ -2970,9 +3201,12 @@ function sortValue(
   b: Biomaterial,
   key: string,
   fvByBmPerFactor: { factor: Factor; index: Map<string, { label: string; fv_id: number }> }[],
+  descByShortName?: Map<string, string>,
 ): string {
   if (key === "short_name") return b.short_name.toLowerCase();
   if (key === "name") return (b.name ?? "").toLowerCase();
+  if (key === "description")
+    return (descByShortName?.get(b.short_name) ?? "").toLowerCase();
   if (key === "bio_assay") {
     const a = b.bio_assays?.[0];
     return ((a?.name || a?.short_name) ?? "").toLowerCase();

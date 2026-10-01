@@ -168,13 +168,28 @@ export function computeLayout(
   // Squareness is preserved, because cellW follows: the matrix gets
   // smaller in both directions rather than becoming tall and narrow,
   // which is what the flag is for.
+  //
+  // 🛑 Square cells alone do NOT make a symmetric matrix square, and
+  // that is the whole point of the flag. `matrixW = cellW *
+  // columns.length` but `matrixH = cellH * numRows`, and only the
+  // COLUMN axis merges — a 417x417 correlation matrix in a 275px box
+  // merged 417 source columns into ~105 rendered ones, so at a shared
+  // side it came out 105 wide by 417 tall. Square mode therefore
+  // renders one column per source column (sub-pixel columns are the
+  // same honest answer the row axis already gives) and bounds the side
+  // by BOTH box axes, so the matrix shrinks to fit rather than
+  // stretching.
   if (config.square) {
+    columns = Array.from({ length: numCols }, (_, i) => ({ srcStart: i, srcCount: 1 }));
     let squareSide = Math.min(
       config.cell.maxHeight,
       Math.max(config.cell.minHeight, Math.round(cellW)),
     );
     if (availableH != null && numRows > 0) {
       squareSide = clampToBox(squareSide, availableH, numRows);
+    }
+    if (config.fit !== 'expand' && numCols > 0) {
+      squareSide = clampToBox(squareSide, availableW, numCols);
     }
     cellH = squareSide;
     cellW = squareSide;

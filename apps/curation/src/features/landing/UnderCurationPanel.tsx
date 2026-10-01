@@ -1,8 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   getActiveCurationLocks,
   lockHolderPhrase,
+  releaseCurationLock,
   LOCKS_ROUTE_ABSENT,
   type ActiveCurationLock,
 } from "@/api/curationLock";
@@ -10,6 +11,7 @@ import { LOCK_POLL_MS } from "@/features/design/useCurationLock";
 import { relativeSince } from "@/features/design/LockChip";
 import { navigate } from "@/routes";
 import { useCurationCounts } from "@/api/curationCounts";
+import { useMe } from "@/api/session";
 
 /**
  * "Under curation" — what is being worked on right now, across the
@@ -22,11 +24,17 @@ import { useCurationCounts } from "@/api/curationCounts";
  * functions the chip uses, so a holder cannot be described one way here
  * and another way inside the experiment.
  *
- * 🛑 **Read-only, and no take-over here.** Stealing a lease is a write,
- * writes go through the agent relay, and a per-row steal on a list is an
- * invitation to take a lease from someone whose work you cannot see. The
- * chip inside the experiment is where that decision belongs, with the
- * draft in front of you.
+ * 🛑 **No take-over here, but release is offered.** Stealing hands you
+ * someone else's editing session sight-unseen, which is why that stays
+ * inside the experiment with the draft in front of you. Releasing hands
+ * nobody anything — it only clears the lease, which normally clears
+ * itself on the 30-minute TTL; this button is for "don't want to wait".
+ * It does not touch the other curator's draft (a separate row, per
+ * `curationLock.ts`'s steal contract) — but it is still a real
+ * interruption if they are mid-edit: if someone else acquires the freed
+ * lock before that curator commits, their commit re-blocks on
+ * `LOCK_REQUIRED` same as any other steal. Release what looks abandoned,
+ * not what the "last change" timestamp says is recent.
  *
  * 🛑 **Three states that must not collapse into each other:**
  *   - the route does not exist yet (`LOCKS_ROUTE_ABSENT`) — we cannot
@@ -37,6 +45,8 @@ import { useCurationCounts } from "@/api/curationCounts";
  * the failure that matters: it is a confident, wrong all-clear.
  */
 export function UnderCurationPanel() {
+  const { data: me } = useMe();
+  const qc = useQueryClient();
   const { data, isLoading, error } = useQuery({
     queryKey: ["curation-locks", "active"],
     queryFn: getActiveCurationLocks,
@@ -44,6 +54,12 @@ export function UnderCurationPanel() {
     // picked something up", which is a minutes-scale question, and a
     // tighter poll would spend requests to say nothing changed.
     refetchInterval: LOCK_POLL_MS,
+  });
+  const release = useMutation({
+    mutationFn: (experimentId: number) =>
+      releaseCurationLock(experimentId, me?.username ?? "unknown"),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["curation-locks", "active"] }),
   });
 
   // The listing is not built on either side yet
@@ -133,6 +149,20 @@ export function UnderCurationPanel() {
                   last change {since}
                 </span>
               ) : null}
+              <button
+                type="button"
+                onClick={() => release.mutate(lock.experiment_id)}
+                disabled={
+                  release.isPending &&
+                  release.variables === lock.experiment_id
+                }
+                title="Clear this lease. Does not touch the other curator's draft — it can still be committed, or re-locked, afterward."
+                className="ml-auto text-xs text-rose-700 hover:underline disabled:opacity-50 disabled:no-underline dark:text-rose-300"
+              >
+                {release.isPending && release.variables === lock.experiment_id
+                  ? "Releasing…"
+                  : "Release"}
+              </button>
             </li>
           );
         })}

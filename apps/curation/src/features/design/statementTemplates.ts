@@ -323,20 +323,24 @@ export const STATEMENT_TEMPLATES: StatementTemplate[] = [
     category: "genotype",
     label: "line / genotype + has background + strain",
     description:
-      "The genetic background the subject SITS ON, when the background is " +
-      "constant across the experiment and is not itself the property under " +
-      "study: Bmal1 knockout + has background + C57BL/6 (TGEMO_00216). " +
-      "🛑 It goes on the line, strain or genotype — never as a bare strain " +
-      "annotation of the samples. A constant `C57BL/6` on every sample of a " +
-      "knockout study is the BACKGROUND, not those animals' strain, and " +
-      "recording it as the strain says the experiment was about wild-type " +
-      "mice. The object is a grounded strain term. " +
+      "The genetic background the subject SITS ON, for the cases no tag " +
+      "can express (TGEMO_00216): a background that VARIES across the " +
+      "arms — Bmal1 knockout + has background + C57BL/6 on one arm, a " +
+      "second line on another background — a cell line's background, or " +
+      "an ungroundable strain hung off its grounded parent. " +
+      "🛑 A strain background CONSTANT across every sample is NOT this " +
+      "statement: it is a `strain background` tag (TGEMO_00217) carrying " +
+      "the same value (ruling 2026-09-15). Nor is it a bare `strain` tag " +
+      "— a constant `C57BL/6` on every sample of a knockout study is the " +
+      "BACKGROUND, and recording it as the strain says the experiment was " +
+      "about wild-type mice. " +
+      "The object is a grounded strain or cell line term. " +
       "🛑 Gemma stores two predicate/object pairs per statement and " +
       "refuses a third on the same statement, so a subject already carrying two — a " +
       "compound genotype most often — needs its OWN statement for the " +
       "background; there is no other way to say it.",
     subjectHint: "cell line, strain or genotype",
-    objectHint: "strain (e.g. C57BL/6)",
+    objectHint: "strain or cell line (e.g. C57BL/6)",
     build: (cat) =>
       withCategory(cat, {
         subject: { label: "" },

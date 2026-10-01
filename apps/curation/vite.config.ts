@@ -119,6 +119,7 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "src"),
         "@gemma/assets": path.resolve(__dirname, "../../packages/assets/src"),
         "@gemma/diagnostics": path.resolve(__dirname, "../../packages/diagnostics/src"),
+        "@gemma/expression-analysis": path.resolve(__dirname, "../../packages/expression-analysis/src"),
         "@gemma/heatmap": path.resolve(__dirname, "../../packages/heatmap/src"),
         "@gemma/ontology": path.resolve(__dirname, "../../packages/ontology/src"),
         "@gemma/ui": path.resolve(__dirname, "../../packages/ui/src"),

@@ -418,12 +418,15 @@ function unwrapGemmaEnvelope(json: unknown): unknown {
  * two modes and silently 401s in the other. Everything that has to open
  * in a tab goes through here and then through a blob URL.
  */
-export async function apiBlob(path: string): Promise<Blob> {
+export async function apiBlob(
+  path: string,
+  opts: { accept?: string } = {},
+): Promise<Blob> {
   const token = bearerToken();
-  const r = await fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    credentials: "include",
-  });
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (opts.accept) headers.Accept = opts.accept;
+  const r = await fetch(path, { headers, credentials: "include" });
   if (!r.ok) {
     throw new ApiError(
       `${r.status} ${r.statusText}`,

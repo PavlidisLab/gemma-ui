@@ -18,12 +18,13 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
 import { apiGet, ApiError } from "@/api/client";
 import { restUrl } from "@/api/base";
 import { baseUrl, resolveApiTarget } from "@/lib/gemmaConfig";
 import { useMe } from "@/api/auth";
 import { curationUrl } from "@/lib/appLinks";
+import { useDataset } from "@/features/dataset/useDataset";
 import { VisibilityChip } from "@/components/VisibilityChip";
 import { LoginModal } from "./LoginModal";
 
@@ -92,6 +93,17 @@ export function Footer() {
 
   const info = useServerInfo(signedIn);
 
+  // On a dataset page, Curation opens that dataset rather than the
+  // dashboard. The curation app routes on the numeric id and the URL
+  // may carry the short name, so the id comes from the dataset itself.
+  const datasetParam = useRouterState({
+    select: (s) =>
+      (s.matches.find((m) => m.routeId === "/dataset/$id")?.params as
+        | { id?: string }
+        | undefined)?.id,
+  });
+  const dataset = useDataset(signedIn ? datasetParam : undefined).data;
+
   return (
     <footer
       className="shrink-0 flex items-center gap-3 px-3 py-1 text-[11px] border-t border-gemma-grid bg-surface text-gemma-subtle flex-wrap"
@@ -106,7 +118,11 @@ export function Footer() {
             authority (exposed on /me by gemma-rest 4a9605c23f). */}
         {!authKnown ? null : signedIn ? (
           <span className="inline-flex items-center gap-1">
-            <a href={curationUrl()} className="hover:underline">
+            <a
+              href={curationUrl(dataset ? `/#/experiments/${dataset.id}` : undefined)}
+              className="hover:underline"
+              title={dataset ? `Open ${dataset.shortName} in Curation` : undefined}
+            >
               Curation
             </a>
             <VisibilityChip

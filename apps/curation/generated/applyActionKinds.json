@@ -279,7 +279,8 @@
           "new_value"
         ],
         [
-          "new_value_uri"
+          "new_value_uri",
+          "free_text"
         ]
       ],
       "reach": [
@@ -315,7 +316,8 @@
           "new_value"
         ],
         [
-          "new_value_uri"
+          "new_value_uri",
+          "free_text"
         ]
       ],
       "reach": [

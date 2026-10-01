@@ -8,6 +8,7 @@ import { titleCase } from "title-case";
 import { Plus, Minus, ExternalLink, AlertOctagon, ArrowRight } from "lucide-react";
 import { marked } from "marked";
 import { getDatasetAnnotations } from "@/api/endpoints";
+import { splitBySampleScope } from "@/lib/annotationScope";
 import { SHOW_GEEQ } from "@/lib/geeq";
 import { datasetSource } from "@/lib/externalSource";
 import { HelpHint } from "@/features/shared/HelpHint";
@@ -137,7 +138,16 @@ export function DatasetPreview({
     else if (isUnselectable(term)) onUnselectTerm(t);
   }
 
-  const terms = ann.data?.data ?? [];
+  // Experiment-level rows only, the same scope the dataset page shows.
+  // A BioMaterial row is one sample's characteristic projected into this
+  // flat list, so a study that genotyped its samples put one chip here
+  // per sample per SNP: GSE8052, 404 samples, filled the panel with
+  // hundreds of `--` / `AG` / `CC` chips and buried its four real
+  // annotations (2026-09-15).
+  const { experimentLevel: terms, perSample } = useMemo(
+    () => splitBySampleScope(ann.data?.data ?? []),
+    [ann.data],
+  );
 
   // Bucket into groups when a className has >5 entries; else "main"
   const { mainTerms, grouped } = useMemo(() => {
@@ -230,7 +240,9 @@ export function DatasetPreview({
             href={source.href}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-0.5 text-gemma-accent hover:underline"
+            // Muted, not accent: the accent belongs to "View experiment",
+            // the link that keeps the reader on Gemma.
+            className="inline-flex items-center gap-0.5 hover:text-gemma-accent hover:underline"
             title={`open on ${source.database}`}
           >
             {source.database}: {source.label}
@@ -301,14 +313,19 @@ export function DatasetPreview({
             label="Annotations"
             body={
               "Ontology terms tagged on this dataset. Color = source:" +
-              "\n· blue = biomaterial (sample-level metadata)" +
               "\n· green = experiment tag (whole-experiment)" +
               "\n· amber = factor value (experimental design)." +
+              "\nSample-level characteristics are not shown here — they are on" +
+              " the experiment page, with the samples they belong to." +
               "\nClick a chip to add it as a filter; click again to remove."
             }
           />
           {ann.isLoading ? (
             <span className="text-[11px] italic text-gemma-subtle">loading…</span>
+          ) : perSample.length > 0 ? (
+            <span className="text-[11px] text-gemma-subtle">
+              {formatNumber(perSample.length)} sample-level not shown
+            </span>
           ) : null}
         </div>
         {!ann.isLoading && mainTerms.length === 0 && Object.keys(grouped).length === 0 ? (

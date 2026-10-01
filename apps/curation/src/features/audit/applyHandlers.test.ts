@@ -8,7 +8,10 @@ import type {
   OntologyTerm,
 } from "@/features/experiment/types";
 import { replaceStatementsDelta, resolveApplyAction } from "./applyHandlers";
-import { findingProposedUris } from "./findingHelpers";
+import {
+  findingProposedUris,
+  findingValueIsFreeText,
+} from "./findingHelpers";
 
 /**
  * Contract tests for the apply-action chain. These lock in the
@@ -1258,6 +1261,52 @@ describe("proposed-tag URI precedence — display and apply must agree", () => {
       "http://purl.obolibrary.org/obo/CLO_0002405",
     );
   });
+
+  // ``free_text: true`` stands IN PLACE OF ``new_value_uri`` on the
+  // statement-slot kinds (agents 7a8c538). The action is complete
+  // without a URI, and the value it writes is an unbound string — so
+  // the proposer_term fallback above must not supply a grounding the
+  // apply will not write.
+  it("free_text suppresses the proposer_term fallback", () => {
+    const f = finding({
+      target_kind: "fv",
+      target_id: "fv:genotype/pten-k263e",
+      issue_code: "statement_subject_wrong",
+      proposer_term: {
+        label: "K263E/K263E",
+        uri: "http://purl.obolibrary.org/obo/SO_0001059",
+        resolver: null,
+        score: null,
+      },
+      apply_action: {
+        kind: "set_statement_subject",
+        match: { subject: "K263E/?" },
+        new_value: "K263E/K263E",
+        free_text: true,
+      },
+    } as unknown as Partial<AuditFinding>);
+    expect(findingProposedUris(f).valueUri).toBeNull();
+    expect(findingValueIsFreeText(f)).toBe(true);
+  });
+
+  it("an explicit new_value_uri still wins over the flag", () => {
+    const f = finding({
+      ...disagreeing,
+      apply_action: {
+        kind: "set_statement_object",
+        new_value: "CGR8",
+        new_value_uri: "http://purl.obolibrary.org/obo/EFO_0006273",
+        free_text: true,
+      },
+    });
+    expect(findingProposedUris(f).valueUri).toBe(
+      "http://purl.obolibrary.org/obo/EFO_0006273",
+    );
+  });
+
+  it("an action without the flag is not free text", () => {
+    expect(findingValueIsFreeText(finding(disagreeing))).toBe(false);
+  });
 });
 
 /**
@@ -1425,6 +1474,121 @@ describe("resolveApplyAction — REPLACE STATEMENTS (replace_statements)", () =>
 
   it("does not offer an edit without the draft", () => {
     expect(resolveApplyAction(replaceFinding())?.mutates).toBe(false);
+  });
+});
+
+/**
+ * set_statement_subject / set_statement_object — re-term one slot of a
+ * statement, leaving the rest of it untouched. Before this test the
+ * kind fell through resolveApplyAction to focusOnly: the card showed
+ * the right ungrounded chip but Agree mutated nothing.
+ */
+function genotypeDesign(subjectUri: string | null = null): Design {
+  return design({
+    factors: [
+      factor(41, "genotype", [
+        mfv(263, "K263E/?", {
+          statements: [
+            { subject: term("K263E/?", subjectUri) },
+          ],
+        }),
+      ]),
+    ],
+  });
+}
+
+function subjectFreeTextFinding(): AuditFinding {
+  return finding({
+    target_kind: "fv",
+    target_id: "fv:genotype/k263e-[?]#263",
+    issue_code: "statement_subject_wrong",
+    severity: "major",
+    apply_action: {
+      kind: "set_statement_subject",
+      match: { subject: "K263E/?" },
+      new_value: "K263E/K263E",
+      free_text: true,
+    } as unknown as AuditFinding["apply_action"],
+  });
+}
+
+describe("resolveApplyAction — RE-TERM STATEMENT SLOT (set_statement_subject / set_statement_object)", () => {
+  it("re-terms the subject and leaves the FV label alone", () => {
+    const d = genotypeDesign();
+    const action = resolveApplyAction(subjectFreeTextFinding(), { design: d });
+    expect(action?.mutates).toBe(true);
+    const fv = action!.mutate!(d).factors[0].factor_values.find(
+      (v) => v.id === 263,
+    )!;
+    expect(fv.statements[0].subject).toEqual({ label: "K263E/K263E", uri: null });
+    expect(fv.free_text_label).toBe("K263E/?");
+  });
+
+  it("says already applied once the re-term has landed", () => {
+    const d = genotypeDesign();
+    const f = subjectFreeTextFinding();
+    const applied = resolveApplyAction(f, { design: d })!.mutate!(d);
+    const again = resolveApplyAction(f, { design: applied });
+    expect(again?.mutates).toBe(false);
+    expect(again?.label).toBe("✓ Already applied");
+  });
+
+  it("re-terms the object with a grounded URI when one is proposed", () => {
+    const d = design({
+      factors: [
+        factor(50, "treatment", [
+          mfv(900, "60 min", {
+            statements: [
+              {
+                subject: term("Ccl20"),
+                predicate: term("delivered for duration"),
+                object: term("60 min"),
+              },
+            ],
+          }),
+        ]),
+      ],
+    });
+    const f = finding({
+      target_kind: "fv",
+      target_id: "fv:treatment/60-min#900",
+      issue_code: "wrong_value",
+      apply_action: {
+        kind: "set_statement_object",
+        match: { subject: "Ccl20", predicate: "delivered for duration" },
+        new_value: "30 min",
+        new_value_uri: "http://purl.obolibrary.org/obo/UO_0000031",
+      } as unknown as AuditFinding["apply_action"],
+    });
+    const next = resolveApplyAction(f, { design: d })!.mutate!(d);
+    const fv = next.factors[0].factor_values.find((v) => v.id === 900)!;
+    expect(fv.statements[0].object).toEqual({
+      label: "30 min",
+      uri: "http://purl.obolibrary.org/obo/UO_0000031",
+    });
+    expect(fv.statements[0].subject.label).toBe("Ccl20");
+  });
+
+  it("refuses a match that resolves to more than one row", () => {
+    const d = design({
+      factors: [
+        factor(41, "genotype", [
+          mfv(263, "K263E/?", {
+            statements: [
+              { subject: term("K263E/?") },
+              { subject: term("K263E/?"), predicate: term("other") },
+            ],
+          }),
+        ]),
+      ],
+    });
+    expect(
+      resolveApplyAction(subjectFreeTextFinding(), { design: d })?.mutates,
+    ).toBe(false);
+  });
+
+  it("does not offer an edit without the draft", () => {
+    expect(resolveApplyAction(subjectFreeTextFinding())?.mutates).toBe(false);
   });
 });
 

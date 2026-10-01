@@ -25,14 +25,14 @@ import { api } from "./client";
 import type { HeatmapPayload } from "@gemma/heatmap";
 import { probeRowLabel } from "@gemma/heatmap";
 
-interface WireGene {
+export interface WireGene {
   id?: number | null;
   official_symbol?: string | null;
   name?: string | null;
   ncbi_id?: number | null;
 }
 
-interface WireHeatmap {
+export interface WireHeatmap {
   dataset_id?: number;
   matrix?: {
     values?: Array<Array<number | string | null>>;

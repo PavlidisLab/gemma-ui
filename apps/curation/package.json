@@ -28,6 +28,7 @@
   "dependencies": {
     "@gemma/assets": "*",
     "@gemma/diagnostics": "*",
+    "@gemma/expression-analysis": "*",
     "@gemma/heatmap": "*",
     "@gemma/ontology": "*",
     "@gemma/ui": "*",

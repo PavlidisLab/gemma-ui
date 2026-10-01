@@ -12,7 +12,11 @@ import {
   getTaxa,
   type DatasetsArgs,
 } from "@/api/endpoints";
-import { LIBRARY_STRATEGY_FACET, LIBRARY_STRATEGY_SUBGROUPS } from "@/lib/platformConstants";
+import {
+  flattenStrategyRows,
+  LIBRARY_STRATEGY_FACET,
+  LIBRARY_STRATEGY_SUBGROUPS,
+} from "@/lib/platformConstants";
 import type { Platform } from "@/lib/types";
 
 export interface BrowsingOptions {
@@ -61,7 +65,9 @@ export function usePlatforms(opts: { query?: string; filter: string[][] }) {
 const LIBRARY_STRATEGY_COUNTS: ReadonlyArray<readonly [string, readonly string[]]> =
   LIBRARY_STRATEGY_FACET.map((v) => [v, [v]] as const);
 
-const MICROARRAY_CHANNELS = (LIBRARY_STRATEGY_SUBGROUPS.MICROARRAY ?? []).map((s) => s.value);
+const MICROARRAY_CHANNELS = flattenStrategyRows(LIBRARY_STRATEGY_SUBGROUPS.MICROARRAY ?? []).map(
+  (s) => s.value,
+);
 
 /** The platforms under each Microarray channel row, keyed by strategy. */
 export function usePlatformsByChannel(opts: { query?: string; filter: string[][] }) {

@@ -32,6 +32,7 @@ import type {
   AuditFindingDisposition,
   AuditReport,
 } from "@/api/auditTypes";
+import type { FindingEvidence } from "@/api/justification";
 import type {
   ProvenanceEvent,
   ProvenanceEventKind,
@@ -472,4 +473,59 @@ export function assembleTraces(
 
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// --- Gemma fallback: tags written with no tracked proposal/review ----------
+//
+// Confirmed 2026-10-01 against live Gemma for GSE43764/exp 9737: a tag
+// written straight to Gemma by an out-of-band batch script (no
+// annotation-set, no finding) still carries its evidence on the live
+// Statement's own `supportingEvidence` — the canonical object already
+// has it. `assembleTraces` above only ever reads findings +
+// dispositions, so a tag like that showed an empty trace though the
+// evidence was never actually missing. Mirrors
+// `augment_traces_with_gemma_tag_evidence` in
+// `gemma_curation_agents/local_api/provenance.py` (CAB, 2026-10-01) —
+// simpler here, because the evidence already rides on the same ref
+// `refs.ts::tagRef` builds from the design wire, so no separate
+// live-Gemma fetch or key-match is needed to recover it.
+
+function gemmaFallbackEvent(
+  evidenceCode: string | null | undefined,
+  evidence: FindingEvidence[] | null | undefined,
+): ProvenanceEvent | null {
+  const ev = evidence ?? [];
+  if (ev.length === 0) return null;
+  // IC ("Inferred by Curator") is curator-dictated, never machine
+  // inferred — everything else, IEA included, is an import. No `at`:
+  // the evidence's own `location` is free text, not a timestamp.
+  if ((evidenceCode ?? "").trim().toUpperCase() === "IC") {
+    return { kind: "curator_added", actor: { kind: "curator" }, evidence: ev };
+  }
+  return { kind: "imported", actor: { kind: "import" }, evidence: ev };
+}
+
+/**
+ * Fill in a trace, from a tag's own Gemma `supporting_evidence`, for
+ * every TAG ref {@link assembleTraces} left untraced. Mutates `traces`
+ * in place and never touches a ref that already has a store/findings-
+ * derived trace — a finding + disposition carries more (which agent,
+ * which run, who reviewed it) than a bare evidence list ever will, so
+ * the richer trace always wins when both exist.
+ */
+export function augmentTracesWithGemmaTagEvidence(
+  traces: Map<string, ProvenanceTrace>,
+  refs: ProvenanceRef[],
+): void {
+  for (const ref of refs) {
+    if (ref.kind !== "tag" || traces.has(ref.ref_id)) continue;
+    const event = gemmaFallbackEvent(ref.evidence_code, ref.supporting_evidence);
+    if (!event) continue;
+    traces.set(ref.ref_id, {
+      ref_id: ref.ref_id,
+      review_state:
+        event.kind === "curator_added" ? "curator_authored" : "unreviewed",
+      events: [event],
+    });
+  }
 }

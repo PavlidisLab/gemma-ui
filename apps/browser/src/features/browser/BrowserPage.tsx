@@ -260,8 +260,19 @@ export function BrowserPage() {
     [browseQueries],
   );
   // One message when they agree, which a shared cause makes the norm.
+  // `ApiError.message` opens with the request (`GET /rest/v2/datasets/taxa
+  // → 401 — …`, see client.ts), so six queries failing for one reason
+  // were six distinct strings and the banner printed the server's
+  // sentence six times. The banner already names the queries; drop the
+  // request and compare the rest. Not `detail`: on a non-JSON error
+  // (a proxy's 502 page) that is the whole response body.
   const failureDetail = useMemo(
-    () => [...new Set(failures.map(([, e]) => e.message).filter(Boolean))].join(" · "),
+    () =>
+      [
+        ...new Set(
+          failures.map(([, e]) => e.message.replace(/^[A-Z]+ \S+ → /, "")).filter(Boolean),
+        ),
+      ].join(" · "),
     [failures],
   );
 
@@ -275,7 +286,13 @@ export function BrowserPage() {
     // ``main``'s height being explicit, which it wasn't, so the page
     // collapsed to content height and left empty space above the
     // footer. Per design review 2026-05-27.
-    <div className="flex flex-1 min-h-0">
+    // ``flex-col`` until ``lg`` — same shape as VisualizeTab's split. The
+    // row form has no breakpoint of its own, and the panel below is
+    // ``shrink-0``, so at a phone's width the panel kept its full 360px and
+    // the results column was handed what was left: measured at 30px on a
+    // 390px viewport, with the table clipped inside it and no scroll to
+    // reach it. That is the whole experiment list, gone.
+    <div className="flex flex-col lg:flex-row flex-1 min-h-0">
       <SidePanel
         settings={settings}
         dispatch={dispatch}
@@ -292,7 +309,7 @@ export function BrowserPage() {
         onApplyQuery={onApplyQuery}
       />
 
-      <section className="flex-1 min-w-0 flex flex-col">
+      <section className="flex-1 min-w-0 min-h-0 flex flex-col">
         <div
           className={`progress-lane ${
             datasets.isFetching ||
@@ -420,7 +437,11 @@ export function BrowserPage() {
           }
         />
 
-        <div className="relative flex items-center gap-3 px-3 h-12 border-t border-gemma-grid bg-white">
+        {/* Wraps below ``lg``. The fixed ``h-12`` with no wrap gave the
+            pager, the page-size select and the two download buttons one
+            crushed 375px line, and the labels broke mid-word inside it.
+            Above ``lg`` the row is unchanged. */}
+        <div className="relative flex flex-wrap lg:flex-nowrap items-center gap-3 px-3 py-2 lg:py-0 min-h-[3rem] lg:h-12 border-t border-gemma-grid bg-white">
           <Pager
             page={page}
             pageSize={pageSize}
