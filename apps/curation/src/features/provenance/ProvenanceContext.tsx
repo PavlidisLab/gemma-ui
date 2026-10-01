@@ -47,7 +47,7 @@ import {
 } from "@/api/provenance";
 import { fetchReviewsForExperiment } from "@/api/annotationSetReviews";
 
-import { assembleTraces } from "./assembleTraces";
+import { assembleTraces, augmentTracesWithGemmaTagEvidence } from "./assembleTraces";
 
 export type ProvenanceRunStatus =
   | "idle"
@@ -136,7 +136,13 @@ export function ProvenanceProvider({ children }: { children: ReactNode }) {
         fetchReviewsForExperiment(experimentId).then(
           (reports) => {
             const next = new Map<string, ProvenanceTrace>(derived ?? []);
-            for (const [refId, trace] of assembleTraces(refs, reports)) {
+            const traces = assembleTraces(refs, reports);
+            // A tag written straight to Gemma (no tracked proposal/
+            // review) still carries its own evidence on the live
+            // Statement — recover it for anything the join above left
+            // untraced. See `augmentTracesWithGemmaTagEvidence`.
+            augmentTracesWithGemmaTagEvidence(traces, refs);
+            for (const [refId, trace] of traces) {
               next.set(refId, trace);
             }
             setByRef(next);

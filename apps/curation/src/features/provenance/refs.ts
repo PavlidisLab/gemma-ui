@@ -76,6 +76,10 @@ export function tagRef(tag: Tag): ProvenanceRef {
     value_uri: tag.value?.uri ?? null,
     label: tag.value?.label ?? "",
     target_id: tagTarget(tag.category?.label ?? "", tag.value?.label ?? ""),
+    // Carried for the remote-mode Gemma-evidence fallback
+    // (`augmentTracesWithGemmaTagEvidence`) — not an identity field.
+    supporting_evidence: tag.supporting_evidence ?? null,
+    evidence_code: tag.evidence_code ?? null,
   };
 }
 
