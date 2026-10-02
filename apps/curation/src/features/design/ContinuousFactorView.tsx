@@ -1,5 +1,6 @@
 import type { Factor } from "@/features/experiment/types";
 import { InlineText } from "@/components/ui/InlineText";
+import { continuousFvValue } from "@/features/diagnostics/heatmapPayload";
 
 /**
  * Read-side view for a continuous factor. Continuous factors carry
@@ -42,26 +43,20 @@ export function ContinuousFactorView({
   onNameChange?: (name: string) => void;
 }) {
   // One measurement per FV (we promote BM characteristics 1:1 in
-  // ``addContinuousFactorFromCharacteristic``). Prefer ``numeric_value``
-  // (the canonical scalar populated by the agents-side continuous-
-  // populator from Gemma's ``measurement.value``) and fall back to
-  // parsing ``free_text_label`` for FVs created in-UI before the
-  // populator landed. ``free_text_label`` itself may be a human
-  // rendering like "86 years" or "0.5 mg/ml" — keep it as the
-  // display string.
+  // ``addContinuousFactorFromCharacteristic``). ``continuousFvValue``
+  // prefers ``numeric_value`` (the canonical scalar populated by the
+  // agents-side continuous-populator from Gemma's ``measurement.value``)
+  // and falls back to the leading number in ``free_text_label`` — which
+  // itself may be a human rendering like "86 years" or "0.5 mg/ml", so a
+  // strict whole-string parse would reject it even though a measurement
+  // never arrived for sources (e.g. applied agent proposals) that don't
+  // populate ``numeric_value``.
   const points = factor.factor_values
     .map((fv) => {
       const raw = (fv.free_text_label || "").trim();
-      let value: number | null = null;
-      if (typeof fv.numeric_value === "number" && Number.isFinite(fv.numeric_value)) {
-        value = fv.numeric_value;
-      } else {
-        const n = Number(raw);
-        if (Number.isFinite(n)) value = n;
-      }
       return {
         raw,
-        value,
+        value: continuousFvValue(fv),
         samples: fv.biomaterial_short_names,
       };
     })
