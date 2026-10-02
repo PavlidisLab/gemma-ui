@@ -199,6 +199,19 @@ export function buildDesignHeatmapPayload(args: {
  * that never went through a measurement, and the statement subject
  * behind that.
  *
+ * 🛑 Try label THEN statement, not whichever is non-empty. A plain
+ * (unpredicated) characteristic composes as `subject.label = c.value`
+ * (`composeFvStatements`) — the bare number, e.g. "13" — but
+ * `free_text_label` seeds from Gemma's own summary string, which
+ * renders a characteristic as "category: value" ("age: 13"), not the
+ * bare value. Picking whichever string is merely non-empty takes
+ * "age: 13" over "13" and a leading-number parse fails on it (number
+ * isn't leading). An `is_measurement` FV without a `numeric_value` on
+ * one experiment (74439) came back 100% non-numeric this way, 0/71
+ * values plotted, even though every statement subject was a bare
+ * number. Try each candidate in order and keep the first one that
+ * actually parses, rather than the first one that is merely present.
+ *
  * Shared on purpose: the heatmap orders columns by these and the PC
  * card correlates them against the components. Two readings would be
  * two answers to "what is this sample's age".
@@ -210,19 +223,45 @@ export function buildDesignHeatmapPayload(args: {
 export function continuousFvValue(fv: {
   numeric_value?: number | null;
   free_text_label?: string | null;
-  statements?: Array<{ subject?: { label?: string | null } | null }> | null;
+  statements?: Array<{
+    subject?: { label?: string | null } | null;
+    object?: { label?: string | null } | null;
+  }> | null;
 }): number | null {
   if (typeof fv.numeric_value === "number" && Number.isFinite(fv.numeric_value)) {
     return fv.numeric_value;
   }
-  const raw = String(
-    fv.free_text_label || fv.statements?.[0]?.subject?.label || "",
-  ).trim();
+  const candidates = [
+    fv.free_text_label,
+    fv.statements?.[0]?.subject?.label,
+    fv.statements?.[0]?.object?.label,
+  ];
+  for (const c of candidates) {
+    const n = parseLeadingNumber(String(c || "").trim());
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/**
+ * Leading number, so "86 years" still reads as 86. But a plain
+ * characteristic's `summary` — what `free_text_label` seeds from when
+ * there is no measurement — renders as "category: value" ("age: 13"),
+ * number trailing, not leading: a 71-sample continuous factor (74439)
+ * came back 100% non-numeric with only the leading-number match, every
+ * value shaped exactly this way. Retry past the last colon before
+ * giving up, so the category name doesn't block the value behind it.
+ */
+function parseLeadingNumber(raw: string): number | null {
   if (raw === "") return null;
-  // Leading number, so "86 years" still reads as 86 when nothing set
-  // the measurement.
   const m = raw.match(/^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
-  const n = m ? Number(m[0]) : Number(raw);
+  if (m) return Number(m[0]);
+  if (raw.includes(":")) {
+    const afterColon = raw.slice(raw.lastIndexOf(":") + 1).trim();
+    const m2 = afterColon.match(/^[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/);
+    if (m2) return Number(m2[0]);
+  }
+  const n = Number(raw);
   return Number.isFinite(n) ? n : null;
 }
 

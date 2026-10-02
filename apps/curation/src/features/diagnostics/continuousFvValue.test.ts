@@ -37,6 +37,34 @@ describe("continuousFvValue", () => {
     ).toBe(48);
   });
 
+  it("falls back to the statement subject when the label doesn't lead with the number", () => {
+    // Gemma's own summary string renders a plain characteristic as
+    // "category: value" ("age: 13"), not the bare value — the leading-
+    // number parse fails on that, but the unpredicated statement's
+    // subject (composeFvStatements: subject.label = c.value) is the
+    // bare number and parses fine.
+    expect(
+      continuousFvValue({
+        free_text_label: "age: 13",
+        statements: [{ subject: { label: "13" } }],
+      }),
+    ).toBe(13);
+  });
+
+  it("reads the value past the colon when there are no statements to fall back to", () => {
+    // The exact shape seen live on experiment 93630 / factor 74439:
+    // Gemma's /design response carried no characteristics or statements
+    // for the FV, only `summary: "age: 13"` (-> free_text_label), and
+    // numeric_value null throughout — every one of 71 values came back
+    // non-numeric before the colon retry was added.
+    expect(
+      continuousFvValue({ free_text_label: "age: 13", statements: [] }),
+    ).toBe(13);
+    expect(continuousFvValue({ free_text_label: "time post infection: 4.5" })).toBe(
+      4.5,
+    );
+  });
+
   it("returns null for a value nobody filled in", () => {
     // Null, not 0 — the strip must read as unassigned rather than as
     // the bottom of the scale.
