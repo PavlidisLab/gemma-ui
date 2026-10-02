@@ -540,7 +540,7 @@ function buildItems({
 }): ChecklistItem[] {
   const validation = validateDesign(design);
   const expUrl = experimentPageUrl(design.experiment_id);
-  const platformUrl = platformPageUrl(null, design.platform_id);
+  const platformUrl = platformPageUrl(design.platform_short_name ?? null);
 
   const techType = (design.technology_type ?? "").toUpperCase();
   const isMicroarray = techType === "ONECOLOR" || techType === "TWOCOLOR";

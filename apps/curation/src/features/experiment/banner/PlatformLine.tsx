@@ -90,19 +90,15 @@ export function PlatformLine({
   assay,
   platform,
   platformShortName,
-  platformId,
   originalPlatform,
   originalPlatformShortName,
-  originalPlatformId,
 }: {
   technologyType: string;
   assay: string;
   platform: string;
   platformShortName: string;
-  platformId: number | null;
   originalPlatform: string;
   originalPlatformShortName: string;
-  originalPlatformId: number | null;
 }) {
   // Gemma stub detection: technology_type is GENELIST / OTHER, or
   // the short_name starts with "Generic_". The latter catches stubs
@@ -114,11 +110,8 @@ export function PlatformLine({
     tt === "GENELIST" ||
     tt === "OTHER" ||
     /^Generic[_ ]/i.test(platformShortName);
-  const platformUrl = platformPageUrl(platformShortName, platformId);
-  const origUrl = platformPageUrl(
-    originalPlatformShortName,
-    originalPlatformId,
-  );
+  const platformUrl = platformPageUrl(platformShortName);
+  const origUrl = platformPageUrl(originalPlatformShortName);
   const showOriginal =
     !!originalPlatform &&
     originalPlatform !== platform &&

@@ -1,14 +1,11 @@
-import {
-  browserExperimentPageUrl,
-  experimentPageUrl,
-} from "@/lib/gemmaUrls";
+import { experimentPageUrl } from "@/lib/gemmaUrls";
 import { externalSourceLink, formatLoadedAt } from "@/features/experiment/ExperimentBanner";
 import type { Design } from "@/features/experiment/types";
 import { KV, SummaryCard } from "./SummaryCard";
 
 /**
  * Where this experiment came from and where to go to see it
- * elsewhere — the three outbound links plus the load date.
+ * elsewhere — the outbound links plus the load date.
  *
  * 🛑 **These lived on the banner's meta line and were crowding it out.**
  * That line carries taxon, sample count, platform, three link-outs, the
@@ -71,29 +68,15 @@ export function SourceLinksCard({ design }: { design: Design | null }) {
       <KV
         k="view in Gemma"
         v={
-          <span className="flex items-center gap-3">
-            {/* The label says WHICH front-end. "View on Gemma" tells
-                nobody where they are about to land now that there are
-                two places it could mean. */}
-            <a
-              href={browserExperimentPageUrl(experimentId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
-              title="open this experiment in the Gemma 2.0 browser"
-            >
-              Gemma 2.0 ↗
-            </a>
-            <a
-              href={experimentPageUrl(experimentId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-blue-700 hover:underline"
-              title="open this experiment in the Gemma 1.0 webapp"
-            >
-              Gemma 1.0 ↗
-            </a>
-          </span>
+          <a
+            href={experimentPageUrl(experimentId)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-700 hover:underline"
+            title="open this experiment on Gemma"
+          >
+            Gemma ↗
+          </a>
         }
       />
       {loadedAt ? (
