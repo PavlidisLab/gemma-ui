@@ -30,6 +30,15 @@ export interface FactorValueBasic {
   summary?: string | null;
   /** Numeric FV (continuous factors). */
   isMeasurement?: boolean | null;
+  /** The scalar for a measurement-backed FV. Gemma leaves
+   *  ``value``/``characteristics``/``statements`` empty by design for
+   *  these and puts the number only here — ``summary`` still renders
+   *  as "category: value" (e.g. "age: 13"), which is for display
+   *  composition, not the value itself. */
+  measurement?: {
+    value?: string | null;
+    unit?: string | null;
+  } | null;
   /** ``true`` when this FV is the baseline / reference level for
    *  its factor. The Gemma 1.x design endpoint may not populate
    *  this directly; treat as best-effort. */

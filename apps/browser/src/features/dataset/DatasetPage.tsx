@@ -40,6 +40,7 @@ import type {
   Factor,
 } from "@gemma/heatmap";
 import { VisualizeTab } from "./VisualizeTab";
+import { ContinuousFactorCard } from "./ContinuousFactorCard";
 import { useDataset } from "./useDataset";
 import { DiagnosticsRow } from "./diagnostics/DiagnosticsRow";
 import { OntologyTermChip } from "@/components/OntologyTermChip";
@@ -49,6 +50,7 @@ import {
   sampleDescriptionOneLine,
 } from "@/lib/sampleDescription";
 import { isBaselineFactorValue, isBaselineTerm } from "@/lib/baseline";
+import { continuousFvLabel, continuousFvNumeric } from "@/lib/continuousFv";
 import { splitBySampleScope } from "@/lib/annotationScope";
 import {
   factorValueIdByStatementId,
@@ -1041,9 +1043,16 @@ function DesignTab({
  *  subject role" etc.) collapse to "baseline" — a reader needn't see the
  *  role term — but a meaningful label that merely HAS a baseline URI
  *  (e.g. "0 h") is kept as-is (we only substitute when the visible label
- *  itself is the placeholder). */
+ *  itself is the placeholder).
+ *
+ *  Measurement FVs (continuous factors) go through
+ *  {@link continuousFvLabel} first — ``summary`` renders those as
+ *  "category: value" ("age: 13"), which repeats the already-visible
+ *  factor name rather than showing the measurement. */
 function factorValueLabel(v: FactorValueBasic): string {
+  const measured = v.isMeasurement ? continuousFvLabel(v) : null;
   const raw = (
+    measured ||
     v.summary ||
     v.value ||
     v.characteristics?.find((c) => (c.value ?? "").trim())?.value ||
@@ -1062,9 +1071,11 @@ function factorValueTerm(v: FactorValueBasic): {
   label: string;
   uri: string | null;
 } {
+  const measured = v.isMeasurement ? continuousFvLabel(v) : null;
   const char = v.characteristics?.find((c) => (c.value ?? "").trim());
   const stmt = v.statements?.find((s) => (s.subject ?? "").trim());
   const label = (
+    measured ||
     v.summary ||
     v.value ||
     char?.value ||
@@ -1384,6 +1395,19 @@ function FactorCard({
   nuisance?: boolean;
   sampleCountByFvId: Map<number, number>;
 }) {
+  // A continuous factor has no discrete "levels" to browse — a list of
+  // bare numbers (70+ rows for `age`) tells a reader nothing about the
+  // distribution. Delegate to the curation app's read-side shape
+  // instead: summary stats + histogram. See `ContinuousFactorCard`.
+  if (factor.type === "continuous") {
+    return (
+      <ContinuousFactorCard
+        factor={factor}
+        nuisance={nuisance}
+        sampleCountByFvId={sampleCountByFvId}
+      />
+    );
+  }
   const categoryLabel = factor.category?.category ?? null;
   const categoryUri = factor.category?.categoryUri ?? null;
   // Sort baselines first within the FV list (mirrors curation's
@@ -1496,7 +1520,13 @@ function FactorValueRow({
         isBaselineTerm(s.object, s.objectUri)
       ),
   );
-  const fallbackLabel = value.summary || value.value || `FV ${value.id}`;
+  // Measurement FVs: ``summary`` renders as "category: value" ("age:
+  // 13"), which repeats the factor name already shown in the header.
+  const fallbackLabel =
+    (value.isMeasurement ? continuousFvLabel(value) : null) ||
+    value.summary ||
+    value.value ||
+    `FV ${value.id}`;
   return (
     <li className="px-3 py-1.5 flex items-baseline gap-2 flex-wrap">
       <span
@@ -3632,13 +3662,21 @@ function buildDeHeatmapPayload(
       category: { label, uri: ef.category?.categoryUri ?? null },
       type: isContinuous ? "continuous" : "categorical",
       factor_values: (ef.values ?? []).map((fv) => {
-        const numeric = isContinuous ? Number(fv.value) : NaN;
+        // A measurement FV's ``value`` is null by design (the scalar
+        // lives on ``measurement.value``) — ``Number(null)`` is 0, not
+        // NaN, so every age/dose/etc. column came out a flat 0 rather
+        // than its real reading.
+        const numeric = isContinuous ? continuousFvNumeric(fv) : null;
         return {
           id: fv.id,
-          free_text_label: fv.summary ?? fv.value ?? "",
+          free_text_label:
+            (isContinuous ? continuousFvLabel(fv) : null) ??
+            fv.summary ??
+            fv.value ??
+            "",
           is_baseline: !!fv.isBaseline,
           statements: [],
-          numeric_value: Number.isFinite(numeric) ? numeric : undefined,
+          numeric_value: numeric ?? undefined,
         };
       }),
     };
