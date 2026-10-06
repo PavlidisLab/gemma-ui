@@ -363,17 +363,28 @@ export async function getPlatformById(
   return apiGet<Platform>(`${BASE}/platforms/${id}`, { signal });
 }
 
-/** Platform-by-shortName resolver — the detail page is keyed on
- *  shortName for stable URLs (GPL96, etc.) but the entity lookup
- *  needs a numeric id. Cheapest path is a one-row filter query
- *  against /platforms; the API supports ``filter=shortName=GPL96``. */
-export async function getPlatformByShortName(
-  shortName: string,
+/** The `/platforms` filter clause that finds the platform a detail-page
+ *  route param names. The param is a short name (GPL96) or, when the
+ *  short name can't sit in a URL segment (`HG-U133A/B/Plus_2`), the
+ *  numeric id — see `platformRouteParam` — and hand-typed /platforms/226
+ *  links mean the same thing. All-digits reads as an id, the same rule
+ *  the server's PlatformArg applies to `/platforms/{platform}`. */
+export function platformLookupFilter(param: string): string {
+  const p = param.trim();
+  return /^\d+$/.test(p) ? `id = ${p}` : `shortName = ${p}`;
+}
+
+/** Platform-by-route-param resolver — the detail page is keyed on
+ *  shortName for stable URLs (GPL96, etc.) or on the numeric id. Goes
+ *  through the one-row `/platforms` filter query rather than
+ *  `/platforms/{id}` because only the listing takes `withGeneCounts`. */
+export async function getPlatformByIdOrShortName(
+  idOrShortName: string,
   signal?: AbortSignal,
 ): Promise<Platform | null> {
   const r = await apiGet<PaginatedResponse<Platform>>(`${BASE}/platforms`, {
     params: {
-      filter: `shortName = ${shortName}`,
+      filter: platformLookupFilter(idOrShortName),
       limit: 1,
       // Gene-mapping counts are expensive (~1.7s on the largest
       // platform), so they are opt-in and read from a generated report
