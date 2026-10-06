@@ -634,3 +634,81 @@ describe("a statement with two objects — two wire entries, one id", () => {
     expect(second.object?.uri).toBeNull();
   });
 });
+
+/**
+ * A measurement-backed continuous FV carries its scalar ONLY on
+ * `measurement.value`.
+ *
+ * 🛑 Confirmed by FRB (Gemma backend) 2026-10-02: for this shape,
+ * `value`, `characteristics` and `statements` are EMPTY BY DESIGN —
+ * not a gap, the ordinary shape for a measurement. `summary` still
+ * renders for display ("age: 13"), but is not the source of truth.
+ *
+ * ee 93630 factor 74439 ("age", continuous, 71 values) is exactly
+ * this shape: `numeric_value` came back null on every one of 71
+ * values because the old read only ever looked at `value`/`summary`,
+ * gated on `is_measurement` — never at `measurement.value`.
+ */
+describe("composeCurationDesign — measurement-backed continuous FV", () => {
+  const AGE_WIRE = {
+    id: 90001,
+    experimentalFactors: [
+      {
+        id: 74439,
+        name: "age",
+        type: "continuous",
+        category: { category: "age", categoryUri: "http://www.ebi.ac.uk/efo/EFO_0000246" },
+        values: [
+          {
+            id: 382639,
+            value: null,
+            summary: "age: 13",
+            isMeasurement: true,
+            characteristics: [],
+            statements: [],
+            measurement: { value: "13", unit: null, type: "ABSOLUTE", representation: "DOUBLE" },
+          },
+        ],
+      },
+    ],
+    bioMaterialAssignments: [
+      { bioMaterialId: 1, bioMaterialName: "CMC_HBCC_303", factorValueIds: [382639] },
+    ],
+  };
+
+  const composed = () =>
+    composeCurationDesign(snakeify(AGE_WIRE) as G2Design, 93630, "GSE_age");
+
+  it("reads the scalar off measurement.value, not value or summary", () => {
+    const [fv] = composed().factors[0].factor_values;
+    expect(fv.free_text_label).toBe("age: 13");
+    expect(fv.numeric_value).toBe(13);
+  });
+
+  it("still returns null when there is no measurement and no is_measurement value", () => {
+    const noMeasurement = {
+      ...AGE_WIRE,
+      experimentalFactors: [
+        {
+          ...AGE_WIRE.experimentalFactors[0],
+          values: [
+            {
+              id: 382640,
+              value: null,
+              summary: "age: unknown",
+              isMeasurement: false,
+              characteristics: [],
+              statements: [],
+            },
+          ],
+        },
+      ],
+    };
+    const [fv] = composeCurationDesign(
+      snakeify(noMeasurement) as G2Design,
+      93630,
+      "GSE_age",
+    ).factors[0].factor_values;
+    expect(fv.numeric_value).toBeNull();
+  });
+});

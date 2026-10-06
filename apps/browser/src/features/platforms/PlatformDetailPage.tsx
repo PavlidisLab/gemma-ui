@@ -1,5 +1,6 @@
 /**
- * Single-platform detail page — /platforms/$shortName.
+ * Single-platform detail page — /platforms/$shortName, where the param
+ * is the short name or the numeric id (see `platformLookupFilter`).
  *
  * Design intent:
  *   - One page, no tabs. The legacy ExtJS page had an Overview /
@@ -26,7 +27,7 @@ import {
   getDatasetsByPlatform,
   getElementGenes,
   getGenesByNcbiIds,
-  getPlatformByShortName,
+  getPlatformByIdOrShortName,
   getPlatformElementCount,
   getPlatformElements,
   getGenericPlatforms,
@@ -65,8 +66,8 @@ export function PlatformDetailPage() {
   const name = shortName ?? "";
 
   const platformQ = useQuery({
-    queryKey: ["platform", "byShortName", name],
-    queryFn: ({ signal }) => getPlatformByShortName(name, signal),
+    queryKey: ["platform", "byIdOrShortName", name],
+    queryFn: ({ signal }) => getPlatformByIdOrShortName(name, signal),
     enabled: !!name,
   });
 

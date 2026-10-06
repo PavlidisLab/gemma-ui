@@ -324,7 +324,6 @@ export function OverviewPanel() {
             v={renderPlatform(
               meta?.platform ?? "",
               meta?.platform_short_name ?? "",
-              meta?.platform_id ?? null,
             )}
             mono
           />
@@ -335,7 +334,6 @@ export function OverviewPanel() {
               v={renderPlatform(
                 meta?.original_platform ?? "",
                 meta?.original_platform_short_name ?? "",
-                meta?.original_platform_id ?? null,
               )}
               mono
             />
@@ -683,17 +681,16 @@ function EditableDescription({
 }
 
 /**
- * Build the link to a Gemma platform page. Prefer ``shortName=``
- * when available (more readable URLs); fall back to ``id=`` when
- * only the numeric id is set; render plain text when neither.
+ * Build the link to a Gemma platform page — shortName-keyed (the
+ * browser app's platform route has no numeric-id form); plain text
+ * when there's no shortName to link with.
  */
 function renderPlatform(
   display: string,
   shortName: string,
-  id: number | null,
 ): React.ReactNode {
   if (!display) return "—";
-  const href = platformPageUrl(shortName || null, id);
+  const href = platformPageUrl(shortName || null);
   if (!href) return display;
   return (
     <a

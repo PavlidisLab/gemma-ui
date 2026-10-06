@@ -74,6 +74,12 @@ interface G2FactorValue {
   is_baseline?: boolean | null;
   characteristics?: G2Term[];
   statements?: G2Statement[];
+  /** Gemma's structured scalar for a continuous FV. Confirmed by FRB
+   *  (Gemma backend) 2026-10-02: for a measurement-backed FV, `value`,
+   *  `characteristics` and `statements` are EMPTY BY DESIGN — the
+   *  number lives only here, as a string. `summary` still renders
+   *  ("age: 13") for display, but is not the source of truth. */
+  measurement?: { value?: string | null } | null;
   /** Absent when Gemma has none — see `FactorValue.supporting_evidence`. */
   supporting_evidence?: unknown;
 }
@@ -677,9 +683,17 @@ function composeFactor(
         ov.biomaterial_short_names && ov.biomaterial_short_names.length
           ? ov.biomaterial_short_names
           : fromAssignments,
-      numeric_value: v.is_measurement
-        ? parseNumeric(v.value ?? v.summary ?? "")
-        : null,
+      // 🛑 `measurement.value` FIRST. Confirmed by FRB (Gemma backend)
+      // 2026-10-02: for a measurement-backed FV, `value` and `summary`
+      // don't carry the number at all — `summary` renders as
+      // "category: value" ("age: 13") for display, and the scalar
+      // lives only on `measurement.value` (a string on the wire). The
+      // `is_measurement`-gated `value`/`summary` parse below never
+      // matched this shape; kept as a fallback for FVs without a
+      // `measurement` object.
+      numeric_value:
+        (v.measurement?.value ? parseNumeric(v.measurement.value) : null) ??
+        (v.is_measurement ? parseNumeric(v.value ?? v.summary ?? "") : null),
       // Absent stays absent, as on a statement. See
       // `FactorValue.supporting_evidence`.
       ...(v.supporting_evidence === undefined

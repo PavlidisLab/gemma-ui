@@ -769,10 +769,8 @@ function Shell({
         technologyType={draft?.technology_type ?? ""}
         platform={draft?.platform ?? ""}
         platformShortName={draft?.platform_short_name ?? ""}
-        platformId={draft?.platform_id ?? null}
         originalPlatform={draft?.original_platform ?? ""}
         originalPlatformShortName={draft?.original_platform_short_name ?? ""}
-        originalPlatformId={draft?.original_platform_id ?? null}
         activeTab={activeTab}
         groupContext={groupContext}
         ticketContext={ticketContext}

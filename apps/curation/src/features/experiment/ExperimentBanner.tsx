@@ -59,10 +59,8 @@ export function ExperimentBanner({
   technologyType,
   platform,
   platformShortName,
-  platformId,
   originalPlatform,
   originalPlatformShortName,
-  originalPlatformId,
   activeTab,
   onTabChange,
   notesOpen,
@@ -88,10 +86,8 @@ export function ExperimentBanner({
   technologyType: string;
   platform: string;
   platformShortName: string;
-  platformId: number | null;
   originalPlatform: string;
   originalPlatformShortName: string;
-  originalPlatformId: number | null;
   activeTab: TabId;
   onTabChange: (id: TabId) => void;
   notesOpen: boolean;
@@ -152,10 +148,8 @@ export function ExperimentBanner({
               assay={assay}
               platform={platform}
               platformShortName={platformShortName}
-              platformId={platformId}
               originalPlatform={originalPlatform}
               originalPlatformShortName={originalPlatformShortName}
-              originalPlatformId={originalPlatformId}
             />
             {/* 🛑 The source link, both Gemma front-ends and the load
                 date left this line on 2026-08-31 for a "Source & links"
