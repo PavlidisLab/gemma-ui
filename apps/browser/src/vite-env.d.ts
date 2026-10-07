@@ -11,6 +11,8 @@ interface ImportMetaEnv {
   readonly VITE_CURATION_URL?: string;
   /** Home-page museum card link — see museumUrl in gemmaConfig.ts. */
   readonly VITE_MUSEUM_URL?: string;
+  /** GA4 measurement ID — see lib/analytics.ts. Unset = no analytics. */
+  readonly VITE_GA_MEASUREMENT_ID?: string;
 }
 
 interface ImportMeta {

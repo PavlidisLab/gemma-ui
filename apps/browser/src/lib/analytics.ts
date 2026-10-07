@@ -23,11 +23,14 @@
 
 import { isPublicOrigin } from "./gemmaConfig";
 
-/** The GA4 property. Same one Gemma 1.0 reports to, so the history is
- *  continuous across the cutover rather than restarting on a new
- *  property. Overridable for a staging property. */
-const MEASUREMENT_ID: string =
-  import.meta.env.VITE_GA_MEASUREMENT_ID || "G-41V8D9335C";
+/** The GA4 property, one per deployment, set in that target's
+ *  `.env.<mode>`. Production names the property Gemma 1.0 reports to,
+ *  so the history is continuous across the cutover.
+ *
+ *  No default: unset means no GA. A fallback to the production ID
+ *  would file every staging and testing visit under the live site's
+ *  numbers, which is what this used to do. */
+const MEASUREMENT_ID: string = import.meta.env.VITE_GA_MEASUREMENT_ID ?? "";
 
 declare global {
   interface Window {

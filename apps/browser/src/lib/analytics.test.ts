@@ -21,9 +21,10 @@ import {
 /** Re-import with a given page origin. The module reads the origin at
  *  call time but `isPublicOrigin` is bound at import, so each case gets
  *  a fresh registry. */
-async function load(origin: string) {
+async function load(origin: string, gaId = "G-41V8D9335C") {
   vi.resetModules();
   vi.stubGlobal("__GEMMA_TARGET__", "");
+  vi.stubEnv("VITE_GA_MEASUREMENT_ID", gaId);
   Object.defineProperty(window, "location", {
     writable: true,
     value: { origin, pathname: "/", href: origin + "/" },
@@ -56,6 +57,7 @@ function stubRouter() {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   delete window.gtag;
   delete window.dataLayer;
 });
@@ -111,6 +113,23 @@ describe("initAnalytics", () => {
     const { initAnalytics } = await load("https://localhost:5183");
     initAnalytics(stubRouter());
     expect(window.gtag).toBeUndefined();
+  });
+
+  it("loads nothing on the public host when no ID is configured", async () => {
+    // A build whose .env.<mode> names no property must stay dark, not
+    // borrow production's and pollute its numbers.
+    const { initAnalytics } = await load("https://staging-gemma.msl.ubc.ca", "");
+    initAnalytics(stubRouter());
+    expect(document.head.querySelector("script")).toBeNull();
+    expect(window.gtag).toBeUndefined();
+  });
+
+  it("reports to the property its build names", async () => {
+    const { initAnalytics } = await load("https://gemma2.msl.ubc.ca", "G-TEST123");
+    initAnalytics(stubRouter());
+    expect(document.head.querySelector("script")?.getAttribute("src")).toContain(
+      "gtag/js?id=G-TEST123",
+    );
   });
 
   it("loads the tag on the public host and reports the first route", async () => {
