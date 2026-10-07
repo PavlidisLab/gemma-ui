@@ -48,7 +48,7 @@ import {
   GenomeAlignment,
   ProbeSequence,
 } from "./probeDetail";
-import { PageMask } from "@gemma/ui";
+import { PageMask, pageTitle, useDocumentTitle } from "@gemma/ui";
 import {
   PLATFORM_ANNOTATION_FILE_VARIANTS,
   pickGenericPlatform,
@@ -70,6 +70,10 @@ export function PlatformDetailPage() {
     queryFn: ({ signal }) => getPlatformByIdOrShortName(name, signal),
     enabled: !!name,
   });
+
+  // The payload's short name rather than the route param, which may be
+  // a numeric id. Hook — before the early returns.
+  useDocumentTitle(pageTitle(platformQ.data?.shortName, "Gemma Browser"));
 
   if (!name) return <NotFoundStub label="Missing platform identifier." />;
 

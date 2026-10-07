@@ -29,7 +29,7 @@ import {
 } from "@/api/endpoints";
 import type { Gene, GeneLocation } from "@/api/endpoints";
 import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
-import { PageMask } from "@gemma/ui";
+import { PageMask, pageTitle, useDocumentTitle } from "@gemma/ui";
 
 export function GenePage() {
   const { ncbiId } = useParams({ from: "/gene/ncbi/$ncbiId" });
@@ -39,6 +39,11 @@ export function GenePage() {
     queryFn: ({ signal }) => getGene(ncbiId, signal),
     enabled: !!ncbiId,
   });
+
+  // Symbol, not the NCBI id the route is keyed by: the id is what makes
+  // the URL unambiguous, but "672" tells nobody reading a tab strip or
+  // a GA report which gene it was. Hook — before the early returns.
+  useDocumentTitle(pageTitle(geneQ.data?.officialSymbol, "Gemma Browser"));
 
   if (geneQ.isLoading) {
     return <PageMask mode="region" label="Loading gene" detail={`NCBI ${ncbiId}…`} />;
