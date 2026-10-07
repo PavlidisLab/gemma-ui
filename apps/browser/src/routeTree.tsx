@@ -28,6 +28,15 @@ import { SystemMonitoringPage } from "@/features/admin/SystemMonitoringPage";
 import { NotFound } from "@/features/shared/NotFound";
 import { AppShell } from "@/features/shared/AppShell";
 
+// `titled`: the page names the tab after its subject once that loads
+// (see useDocumentTitle). Analytics holds the route's page_view until
+// it has, so GA's page-title report reads "GSE2872", not the app name.
+declare module "@tanstack/react-router" {
+  interface StaticDataRouteOption {
+    titled?: boolean;
+  }
+}
+
 interface RouterContext {
   queryClient: QueryClient;
 }
@@ -87,6 +96,7 @@ const platformsRoute = createRoute({
 const platformDetailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/platforms/$shortName",
+  staticData: { titled: true },
   component: () => <PlatformDetailPage />,
 });
 
@@ -97,6 +107,7 @@ const platformDetailRoute = createRoute({
 const probeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/platforms/$shortName/probe/$elementId",
+  staticData: { titled: true },
   component: () => <ProbePage />,
 });
 
@@ -109,6 +120,7 @@ const probeRoute = createRoute({
 const datasetRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/dataset/$id",
+  staticData: { titled: true },
   component: () => <DatasetPage />,
 });
 
@@ -123,6 +135,7 @@ const genesRoute = createRoute({
 const geneRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/gene/ncbi/$ncbiId",
+  staticData: { titled: true },
   component: () => <GenePage />,
 });
 

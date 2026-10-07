@@ -42,7 +42,7 @@ import {
   probeSequenceInfo,
   type BioSequenceInfo,
 } from "@/api/endpoints";
-import { PageMask } from "@gemma/ui";
+import { PageMask, pageTitle, useDocumentTitle } from "@gemma/ui";
 import { GeneMappings, GenomeAlignment, ProbeSequence } from "./probeDetail";
 import { getElementGenes } from "@/api/endpoints";
 
@@ -77,6 +77,18 @@ export function ProbePage() {
     enabled: !!platform && Number.isFinite(id),
     staleTime: 5 * 60_000,
   });
+
+  // Probe names repeat across platforms (every Affymetrix array has an
+  // AFFX-BioB-5_at), so the platform rides along. Hook — before the
+  // early returns.
+  const probeEl = elementQ.data;
+  useDocumentTitle(
+    pageTitle(
+      probeEl?.name &&
+        `${probeEl.name} · ${probeEl.arrayDesign?.shortName ?? platform}`,
+      "Gemma Browser",
+    ),
+  );
 
   if (!Number.isFinite(id)) {
     return (
