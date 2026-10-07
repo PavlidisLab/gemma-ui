@@ -13,10 +13,22 @@
  * ends up above the pins — Paul, 2026-09-03: pinned tickets stay at the
  * top "(after the scratchpad)". The composition is what the test checks,
  * because either function alone looks right.
+ *
+ * 🛑 `ticketIsAssignedToMe` is `ticketIsMine` MINUS the reporter fallback
+ * — the "pin mine to top" toggle wants exactly "assigned to me", not
+ * "assigned to me, or unassigned and I filed it". Same `myId` convention
+ * (unresolvable identity claims nothing), but the reporter-filed case
+ * must come out the OPPOSITE of `ticketIsMine` to prove the two aren't
+ * secretly the same function.
  */
 import { describe, expect, it } from "vitest";
 
-import { hoistPinned, pinScratchpadFirst, ticketIsMine } from "./tickets";
+import {
+  hoistPinned,
+  pinScratchpadFirst,
+  ticketIsAssignedToMe,
+  ticketIsMine,
+} from "./tickets";
 import type { Ticket } from "./tickets";
 
 /** Only the fields these two functions read. */
@@ -72,6 +84,33 @@ describe("ticketIsMine", () => {
     expect(ticketIsMine({ assignee_id: null, reporter_id: null }, ME)).toBe(
       false,
     );
+  });
+});
+
+describe("ticketIsAssignedToMe", () => {
+  const ME = 52731;
+
+  it("claims a ticket assigned to me", () => {
+    expect(ticketIsAssignedToMe({ assignee_id: ME }, ME)).toBe(true);
+  });
+
+  it("does not claim one assigned to somebody else", () => {
+    expect(ticketIsAssignedToMe({ assignee_id: 99 }, ME)).toBe(false);
+  });
+
+  // The whole point of this function over `ticketIsMine`: no reporter
+  // fallback, ever — unassigned is unassigned, full stop, regardless of
+  // who filed it (this function doesn't even take a reporter_id).
+  it("does NOT claim an unassigned ticket", () => {
+    expect(ticketIsAssignedToMe({ assignee_id: null }, ME)).toBe(false);
+  });
+
+  it("claims NOTHING when my id could not be established", () => {
+    for (const myId of [null, undefined]) {
+      expect(ticketIsAssignedToMe({ assignee_id: myId ?? 1 }, myId)).toBe(
+        false,
+      );
+    }
   });
 });
 

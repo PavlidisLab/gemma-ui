@@ -1279,6 +1279,26 @@ export function ticketIsMine(
   return ticket.reporter_id === myId;
 }
 
+/** Is this ticket ASSIGNED to the current curator — unlike `ticketIsMine`,
+ *  this never falls back to the reporter. `ticketIsMine`'s reporter
+ *  fallback is deliberate for the Mine/Everyone tab (an unassigned ticket
+ *  "belongs" to whoever filed it), but a curator asking "what's assigned
+ *  to me" wants exactly that and nothing a mere filing would pull in.
+ *  Kept as a separate function rather than a flag on `ticketIsMine` so
+ *  the two call sites can't be silently conflated — see the dashboard's
+ *  "pin assigned to me" toggle, the one caller today.
+ *
+ *  Same `myId == null` convention as `ticketIsMine`: answers `false`,
+ *  never "everything", so a caller that can't establish identity doesn't
+ *  quietly misreport an empty assignment as "nothing is assigned to you". */
+export function ticketIsAssignedToMe(
+  ticket: Pick<Ticket, "assignee_id">,
+  myId: number | null | undefined,
+): boolean {
+  if (typeof myId !== "number") return false;
+  return ticket.assignee_id === myId;
+}
+
 /** The current curator's contact id, or `null` when the wire has not
  *  established one.
  *

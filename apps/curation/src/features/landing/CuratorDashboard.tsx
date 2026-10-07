@@ -27,6 +27,7 @@ import {
   pinScratchpadFirst,
   hoistPinned,
   ticketIsMine,
+  ticketIsAssignedToMe,
   usePatchTicket,
   ticketTypeLabel,
   ticketPriorityRank,
@@ -148,6 +149,35 @@ const DEFAULT_OWNER: DashboardOwner = "everyone";
 
 function isDashboardOwner(v: string | null): v is DashboardOwner {
   return v === "mine" || v === "everyone";
+}
+
+/** "Pin assigned-to-me to top" — orthogonal to BOTH the lifecycle chips
+ *  and the Mine/Everyone tab: it still shows everyone's tickets (unlike
+ *  Mine), just floats the curator's own assigned ones above the rest,
+ *  using the strict `ticketIsAssignedToMe` (no reporter fallback — see
+ *  that function's docstring for why it has to be a separate predicate
+ *  from the Mine tab's `ticketIsMine`). Meaningful even ON the Mine tab:
+ *  that tab's broader definition includes self-filed unassigned tickets,
+ *  so this still separates "assigned to me" from "merely filed by me"
+ *  within it.
+ *
+ *  Same precedence as the other axes: URL ``?pinMine=1`` wins, then
+ *  localStorage, default ``false`` — omitted from the URL/storage
+ *  default case so the common case stays out of the URL. */
+const PIN_ASSIGNED_STORAGE_KEY = "curator_dashboard.pin_assigned_to_me";
+
+function readInitialPinAssigned(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const hash = window.location.hash;
+    const q = hash.includes("?") ? hash.slice(hash.indexOf("?") + 1) : "";
+    const fromUrl = new URLSearchParams(q).get("pinMine");
+    if (fromUrl === "1") return true;
+    if (fromUrl === "0") return false;
+    return window.localStorage.getItem(PIN_ASSIGNED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
 }
 
 /** Same precedence as the filter and sort: URL ``?owner=`` wins, then
@@ -294,6 +324,9 @@ export function CuratorDashboard({
   );
   const [sort, setSort] = useState<DashboardSort>(() => readInitialSort());
   const [owner, setOwner] = useState<DashboardOwner>(() => readInitialOwner());
+  const [pinAssignedToMe, setPinAssignedToMe] = useState<boolean>(() =>
+    readInitialPinAssigned(),
+  );
   const [showCreateScreening, setShowCreateScreening] = useState(false);
   const [showImportExperiment, setShowImportExperiment] = useState(false);
   // Importing an experiment copies Gemma into the local store. In
@@ -362,6 +395,30 @@ export function CuratorDashboard({
       // Best-effort — state stays live in React.
     }
   }, [owner]);
+
+  // Persist the pin-assigned-to-me toggle the same way. ``false`` is the
+  // default and stays out of the URL/storage.
+  useEffect(() => {
+    try {
+      if (pinAssignedToMe) {
+        window.localStorage.setItem(PIN_ASSIGNED_STORAGE_KEY, "1");
+      } else {
+        window.localStorage.removeItem(PIN_ASSIGNED_STORAGE_KEY);
+      }
+      const hash = window.location.hash || "#/";
+      const [path, queryStr] = hash.split("?");
+      const params = new URLSearchParams(queryStr ?? "");
+      if (pinAssignedToMe) params.set("pinMine", "1");
+      else params.delete("pinMine");
+      const next = params.toString();
+      const newHash = next ? `${path}?${next}` : path;
+      if (newHash !== hash) {
+        window.history.replaceState(null, "", newHash);
+      }
+    } catch {
+      // Best-effort — state stays live in React.
+    }
+  }, [pinAssignedToMe]);
 
   // Always fetch RESOLVED/CANCELLED tickets, on every filter. The light
   // endpoint returns the whole list regardless — ``includeClosed`` only
@@ -439,9 +496,25 @@ export function CuratorDashboard({
   // 2026-09-03: pinned tickets stay at the top *"(after the
   // scratchpad)"* — so ``hoistPinned`` runs first and
   // ``pinScratchpadFirst`` puts the scratchpad above its result.
+  //
+  // "Pin assigned to me" hoists ahead of the curator's manual pins too —
+  // computed from ``filteredTickets`` (post lifecycle-filter, pre-sort)
+  // same as ``pinned`` is applied, and gated on the toggle + a resolved
+  // identity so it's a no-op set when either is unavailable.
+  const assignedToMeIds = useMemo(() => {
+    if (!pinAssignedToMe || myId === null) return new Set<number>();
+    return new Set(
+      filteredTickets
+        .filter((t) => ticketIsAssignedToMe(t, myId))
+        .map((t) => t.id),
+    );
+  }, [pinAssignedToMe, myId, filteredTickets]);
   const sortedTickets = pinScratchpadFirst(
     hoistPinned(
-      filteredTickets.slice().sort((a, b) => compareTickets(a, b, sort)),
+      hoistPinned(
+        filteredTickets.slice().sort((a, b) => compareTickets(a, b, sort)),
+        assignedToMeIds,
+      ),
       pinned,
     ),
     // Only pin the fetched scratchpad when it survives the same filter
@@ -674,6 +747,28 @@ export function CuratorDashboard({
                 );
               })}
             </div>
+            {/* "Pin mine to top" — orthogonal to the Owner tab above: it
+                still shows everyone's tickets, just floats the ones
+                assigned to this curator above the rest (strict
+                assignee-only, see ``ticketIsAssignedToMe``). Disabled
+                for the same reason the Mine tab is: no resolved
+                identity means no way to tell which tickets are "mine". */}
+            <label
+              className={cn(
+                "inline-flex items-center gap-1.5 mr-2 text-slate-600 dark:text-slate-400",
+                !canFilterByOwner && "opacity-50 cursor-not-allowed",
+              )}
+              title={canFilterByOwner ? "Float tickets assigned to you to the top of the list" : OWNER_UNAVAILABLE_TITLE}
+            >
+              <input
+                type="checkbox"
+                checked={pinAssignedToMe}
+                disabled={!canFilterByOwner}
+                onChange={(e) => setPinAssignedToMe(e.target.checked)}
+                className="rounded border-slate-300 dark:border-slate-600"
+              />
+              Pin mine to top
+            </label>
             {FILTER_OPTIONS.map((opt) => {
               const active = filter === opt.id;
               const count = counts[opt.id];
