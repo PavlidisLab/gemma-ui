@@ -15,8 +15,27 @@
  */
 
 import { useEffect, useState } from "react";
-import { useLogin } from "@/api/auth";
+import { classifyLoginRefusal, useLogin, type LoginRefusal } from "@/api/auth";
 import { ApiError } from "@/api/client";
+
+/** What to tell the user for each kind of 403 — see classifyLoginRefusal
+ *  for how the three are told apart. */
+function refusalMessage(kind: LoginRefusal, detail: string): string {
+  switch (kind) {
+    case "off-network":
+      return "Signing in is only allowed from devices on our internal network. If you are a lab member working remotely, connect to the VPN and try again. Browsing and downloading public data does not require signing in.";
+    case "cors":
+      // In dev: Vite's proxy rewrites Origin to match the upstream, but a
+      // running dev server only picks that up after a *server* restart.
+      return import.meta.env.DEV
+        ? "Sign-in blocked by CORS (HTTP 403 — Tomcat 'Invalid CORS request'). The Vite dev server's proxy needs to rewrite the Origin header. After restarting the dev server (not just refreshing the browser) this should clear."
+        : "Sign-in was refused because this page is being served from an address the Gemma server does not accept sign-ins from. Please report this to the Gemma team.";
+    case "gemma":
+      return detail && !detail.trimStart().startsWith("<")
+        ? `Sign-in refused: ${detail}`
+        : "Sign-in refused (HTTP 403).";
+  }
+}
 
 /**
  * Fill + hover for every "Sign in" affordance in the app.
@@ -79,13 +98,7 @@ export function LoginModal({
       ? login.error.status === 401
         ? "Wrong username or password."
         : login.error.status === 403
-          ? // Tomcat's CORS filter rejects POSTs from the Vite dev
-            // server's host with "Invalid CORS request". Vite's
-            // proxy now rewrites the Origin header to match the
-            // upstream — but the running dev server has to pick
-            // that change up, which means a Vite *server* restart
-            // (not just a browser reload).
-            "Sign-in blocked by CORS (HTTP 403 — Tomcat 'Invalid CORS request'). The Vite dev server's proxy needs to rewrite the Origin header. After restarting the dev server (not just refreshing the browser) this should clear."
+          ? refusalMessage(classifyLoginRefusal(login.error.detail), login.error.detail)
           : `Sign-in failed (HTTP ${login.error.status}).`
       : (login.error as Error).message
     : null;

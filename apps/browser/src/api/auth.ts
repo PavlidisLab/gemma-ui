@@ -75,6 +75,36 @@ export async function postLogin(req: LoginRequest): Promise<LoginResponse> {
 }
 
 /**
+ * Why a sign-in was refused, read off the 403 itself. Three different
+ * layers can answer `POST /rest/v2/login` with a 403, and only the body
+ * tells them apart (measured 2026-10-07 against gemma.msl.ubc.ca):
+ *
+ *  - `off-network` — Apache. The `<Location /rest/v2>` block in the
+ *    vhost (moe: `conf.d/gemma.msl.ubc.ca.conf`; chalmers' staging
+ *    vhost has the same rule) lets on-network addresses
+ *    (`conf.d/msl-networks.include`) use any method and limits
+ *    everyone else to GET/HEAD/OPTIONS. An off-network POST gets
+ *    Apache's stock page: "You don't have permission to access this
+ *    resource." No ErrorDocument 403 is configured, so that sentence
+ *    is stable — if one is ever added, update the match below.
+ *  - `cors` — Tomcat's CorsFilter, whose status page says "Invalid
+ *    CORS request". Only reachable when the request's Origin isn't
+ *    Gemma's own: the Vite dev proxy, or a deployment served from a
+ *    foreign origin.
+ *  - `gemma` — anything else, including Gemma's own JSON envelope.
+ *
+ * LoginModal used to label every 403 as CORS, so off-network users
+ * were told to restart a dev server they don't have.
+ */
+export type LoginRefusal = "off-network" | "cors" | "gemma";
+
+export function classifyLoginRefusal(detail: string): LoginRefusal {
+  if (/Invalid CORS request/i.test(detail)) return "cors";
+  if (/don't have permission to access/i.test(detail)) return "off-network";
+  return "gemma";
+}
+
+/**
  * Multi-target logout. The JSESSIONID cookie is HttpOnly (per
  * `gemma-web/.../web.xml:282-288`) so JS can't delete it
  * client-side; only the server can invalidate the session.
