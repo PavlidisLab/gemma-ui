@@ -1,7 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { api, ApiError } from "./client";
-import { asAnnotationSetRows } from "./annotationSetReviews";
+import {
+  asAnnotationSetRows,
+  annotationSetsToReviews,
+  reviewsPath,
+} from "./annotationSetReviews";
+import type { AuditReport } from "./auditTypes";
 import type {
   CuratorFeedback,
   Proposal,
@@ -15,6 +20,40 @@ const KEY = {
     ["proposals", "experiment", experimentId, status ?? null] as const,
   one: (proposalId: string) => ["proposals", "one", proposalId] as const,
 };
+
+/**
+ * One ``curation_review(kind='proposal')`` row -> the ``Proposal`` the UI
+ * renders. The row's OWN ``findings``/``auditId`` shape is the audit-review
+ * wrapper; the actual rich proposal (factors/tags/evidence) the proposer
+ * built travels inside ``evidence.comparison_proposal`` — same field every
+ * audit-feature consumer already reads (``report?.evidence?.comparison_proposal``,
+ * see ``features/audit/*``). A row with no ``comparison_proposal`` (legacy /
+ * calibration-imported rows predating this field) falls back to a minimal
+ * Proposal built from the row's own top-level fields so the list doesn't
+ * drop it — factors/tags come back empty rather than the row vanishing.
+ */
+function auditReportToProposal(report: AuditReport): Proposal {
+  const cp = report.evidence?.comparison_proposal;
+  if (cp) return cp;
+  return {
+    proposal_id: report.audit_id,
+    experiment_id: Number(report.experiment_id),
+    experiment_short_name: report.experiment_short_name ?? "",
+    submitted_by: "",
+    submitted_at: report.audited_at ?? "",
+    model: report.model ?? null,
+    status: "pending",
+    tags: [],
+    factors: [],
+    evidence: {
+      preboarding_excerpt: "",
+      paper_source: null,
+      paper_excerpt: "",
+      exemplar_experiment_ids: [],
+      extra: {},
+    },
+  };
+}
 
 export function useProposalsForExperiment(
   experimentId: number | string,
@@ -32,27 +71,50 @@ export function useProposalsForExperiment(
     // service being retired.
     enabled: experimentId !== -1 && experimentId !== "-1" && Boolean(experimentId),
     queryKey: KEY.byExperiment(experimentId, status),
-    queryFn: async () => {
-      const q = status ? `?status_filter=${status}` : "";
+    queryFn: async (): Promise<ProposalListResponse> => {
+      // 🛑 This used to hit ``/curation/v1/datasets/{id}/curation-proposals``
+      // — the LEGACY, no-longer-written-to route (the comment above even
+      // says "a service being retired"). The proposer service submits to
+      // the unified ``curation_review(kind='proposal')`` store instead
+      // (``submitter.submit`` -> ``POST .../proposals``), so every proposal
+      // run through the current pipeline landed there and NEVER showed up
+      // here. ``reviewsPath`` + ``annotationSetsToReviews`` is the exact
+      // pattern ``api/audits.ts``'s ``fetchAuditsForExperiment`` already
+      // uses for the sibling ``kind='audit'`` rows — mirrored here rather
+      // than re-deriving a second path-building scheme, and it gets
+      // remote-mode (Gemma annotation-sets) support for free, which this
+      // hook never had before.
+      const remote = resolveGemmaMode().mode === "remote";
+      let reports: AuditReport[];
       try {
-        return await api.get<ProposalListResponse>(
-          `/curation/v1/datasets/${experimentId}/curation-proposals${q}`,
+        const raw = await api.get<unknown>(
+          reviewsPath(experimentId, remote, "proposals"),
         );
+        reports = remote
+          ? annotationSetsToReviews(raw, "proposal").items
+          : (raw as { items: AuditReport[] }).items;
       } catch (e: unknown) {
-        // Gemma 2.0 doesn't yet expose ``/datasets/{id}/curation-proposals``
-        // (the local_api endpoint). Treat 404 as "no proposals
-        // recorded for this experiment" instead of bubbling the
-        // error into every consumer surface.
+        // Gemma 2.0 doesn't yet expose the local_api ``/proposals``
+        // surface. Treat 404 as "no proposals recorded for this
+        // experiment" instead of bubbling the error into every
+        // consumer surface.
         if (
           e &&
           typeof e === "object" &&
           "status" in e &&
           (e as { status: number }).status === 404
         ) {
-          return { items: [], total: 0 } as ProposalListResponse;
+          reports = [];
+        } else {
+          throw e;
         }
-        throw e;
       }
+      // The new endpoint has no server-side ``status_filter`` (the old
+      // legacy route's query param) — filter client-side instead.
+      const items = reports
+        .map(auditReportToProposal)
+        .filter((p) => !status || p.status === status);
+      return { items, total: items.length };
     },
   });
 }
