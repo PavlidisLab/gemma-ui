@@ -1,11 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { api, ApiError } from "./client";
-import {
-  asAnnotationSetRows,
-  annotationSetsToReviews,
-  reviewsPath,
-} from "./annotationSetReviews";
+import { asAnnotationSetRows } from "./annotationSetReviews";
+import { fetchProposalReviewsForExperiment } from "./reviewProposals";
 import type { AuditReport } from "./auditTypes";
 import type {
   CuratorFeedback,
@@ -78,38 +75,22 @@ export function useProposalsForExperiment(
       // the unified ``curation_review(kind='proposal')`` store instead
       // (``submitter.submit`` -> ``POST .../proposals``), so every proposal
       // run through the current pipeline landed there and NEVER showed up
-      // here. ``reviewsPath`` + ``annotationSetsToReviews`` is the exact
-      // pattern ``api/audits.ts``'s ``fetchAuditsForExperiment`` already
-      // uses for the sibling ``kind='audit'`` rows — mirrored here rather
-      // than re-deriving a second path-building scheme, and it gets
-      // remote-mode (Gemma annotation-sets) support for free, which this
-      // hook never had before.
-      const remote = resolveGemmaMode().mode === "remote";
-      let reports: AuditReport[];
-      try {
-        const raw = await api.get<unknown>(
-          reviewsPath(experimentId, remote, "proposals"),
-        );
-        reports = remote
-          ? annotationSetsToReviews(raw, "proposal").items
-          : (raw as { items: AuditReport[] }).items;
-      } catch (e: unknown) {
-        // Gemma 2.0 doesn't yet expose the local_api ``/proposals``
-        // surface. Treat 404 as "no proposals recorded for this
-        // experiment" instead of bubbling the error into every
-        // consumer surface.
-        if (
-          e &&
-          typeof e === "object" &&
-          "status" in e &&
-          (e as { status: number }).status === 404
-        ) {
-          reports = [];
-        } else {
-          throw e;
-        }
-      }
-      // The new endpoint has no server-side ``status_filter`` (the old
+      // here.
+      //
+      // Delegates to ``reviewProposals.ts``'s shared fetcher rather than
+      // re-deriving the remote-vs-local source question a second time —
+      // that function already merges the local store with Gemma's
+      // annotation-sets in remote mode (Amanda's 2026-10-08 call: stay on
+      // the remote UI for shared tickets, but proposals must not require
+      // a direct-to-Gemma push to be visible). Keeping ONE fetcher for
+      // "what proposals exist for this experiment" is the point — this
+      // file and ``reviewProposals.ts`` independently re-implementing the
+      // same remote/local branching, slightly differently, is exactly how
+      // the legacy-endpoint bug above went unnoticed for so long.
+      const { items: reports } = await fetchProposalReviewsForExperiment(
+        experimentId,
+      );
+      // No server-side ``status_filter`` on this endpoint (the old
       // legacy route's query param) — filter client-side instead.
       const items = reports
         .map(auditReportToProposal)
