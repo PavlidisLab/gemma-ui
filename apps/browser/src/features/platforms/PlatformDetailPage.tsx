@@ -508,7 +508,7 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
   // Probe-name and gene search are separate server-side questions
   // (`filter=name like …` vs `gene=`), so the visitor picks which one
   // they're asking rather than us guessing from the string.
-  const [mode, setMode] = useState<"probe" | "gene">("probe");
+  const [mode, setMode] = useState<"gene" | "probe">("gene");
 
   // 250ms debounce — fast enough to feel live, slow enough to avoid
   // bursts of fetches on every keystroke.
@@ -586,7 +586,7 @@ function ElementsSection({ platform: p }: { platform: Platform }) {
         </span>
         <div className="ml-auto flex items-baseline gap-1">
           <div className="flex rounded border border-gemma-grid overflow-hidden">
-            {(["probe", "gene"] as const).map((m) => (
+            {(["gene", "probe"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
