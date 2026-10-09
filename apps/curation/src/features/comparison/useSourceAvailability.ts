@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../api/client";
+import { fetchProposalRows } from "../../api/agentProposals";
 import {
   isPolishedSource,
   polishedCuratorOf,
@@ -205,40 +206,16 @@ function usePolishedCurators(experimentId: number | string) {
   });
 }
 
-/** Probe for an agent original proposal. Reuses the existing
- *  ``curation-proposals?kind=proposal`` endpoint; any non-empty
- *  payload means the source is available. */
+/** Probe for an agent original proposal. Reads the one source the
+ *  current mode names (Gemma remote, store local); any row means the
+ *  source is available. */
 function useAgentProposalAvailable(experimentId: number | string) {
   return useQuery({
     enabled: Boolean(experimentId),
     queryKey: ["agent-proposal-available", experimentId] as const,
     staleTime: Infinity,
     queryFn: async (): Promise<boolean> => {
-      try {
-        const raw = await api.get<unknown>(
-          `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal&limit=1`,
-        );
-        if (Array.isArray(raw)) return raw.length > 0;
-        if (
-          raw &&
-          typeof raw === "object" &&
-          "items" in raw &&
-          Array.isArray((raw as { items: unknown[] }).items)
-        ) {
-          return (raw as { items: unknown[] }).items.length > 0;
-        }
-        return false;
-      } catch (e: unknown) {
-        if (
-          e &&
-          typeof e === "object" &&
-          "status" in e &&
-          (e as { status: number }).status === 404
-        ) {
-          return false;
-        }
-        throw e;
-      }
+      return (await fetchProposalRows(experimentId)).length > 0;
     },
   });
 }

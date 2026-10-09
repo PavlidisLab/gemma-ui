@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 import { api, ApiError } from "./client";
-import { asAnnotationSetRows } from "./annotationSetReviews";
+import { asAnnotationSetRows, parseReviewPayload } from "./annotationSetReviews";
+import { fetchProposalRows } from "./agentProposals";
 import type {
   CuratorFeedback,
   Proposal,
@@ -15,6 +16,33 @@ const KEY = {
     ["proposals", "experiment", experimentId, status ?? null] as const,
   one: (proposalId: string) => ["proposals", "one", proposalId] as const,
 };
+
+/** Remote-mode `ProposalListResponse`: each Gemma proposal set's
+ *  payload (the raw `Proposal`) with the set id as `proposal_id` and the
+ *  set's own `status` (falling back to the payload's). */
+async function remoteProposalsForExperiment(
+  experimentId: number | string,
+  status?: ProposalStatus,
+): Promise<ProposalListResponse> {
+  const rows = await fetchProposalRows(experimentId);
+  const items: Proposal[] = [];
+  for (const row of rows) {
+    // A set with a `finalized_at` is closed (e.g. superseded by a newer
+    // run). Finalize touches neither the row's `status` nor the
+    // payload's, so both still read "pending"; the pending list drops it.
+    if (status === "pending" && row.finalized_at) continue;
+    const payload = parseReviewPayload(row as never);
+    if (!payload) continue;
+    items.push({
+      ...payload,
+      proposal_id: String(row.id),
+      status: (row.status ?? payload.status ?? "pending") as ProposalStatus,
+      submitted_at: (row.ran_at ?? payload.submitted_at ?? "") as string,
+    } as unknown as Proposal);
+  }
+  const kept = status ? items.filter((p) => p.status === status) : items;
+  return { items: kept, total: kept.length } as ProposalListResponse;
+}
 
 export function useProposalsForExperiment(
   experimentId: number | string,
@@ -33,6 +61,11 @@ export function useProposalsForExperiment(
     enabled: experimentId !== -1 && experimentId !== "-1" && Boolean(experimentId),
     queryKey: KEY.byExperiment(experimentId, status),
     queryFn: async () => {
+      // Remote: the proposals are Gemma annotation sets, and the store
+      // route is not asked at all. Local: the store, as before.
+      if (resolveGemmaMode().mode === "remote") {
+        return await remoteProposalsForExperiment(experimentId, status);
+      }
       const q = status ? `?status_filter=${status}` : "";
       try {
         return await api.get<ProposalListResponse>(

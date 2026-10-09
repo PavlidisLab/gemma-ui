@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { resolveGemmaMode } from "@/lib/gemmaMode";
 
-import { api } from "./client";
+import { api, snakeify } from "./client";
 import type { ProposalListResponse } from "./types";
 import type {
   AttachedDefenderVerdict,
@@ -32,8 +32,8 @@ export interface AgentProposal {
   dataset_id: number;
   /** Discriminator on the unified `AgentCuration` table when Java's
    *  `RECCE_AGENT_CURATION_UNIFICATION.md` work lands. Today's mock
-   *  serves proposal-kind rows only; we send `?kind=proposal` on the
-   *  GET to be defensive against the audit-rows-on-same-endpoint
+   *  serves proposal-kind rows only; the local GET sends `?kind=proposal`
+   *  to be defensive against the audit-rows-on-same-endpoint
    *  forward shape. Field stays optional for backwards-compat with
    *  the pre-discriminator rows. */
   kind?: "proposal" | "audit";
@@ -280,6 +280,29 @@ export function isNoProposalsHere(e: unknown): boolean {
  * A row with no `kind` at all predates the discriminator and is kept:
  * the field being absent says nothing about the row.
  */
+/**
+ * A proposal set's payload as the raw `Proposal` JSON, whichever way it
+ * was written. The agent records either the raw `Proposal` or the
+ * review wrapper the store has always held (`kind="proposal"`, the
+ * `Proposal` at `evidence.comparison_proposal`, plus `findings`). Both
+ * shapes are read; a wrapper with no embedded proposal is returned
+ * untouched.
+ */
+export function unwrapProposalPayload(payloadJson: string): string {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payloadJson);
+  } catch {
+    return payloadJson;
+  }
+  // 🛑 The payload is a JSON STRING, so `client.ts` never snakeified its
+  // insides. The agent writes camelCase (`proposalId`, `isBaseline`);
+  // the readers below take snake_case. Normalize once here.
+  const norm = snakeify(parsed) as { evidence?: Record<string, unknown> } | null;
+  const inner = norm?.evidence?.comparison_proposal;
+  return JSON.stringify(inner && typeof inner === "object" ? inner : norm);
+}
+
 export function annotationSetsToProposals(raw: unknown): AgentProposal[] {
   if (!Array.isArray(raw)) return [];
   const out: AgentProposal[] = [];
@@ -296,12 +319,74 @@ export function annotationSetsToProposals(raw: unknown): AgentProposal[] {
         typeof r.agent_version === "string" ? r.agent_version : null,
       model: typeof r.model === "string" ? r.model : null,
       ran_at: typeof r.ran_at === "string" ? r.ran_at : null,
-      payload_json: payload,
+      payload_json: unwrapProposalPayload(payload),
       dataset_id: Number(r.dataset_id),
       kind: "proposal",
     });
   }
   return out;
+}
+
+/** Where one experiment's proposals live in each mode. One source per
+ *  mode, never both: remote reads Gemma, local reads the store. */
+export function proposalsPath(
+  experimentId: number | string,
+  remote: boolean,
+): string {
+  // 🛑 **No `kind` on the per-dataset route.** Measured against gemma2
+  // 2026-10-09: it answers 400 `UNKNOWN_QUERY_PARAMETER` and names the
+  // accepted set (`createdBy`, `role`, `shape`, `source`). Most
+  // `role=proposal` sets are `kind=audit`, so the audit-vs-proposal
+  // split is applied client-side (`fetchProposalRows`,
+  // `annotationSetsToProposals`). Only the corpus-wide inbox route
+  // takes `kind`.
+  return remote
+    ? `/rest/v2/datasets/${experimentId}/annotation-sets?role=proposal&shape=full`
+    : `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal`;
+}
+
+/**
+ * The proposal rows for one experiment, newest first, from the single
+ * source the current mode names. Each row carries a `payload_json`
+ * string (an object on the legacy store envelope is passed through).
+ *
+ * 404 is "none here"; 403 is NOT swallowed (see `useProposalsAutoShape`).
+ * Shared by the availability probe and the design overlay, which only
+ * need the newest row.
+ */
+export async function fetchProposalRows(
+  experimentId: number | string,
+): Promise<Array<Record<string, unknown>>> {
+  const remote = resolveGemmaMode().mode === "remote";
+  let raw: unknown;
+  try {
+    raw = await api.get<unknown>(proposalsPath(experimentId, remote));
+  } catch (e: unknown) {
+    if (isNoProposalsHere(e)) return [];
+    throw e;
+  }
+  const items = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown }).items)
+      ? (raw as { items: unknown[] }).items
+      : raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)
+        ? (raw as { data: unknown[] }).data
+        : [];
+  const rows = (items as Array<Record<string, unknown>>).filter(
+    (r) =>
+      r &&
+      typeof r === "object" &&
+      (r.kind == null || r.kind === "proposal"),
+  );
+  const at = (r: Record<string, unknown>) =>
+    String(r.ran_at ?? r.submitted_at ?? "");
+  return rows
+    .map((r) =>
+      typeof r.payload_json === "string"
+        ? { ...r, payload_json: unwrapProposalPayload(r.payload_json) }
+        : r,
+    )
+    .sort((a, b) => at(b).localeCompare(at(a)));
 }
 
 export function useProposalsAutoShape(experimentId: number | string) {
@@ -328,20 +413,7 @@ export function useProposalsAutoShape(experimentId: number | string) {
       const remote = resolveGemmaMode().mode === "remote";
       let raw: unknown;
       try {
-        raw = remote
-          ? await api.get<unknown>(
-              `/rest/v2/datasets/${experimentId}/annotation-sets` +
-                // 🛑 `kind=proposal` as well as `role=proposal` — the
-                // local branch below sends it and so does the inbox
-                // (`proposals.ts::useAllProposals`), for the reason
-                // measured there: `role` is the storage role, `kind` is
-                // the audit-vs-proposal split, and most `role=proposal`
-                // sets on gemma2 are `kind=audit`.
-                `?role=proposal&kind=proposal&shape=full`,
-            )
-          : await api.get<unknown>(
-              `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal`,
-            );
+        raw = await api.get<unknown>(proposalsPath(experimentId, remote));
       } catch (e: unknown) {
         // 🛑 **404 only, never 403.** The local-store path 404s on
         // Gemma, and treating that as "no proposals" is what keeps the

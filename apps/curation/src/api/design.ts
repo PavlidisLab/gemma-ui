@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./client";
+import { fetchProposalRows } from "./agentProposals";
 import { useGemmaMode } from "@/lib/gemmaMode";
 import type { TaxonBearingRow } from "@/lib/taxon";
 import type { PlatformBearingRow } from "@/lib/platform";
@@ -250,10 +251,9 @@ async function fetchLatestProposalOverlay(
   // the design renders fine without overlay (statements + sample
   // assignments still come from /design).
   try {
-    const raw = await api.get<unknown>(
-      `/curation/v1/datasets/${experimentId}/curation-proposals?kind=proposal&limit=1`,
+    return extractOverlayFromProposalsResponse(
+      await fetchProposalRows(experimentId),
     );
-    return extractOverlayFromProposalsResponse(raw);
   } catch {
     return null;
   }

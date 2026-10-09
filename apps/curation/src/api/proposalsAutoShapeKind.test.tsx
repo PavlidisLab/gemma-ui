@@ -94,13 +94,15 @@ describe("annotationSetsToProposals filters on the row's own kind", () => {
 });
 
 describe("useProposalsAutoShape", () => {
-  it("🛑 asks Gemma for kind=proposal, not role alone", async () => {
+  it("🛑 sends role but NOT kind to Gemma's per-dataset route (400s on kind)", async () => {
     mode.current = "remote";
     wire.body = [PROPOSAL_SET];
     const { result } = renderHook(() => useProposalsAutoShape(27438), { wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(wire.urls[0]).toContain("role=proposal");
-    expect(wire.urls[0]).toContain("kind=proposal");
+    // gemma2 answers 400 UNKNOWN_QUERY_PARAMETER to `kind` here
+    // (measured 2026-10-09); the audit split is client-side.
+    expect(wire.urls[0]).not.toContain("kind=");
     expect(wire.urls[0]).toContain("shape=full");
   });
 
