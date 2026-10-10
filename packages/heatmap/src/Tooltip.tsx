@@ -102,6 +102,8 @@ function CellRows({
   const row = payload.rows[state.row];
   const col = payload.columns[state.col];
   const qt = payload.matrix.quantitationType;
+  // A gene with no official symbol arrives as "".
+  const symbols = (row?.geneSymbols ?? []).filter(Boolean);
   return (
     <table style={{ borderSpacing: 0, fontSize: 11 }}>
       <tbody>
@@ -109,17 +111,15 @@ function CellRows({
             have to be: the sample-correlation matrix is sample x
             sample, and it was rendering an empty "PROBE —" line above
             every cell reading. An unnamed row is not a nameless probe,
-            it is a matrix that has no probes. */}
-        {row?.designElementName || row?.geneSymbols.length ? (
-          <Row label="PROBE">
-            {row?.designElementName ?? '—'}
-            {row?.geneSymbols.length ? (
-              <span style={{ opacity: 0.6 }}>
-                {' '}
-                ({row.geneSymbols.join(', ')})
-              </span>
-            ) : null}
+            it is a matrix that has no probes.
+            The gene is what a reader came for; the probe name is only
+            the fallback for a row that maps to no named gene. */}
+        {symbols.length ? (
+          <Row label={symbols.length === 1 ? 'GENE' : 'GENES'}>
+            {symbols.join(', ')}
           </Row>
+        ) : row?.designElementName ? (
+          <Row label="PROBE">{row.designElementName}</Row>
         ) : null}
         <Row label="SAMPLE">
           {col?.name ?? '—'}
