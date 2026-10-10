@@ -1017,7 +1017,13 @@ export function HeatmapWidget({
                   ? (i) => onRowLabelClick(toSourceRow(i))
                   : undefined
               }
-              rowLabelTitle={rowLabelTitle}
+              // Same drawn → caller mapping as the click: the title says
+              // what a click will do, so it must name the same row.
+              rowLabelTitle={
+                rowLabelTitle
+                  ? (i) => rowLabelTitle(toSourceRow(i))
+                  : undefined
+              }
               rowLabelGutterWidth={rowLabelGutterWidth}
               onStripGutterClick={
                 payload
@@ -1150,7 +1156,15 @@ export function HeatmapWidget({
             >
               <SidePanel
                 payload={orderedPayload ?? payload}
-                click={pinned}
+                // `pinned.row` is the row as DRAWN; the payload is in the
+                // caller's order, which differs once rows are reordered
+                // (clustering). Without this the panel described another
+                // row's probe and gene.
+                click={
+                  pinned.kind === 'cell'
+                    ? { ...pinned, row: toSourceRow(pinned.row) }
+                    : pinned
+                }
                 onClose={() => setPinned(null)}
                 rowValues={
                   pinned.kind === 'cell'
@@ -1195,7 +1209,12 @@ export function HeatmapWidget({
       )}
 
       {showTooltip && payload && tooltip ? (
-        <HeatmapTooltip payload={orderedPayload ?? payload} state={tooltip} formatValue={fmt} />
+        <HeatmapTooltip
+          payload={orderedPayload ?? payload}
+          // Drawn row → payload row; see the SidePanel above.
+          state={tooltip.kind === 'cell' ? { ...tooltip, row: toSourceRow(tooltip.row) } : tooltip}
+          formatValue={fmt}
+        />
       ) : null}
       {showTooltip && !payload && hover ? (
         <CursorTooltip hover={hover} data={scaledData} formatValue={fmt} />
