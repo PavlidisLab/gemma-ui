@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   CellGeometry,
   HeatmapConfig,
@@ -132,9 +133,23 @@ export function Heatmap({
   // label→popover gap; entering the popover cancels the hide.
   const [labelHover, setLabelHover] = useState<{
     row: number;
+    /** The hovered label's box, in viewport coordinates. */
     top: number;
+    bottom: number;
     left: number;
+    right: number;
   } | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  function anchorLabel(rowIndex: number, el: HTMLElement) {
+    const r = el.getBoundingClientRect();
+    setLabelHover({
+      row: rowIndex,
+      top: r.top,
+      bottom: r.bottom,
+      left: r.left,
+      right: r.right,
+    });
+  }
   const hideTimerRef = useRef<number | null>(null);
   function scheduleHide() {
     if (hideTimerRef.current != null) {
@@ -174,8 +189,7 @@ export function Heatmap({
     }
     if (!rowLabelTooltip) return;
     cancelHide();
-    const rect = el.getBoundingClientRect();
-    setLabelHover({ row: rowIndex, top: rect.top, left: rect.right + 6 });
+    anchorLabel(rowIndex, el);
   }
   // `pointerdown` fires for both mouse and touch, so one listener covers
   // tapping elsewhere on a touch device (which has no `mouseleave` to
@@ -186,12 +200,40 @@ export function Heatmap({
     if (!labelHover) return;
     function onOutside(ev: PointerEvent) {
       const node = containerRef.current;
-      if (node && ev.target instanceof Node && !node.contains(ev.target)) {
-        setLabelHover(null);
-      }
+      // The popover is portalled out of the container, so a tap on a
+      // link inside it is "outside" the container — and must not close
+      // it before the link's click lands.
+      const inside =
+        ev.target instanceof Node &&
+        (node?.contains(ev.target) || popoverRef.current?.contains(ev.target));
+      if (node && !inside) setLabelHover(null);
+    }
+    // The popover is placed once, against where the label was; a scroll
+    // moves the label out from under it. Scrolling inside the popover
+    // (long gene lists) is the exception.
+    function onScroll(ev: Event) {
+      if (ev.target instanceof Node && popoverRef.current?.contains(ev.target)) return;
+      setLabelHover(null);
     }
     document.addEventListener('pointerdown', onOutside);
-    return () => document.removeEventListener('pointerdown', onOutside);
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      document.removeEventListener('pointerdown', onOutside);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [labelHover]);
+  // Place the popover beside the label once its size is known — before
+  // paint, so it never shows in the wrong place first — and again if
+  // its content resizes.
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    if (!labelHover || !el) return;
+    const place = () => placeTooltip(el, labelHover);
+    place();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(place);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [labelHover]);
 
   // Observe container width so 'fit' mode reflows when the surrounding layout changes.
@@ -622,14 +664,7 @@ export function Heatmap({
                     hasTip
                       ? (e) => {
                           cancelHide();
-                          const rect = (
-                            e.currentTarget as HTMLDivElement
-                          ).getBoundingClientRect();
-                          setLabelHover({
-                            row: i,
-                            top: rect.top,
-                            left: rect.right + 6,
-                          });
+                          anchorLabel(i, e.currentTarget as HTMLElement);
                         }
                       : undefined
                   }
@@ -687,14 +722,7 @@ export function Heatmap({
               const handleEnter = hasTip
                 ? (e: React.MouseEvent<HTMLDivElement>) => {
                     cancelHide();
-                    const rect = (
-                      e.currentTarget as HTMLDivElement
-                    ).getBoundingClientRect();
-                    setLabelHover({
-                      row: i,
-                      top: rect.top,
-                      left: rect.right + 6,
-                    });
+                    anchorLabel(i, e.currentTarget as HTMLElement);
                   }
                 : undefined;
               const handleLeave = hasTip ? scheduleHide : undefined;
@@ -790,14 +818,7 @@ export function Heatmap({
                     hasTip
                       ? (e) => {
                           cancelHide();
-                          const rect = (
-                            e.currentTarget as HTMLDivElement
-                          ).getBoundingClientRect();
-                          setLabelHover({
-                            row: i,
-                            top: rect.top,
-                            left: rect.right + 6,
-                          });
+                          anchorLabel(i, e.currentTarget as HTMLElement);
                         }
                       : undefined
                   }
@@ -829,60 +850,80 @@ export function Heatmap({
         ))}
       </div>
 
-      {labelHover && rowLabelTooltip ? (
-        <div
-          onMouseEnter={cancelHide}
-          onMouseLeave={scheduleHide}
-          style={{
-            position: 'fixed',
-            left: labelHover.left,
-            zIndex: 50,
-            background: '#fff',
-            border: '1px solid #e5e7eb',
-            borderRadius: 4,
-            boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
-            padding: '6px 8px',
-            fontSize: 11,
-            color: 'currentColor',
-            maxWidth: 320,
-            // Keep the tooltip inside the viewport. A row's content is
-            // unbounded — a probe mapping to ten genes renders ten
-            // blocks — and anchored at the row's top with no cap it
-            // ran off the bottom of the screen, putting the overflow
-            // out of reach. Anchor below the row when there's room,
-            // flip to bottom-anchored when there isn't, and scroll
-            // internally either way.
-            ...tooltipVerticalStyle(labelHover.top),
-            overflowY: 'auto',
-          }}
-        >
-          {rowLabelTooltip(labelHover.row)}
-        </div>
-      ) : null}
+      {labelHover && rowLabelTooltip
+        ? // Portalled to <body>: a `position: fixed` box is placed
+          // against the nearest transformed ancestor, not the viewport,
+          // and the DE heatmap sits in a dialog dragged by
+          // `transform: translate()` — inside it the popover landed
+          // off-screen. `placeTooltip` sets the position before paint.
+          createPortal(
+            <div
+              ref={popoverRef}
+              onMouseEnter={cancelHide}
+              onMouseLeave={scheduleHide}
+              style={{
+                position: 'fixed',
+                top: labelHover.top,
+                left: labelHover.right + TOOLTIP_GAP,
+                zIndex: 1000,
+                background: '#fff',
+                border: '1px solid #e5e7eb',
+                borderRadius: 4,
+                boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
+                padding: '6px 8px',
+                fontSize: 11,
+                // Out of the heatmap's tree, so nothing to inherit a
+                // colour from that's guaranteed to read on white.
+                color: '#1e293b',
+                maxWidth: 320,
+                maxHeight: TOOLTIP_MAX_H,
+                overflowY: 'auto',
+                boxSizing: 'border-box',
+              }}
+            >
+              {rowLabelTooltip(labelHover.row)}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
 
-/** Vertical placement for the row-label tooltip, given the hovered
- *  row's top in viewport coordinates.
+const TOOLTIP_GAP = 2;
+const TOOLTIP_MARGIN = 8;
+const TOOLTIP_MAX_H = 420;
+
+/** Place the row-label popover against its label, inside the viewport.
  *
- *  Prefers anchoring at the row so the tooltip lines up with what it
- *  describes. When that leaves too little room to read anything, flips
- *  to bottom-anchored instead. Either way the height is capped to what
- *  actually fits, so long content scrolls inside the box rather than
- *  spilling past the viewport edge where it can't be reached.
+ *  Directly to the label's right, top-aligned with it, so the cursor
+ *  can cross into it before the hide timer fires. Near the bottom of
+ *  the screen it slides up only as far as it must — staying level with
+ *  the label rather than jumping to the screen's bottom edge — and if
+ *  it is taller than the screen it is capped and scrolls. With no room
+ *  on the right it goes to the label's left instead.
  *
- *  Recomputed per hover, so a resize between hovers is picked up. */
-function tooltipVerticalStyle(rowTop: number): React.CSSProperties {
-  const MARGIN = 12;
-  const MAX = 420;
-  /** Below this there isn't room for more than a line or two, so
-   *  anchoring at the row would be worse than flipping. */
-  const MIN_USABLE = 200;
-  const vh = typeof window === 'undefined' ? 800 : window.innerHeight;
-  const spaceBelow = vh - rowTop - MARGIN;
-  if (spaceBelow < MIN_USABLE) {
-    return { bottom: MARGIN, maxHeight: Math.min(MAX, vh - 2 * MARGIN) };
+ *  Writes straight to the element's style: it runs in a layout effect
+ *  and on resize, after the content has a measurable size. */
+function placeTooltip(
+  el: HTMLElement,
+  anchor: { top: number; bottom: number; left: number; right: number },
+) {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const maxH = Math.min(TOOLTIP_MAX_H, vh - 2 * TOOLTIP_MARGIN);
+  el.style.maxHeight = `${maxH}px`;
+  const h = Math.min(el.offsetHeight, maxH);
+  const w = el.offsetWidth;
+  const top = Math.max(
+    TOOLTIP_MARGIN,
+    Math.min(anchor.top, vh - TOOLTIP_MARGIN - h),
+  );
+  let left = anchor.right + TOOLTIP_GAP;
+  if (left + w > vw - TOOLTIP_MARGIN) {
+    const before = anchor.left - TOOLTIP_GAP - w;
+    left = before >= TOOLTIP_MARGIN ? before : Math.max(TOOLTIP_MARGIN, vw - TOOLTIP_MARGIN - w);
   }
-  return { top: rowTop, maxHeight: Math.min(MAX, spaceBelow) };
+  el.style.top = `${top}px`;
+  el.style.left = `${left}px`;
 }
