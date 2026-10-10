@@ -43,6 +43,7 @@ import {
   type SearchSettings,
 } from "@/lib/types";
 import { manufacturerOf } from "./manufacturer";
+import { GeneSymbolLink } from "@/features/gene/GeneSymbolLink";
 import {
   GeneMappings,
   GenomeAlignment,
@@ -780,10 +781,20 @@ function ElementRow({
                   })
                   .join("\n")}
               >
-                {el.genes
-                  .slice(0, 3)
-                  .map((g) => g.officialSymbol ?? `#${g.id}`)
-                  .join(", ")}
+                {/* Each symbol opens its gene page. stopPropagation for
+                    the same reason as the probe-name link: the row
+                    itself toggles the expando. */}
+                {el.genes.slice(0, 3).map((g, i) => (
+                  <span key={g.id}>
+                    {i > 0 ? ", " : ""}
+                    <GeneSymbolLink
+                      symbol={g.officialSymbol}
+                      ncbiId={g.ncbiId}
+                      fallback={`#${g.id}`}
+                      stopPropagation
+                    />
+                  </span>
+                ))}
                 {el.genes.length > 3 ? ` +${el.genes.length - 3}` : ""}
               </span>
               {el.genes.length === 1 && geneNames.get(el.genes[0].id) ? (

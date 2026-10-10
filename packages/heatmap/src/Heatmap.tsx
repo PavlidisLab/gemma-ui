@@ -12,6 +12,7 @@ import {
   stripHeightsFor,
   verticalChromeFor,
 } from './render';
+import { splitRowLabelSymbols } from './payload';
 
 export interface HeatmapProps {
   data: HeatmapData;
@@ -70,6 +71,14 @@ export interface HeatmapProps {
   onRowLabelClick?: (rowIndex: number) => void;
   /** Overrides the row label's hover text. */
   rowLabelTitle?: (rowIndex: number) => string | undefined;
+  /** Renders one gene symbol in a row's gutter label — the host's way
+   *  to make each symbol a link to its own gene page. The label is
+   *  split into its genes first (``"A;B*"`` → ``A``, ``B``), so a row
+   *  naming several genes gets one call per gene. Return ``null`` to
+   *  leave that symbol as plain text, e.g. when it doesn't match a gene
+   *  on the row. Omitted ⇒ the gutter is plain text throughout, which
+   *  is what a host without gene pages wants. */
+  renderRowLabelGene?: (rowIndex: number, symbol: string) => React.ReactNode;
   /** Width (in CSS px) reserved for the row-label gutter on the
    *  right. Defaults to 100, which fits a single ~14ch column. Pass
    *  a larger value when using ``data.rowLabelColumns`` for
@@ -111,6 +120,7 @@ export function Heatmap({
   onRowLabelClick,
   rowLabelTitle,
   rowLabelGutterWidth,
+  renderRowLabelGene,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -147,6 +157,16 @@ export function Heatmap({
   // between them. Tapping the already-open row again closes it — the
   // only way a touch user can dismiss it deliberately short of tapping
   // elsewhere (see the outside-tap effect below).
+  // A row's symbol label, with each gene handed to the host to render
+  // when it asked to (see ``renderRowLabelGene``).
+  function renderLabelSymbols(rowIndex: number, text: string): React.ReactNode {
+    if (!renderRowLabelGene) return text;
+    return splitRowLabelSymbols(text).map((p, k) => (
+      <React.Fragment key={k}>
+        {p.symbol ? (renderRowLabelGene(rowIndex, p.text) ?? p.text) : p.text}
+      </React.Fragment>
+    ));
+  }
   function handleLabelActivate(rowIndex: number, el: HTMLElement) {
     if (labelHover?.row === rowIndex) {
       setLabelHover(null);
@@ -750,7 +770,7 @@ export function Heatmap({
                           maxWidth: isNum ? 72 : isPrimary ? 120 : 200,
                         }}
                       >
-                        {c}
+                        {isPrimary ? renderLabelSymbols(i, c) : c}
                       </div>
                     );
                   })}
@@ -801,7 +821,7 @@ export function Heatmap({
                     cursor: onRowLabelClick ? 'pointer' : hasTip ? 'help' : 'default',
                   }}
                 >
-                  {lbl}
+                  {renderLabelSymbols(i, lbl)}
                 </div>
               );
             })}

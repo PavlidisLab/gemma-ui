@@ -629,6 +629,30 @@ export async function getPlatformElement(
   return r.data?.[0] ?? null;
 }
 
+/**
+ * Element ids for probes known only by name, in one request.
+ *
+ * The DE endpoint (`/datasets/{id}/expressions/differential`) names each
+ * row's probe but serves no `designElementId`, and the probe page is
+ * addressed by id. `/platforms/{p}/elements/{a,b,c}` takes names as
+ * readily as ids, so a whole heatmap resolves in one call. A name the
+ * platform doesn't hold is simply absent from the map.
+ */
+export async function getPlatformElementIdsByName(
+  platform: number | string,
+  names: string[],
+  signal?: AbortSignal,
+): Promise<Map<string, number>> {
+  const ids = new Map<string, number>();
+  if (names.length === 0) return ids;
+  const r = await apiGet<PaginatedResponse<PlatformElement>>(
+    `${BASE}/platforms/${platform}/elements/${names.map(encodeURIComponent).join(",")}`,
+    { params: { limit: names.length }, signal },
+  );
+  for (const e of r.data ?? []) ids.set(e.name, e.id);
+  return ids;
+}
+
 /** Genes mapped to a single platform element (probe). The relation
  *  is many-to-many; we paginate up to a reasonable limit since most
  *  probes map to 1–3 genes. Returns the rich Gene shape: official
@@ -2009,11 +2033,8 @@ export interface HeatmapWireResponse {
   rows: Array<{
     designElementId: number;
     designElementName: string;
-    genes?: Array<{
-      id: number;
-      officialSymbol?: string | null;
-      name?: string | null;
-    }>;
+    /** Carries ``ncbiId`` since 2026-08-25; see ``HeatmapRowGene``. */
+    genes?: HeatmapRowGene[];
     annotations?: Record<string, unknown>;
   }>;
   columns: Array<{

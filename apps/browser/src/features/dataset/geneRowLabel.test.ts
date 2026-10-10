@@ -17,6 +17,7 @@ import {
   buildGeneRowLabel,
   buildHeatmapDataFromPayload,
   probeRowLabel,
+  splitRowLabelSymbols,
 } from "@gemma/heatmap";
 
 const g = (id: number, officialSymbol: string, name: string) => ({
@@ -234,5 +235,36 @@ describe("expression and top-loaded heatmaps agree on a row label", () => {
     // not, so one probe exported under two different labels.
     expect(pca.symbol).not.toContain("·");
     expect(expressionLabels().rowLabels?.[0]).not.toContain("·");
+  });
+});
+
+describe("splitRowLabelSymbols — the gutter label back into its genes", () => {
+  it("gives each gene on a multi-mapping row its own part", () => {
+    const { labelSymbol } = buildGeneRowLabel([
+      g(1, "Actb", "actin, beta"),
+      g(2, "Lrrc58", "leucine rich repeat containing 58"),
+    ]);
+    expect(splitRowLabelSymbols(labelSymbol)).toEqual([
+      { text: "Actb", symbol: true },
+      { text: ";", symbol: false },
+      { text: "Lrrc58", symbol: true },
+    ]);
+  });
+
+  it("keeps the non-specific mark as text, not as part of a symbol", () => {
+    const { labelSymbol } = buildGeneRowLabel(
+      [g(1, "Actb", ""), g(2, "Lrrc58", "")],
+      new Set([1]),
+    );
+    expect(splitRowLabelSymbols(labelSymbol)).toEqual([
+      { text: "Actb", symbol: true },
+      { text: "*", symbol: false },
+    ]);
+  });
+
+  it("round-trips: the parts join back to the label", () => {
+    for (const label of ["Myc", "A;B;C*", "1007_s_at", ""]) {
+      expect(splitRowLabelSymbols(label).map((p) => p.text).join("")).toBe(label);
+    }
   });
 });

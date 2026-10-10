@@ -24,6 +24,7 @@ import {
 import {
   HeatmapWidget,
   NONSPECIFIC_MARK,
+  type HeatmapPayloadRow,
   type HeatmapRowGene,
 } from "@gemma/heatmap";
 import { useDebounced, toGoCurie, shortenGoUri, curieToUrl } from "./util";
@@ -72,6 +73,11 @@ export interface GeneExpressionPanelProps {
   /** Row-label tooltip. Omit for a plain, link-free fallback — see the
    *  file header for why this can't have a package-wide default. */
   renderProbeTooltip?: (input: ProbeTooltipInput) => React.ReactNode;
+  /** Renders one gene symbol in a row's gutter label, given the row it
+   *  sits on — how a host links each symbol to its gene page. Omit for
+   *  a plain-text gutter; like `renderProbeTooltip`, the routes are the
+   *  host's, not this package's. */
+  renderRowLabelGene?: (row: HeatmapPayloadRow, symbol: string) => React.ReactNode;
 }
 
 const ORIGIN_PALETTE = [
@@ -113,6 +119,7 @@ export function GeneExpressionPanel({
   taxon,
   isAdmin = false,
   renderProbeTooltip,
+  renderRowLabelGene,
 }: GeneExpressionPanelProps) {
   const [selectedQt, setSelectedQt] = useState<number | null>(null);
   const [maskOutliers, setMaskOutliers] = useState(true);
@@ -241,6 +248,7 @@ export function GeneExpressionPanel({
           quantitationType={selectedQt}
           maskOutliers={maskOutliers}
           renderProbeTooltip={renderProbeTooltip}
+          renderRowLabelGene={renderRowLabelGene}
         />
       </div>
     </div>
@@ -693,6 +701,7 @@ function SelectedGenesStrip({
 function HeatmapPanel({
   api, entityId, genes, origins, selectionHydrated,
   quantitationType = null, maskOutliers = true, renderProbeTooltip,
+  renderRowLabelGene,
 }: {
   api: GeneExpressionApi;
   entityId: number;
@@ -702,6 +711,7 @@ function HeatmapPanel({
   quantitationType?: number | null;
   maskOutliers?: boolean;
   renderProbeTooltip?: (input: ProbeTooltipInput) => React.ReactNode;
+  renderRowLabelGene?: (row: HeatmapPayloadRow, symbol: string) => React.ReactNode;
 }) {
   const geneIds = useMemo(() => genes.map((g) => g.id), [genes]);
   const queried = useMemo(() => new Set(geneIds), [geneIds]);
@@ -766,7 +776,7 @@ function HeatmapPanel({
       id,
       officialSymbol: r.geneSymbols?.[gi] ?? null,
       name: r.geneNames?.[gi] ?? null,
-      ncbiId: null,
+      ncbiId: r.geneNcbiIds?.[gi] ?? null,
     }));
     const input: ProbeTooltipInput = {
       designElementName: r.designElementName,
@@ -806,6 +816,14 @@ function HeatmapPanel({
           payload={payload}
           rowLabelGutterWidth={260}
           rowLabelTooltip={rowLabelTooltip}
+          renderRowLabelGene={
+            renderRowLabelGene
+              ? (i, sym) => {
+                  const r = payload.rows[i];
+                  return r ? renderRowLabelGene(r, sym) : null;
+                }
+              : undefined
+          }
           defaultRowOrder="cluster"
         />
       </div>

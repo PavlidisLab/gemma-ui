@@ -9,7 +9,7 @@
  *   - matrix cell  → probe/gene + sample + value sections
  *   - strip cell   → factor metadata + clicked sample's FV + statements
  */
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { groupStatementsBySharedSubject, OntologyTermLink } from '@gemma/ontology';
 import { continuousValueOf, parseFactorUnit } from './payload';
 import type {
@@ -23,7 +23,6 @@ import type {
 const TEXT = '#1f2937';
 const SUBTLE = '#6b7280';
 const BORDER = '#e5e7eb';
-const ACCENT = '#2563eb';
 const ACCENT_3 = '#f59e0b';
 const SURFACE_SUNK = '#fafafa';
 const MONO = '"SFMono-Regular", "Menlo", "Consolas", monospace';
@@ -48,6 +47,11 @@ export interface SidePanelProps {
   rowValueHighlightIndex?: number;
   /** Format numbers consistently with the matrix tooltip / legend. */
   formatValue?: (v: number) => string;
+  /** Renders one of the clicked row's gene symbols — the host's link to
+   *  its gene page, the same one the row-label gutter uses. Return
+   *  ``null`` for plain text. Omitted ⇒ plain text: this package can't
+   *  know the host's routes, and the curation app has no gene page. */
+  renderGene?: (symbol: string) => ReactNode;
 }
 
 export function SidePanel({
@@ -57,6 +61,7 @@ export function SidePanel({
   rowValues,
   rowValueHighlightIndex,
   formatValue,
+  renderGene,
 }: SidePanelProps): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null);
 
@@ -149,6 +154,7 @@ export function SidePanel({
             rowValues={rowValues}
             highlightIndex={rowValueHighlightIndex ?? click.col}
             fmt={fmt}
+            renderGene={renderGene}
           />
         ) : (
           <StripDetail
@@ -173,6 +179,7 @@ function CellDetail({
   rowValues,
   highlightIndex,
   fmt,
+  renderGene,
 }: {
   payload: HeatmapPayload;
   row: number;
@@ -184,12 +191,17 @@ function CellDetail({
    *  (the source-payload column) when the matrix reorders samples. */
   highlightIndex: number;
   fmt: (v: number) => string;
+  renderGene?: (symbol: string) => ReactNode;
 }): JSX.Element {
   const rowMeta = payload.rows[row];
   const colMeta = payload.columns[col];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <ProbeGeneSection row={rowMeta} qt={payload.matrix.quantitationType} />
+      <ProbeGeneSection
+        row={rowMeta}
+        qt={payload.matrix.quantitationType}
+        renderGene={renderGene}
+      />
       <SampleSection payload={payload} column={colMeta} />
       <ValueSection
         value={value}
@@ -204,9 +216,11 @@ function CellDetail({
 function ProbeGeneSection({
   row,
   qt,
+  renderGene,
 }: {
   row: HeatmapPayloadRow | undefined;
   qt: HeatmapPayload['matrix']['quantitationType'];
+  renderGene?: (symbol: string) => ReactNode;
 }) {
   if (!row) return <SectionHeader>Probe / gene (unknown)</SectionHeader>;
   return (
@@ -220,14 +234,10 @@ function ProbeGeneSection({
           row.geneSymbols.map((sym, i) => (
             <span key={i}>
               {i > 0 ? ', ' : ''}
-              <a
-                href={`/gene/${row.geneIds[i] ?? sym}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: ACCENT, textDecoration: 'none' }}
-              >
-                {sym}
-              </a>
+              {/* Was `<a href="/gene/${geneIds[i]}">`: Gemma's internal
+                  gene id, which the gene page reads as an NCBI id (a
+                  different gene), on a path outside the host's router. */}
+              {renderGene?.(sym) ?? sym}
             </span>
           ))
         )}

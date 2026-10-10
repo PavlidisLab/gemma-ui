@@ -134,6 +134,10 @@ export interface HeatmapWidgetProps {
   rowLabelTooltip?: (rowIndex: number) => React.ReactNode;
   /** Click on a row's label. Passed straight through to `Heatmap`. */
   onRowLabelClick?: (rowIndex: number) => void;
+  /** Renders one gene symbol in a row's gutter label; see `Heatmap`.
+   *  The row index is the caller's (source) order, like
+   *  `rowLabelTooltip`'s. */
+  renderRowLabelGene?: (rowIndex: number, symbol: string) => React.ReactNode;
   /** Per-row hover text for the label gutter — say what a click will
    *  DO, since a clickable row that only names itself gives the curator
    *  no way to find out. */
@@ -336,6 +340,7 @@ export function HeatmapWidget({
   showDownload = true,
   rowLabelTooltip,
   onRowLabelClick,
+  renderRowLabelGene,
   defaultRowOrder = 'none',
   hideRowOrderControl = false,
   rowLabelTitle,
@@ -1017,6 +1022,11 @@ export function HeatmapWidget({
                   ? (i) => onRowLabelClick(toSourceRow(i))
                   : undefined
               }
+              renderRowLabelGene={
+                renderRowLabelGene
+                  ? (i, sym) => renderRowLabelGene(toSourceRow(i), sym)
+                  : undefined
+              }
               // Same drawn → caller mapping as the click: the title says
               // what a click will do, so it must name the same row.
               rowLabelTitle={
@@ -1164,6 +1174,11 @@ export function HeatmapWidget({
                   pinned.kind === 'cell'
                     ? { ...pinned, row: toSourceRow(pinned.row) }
                     : pinned
+                }
+                renderGene={
+                  renderRowLabelGene && pinned.kind === 'cell'
+                    ? (sym) => renderRowLabelGene(toSourceRow(pinned.row), sym)
+                    : undefined
                 }
                 onClose={() => setPinned(null)}
                 rowValues={

@@ -10,6 +10,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
+import { GeneSymbolLink } from "@/features/gene/GeneSymbolLink";
 import { getElementAlignments } from "@/api/endpoints";
 import type { GeneMappingSummary, MappedGene } from "@/api/endpoints";
 import { publicGemmaUrl } from "@/lib/gemmaConfig";
@@ -98,9 +99,12 @@ export function GeneMappings({
         <ul className="space-y-0.5">
           {genesQ.data!.map((g) => (
             <li key={g.id} className="flex items-baseline gap-1.5 text-[11px]">
-              <span className="font-mono font-semibold text-gemma-ink">
-                {g.officialSymbol ?? "—"}
-              </span>
+              <GeneSymbolLink
+                symbol={g.officialSymbol}
+                ncbiId={g.ncbiId}
+                className="font-mono font-semibold text-gemma-ink"
+                linkClassName="hover:underline hover:text-gemma-accent"
+              />
               <span className="text-gemma-subtle italic line-clamp-1">
                 {g.officialName ?? ""}
               </span>
@@ -282,7 +286,16 @@ export function GenomeAlignment({
                   {r.genes?.length ? (
                     <>
                       {b.identity != null || b.score != null ? " · " : ""}
-                      {r.genes.map((g) => g.officialSymbol ?? "?").join(", ")}
+                      {r.genes.map((g, i) => (
+                        <span key={g.id}>
+                          {i > 0 ? ", " : ""}
+                          <GeneSymbolLink
+                            symbol={g.officialSymbol}
+                            ncbiId={g.ncbiId}
+                            fallback="?"
+                          />
+                        </span>
+                      ))}
                     </>
                   ) : (
                     <span

@@ -54,6 +54,7 @@ export type {
 export {
   buildGeneRowLabel,
   probeRowLabel,
+  splitRowLabelSymbols,
   continuousValueOf,
   parseFactorUnit,
   NONSPECIFIC_MARK,

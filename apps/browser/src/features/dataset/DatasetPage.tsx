@@ -20,6 +20,7 @@ import {
   getDatasetDesign,
   getDatasetOriginalPlatforms,
   getDatasetPlatforms,
+  getPlatformElementIdsByName,
   getDatasetSamples,
   getDatasetQuantitationTypes,
   getDatasetPublications,
@@ -39,6 +40,7 @@ import type {
   HeatmapPayloadRow,
   Factor,
 } from "@gemma/heatmap";
+import { ProbeRowTooltip, rowLabelGeneLink } from "./ProbeRowTooltip";
 import { VisualizeTab } from "./VisualizeTab";
 import { ContinuousFactorCard } from "./ContinuousFactorCard";
 import { useDataset } from "./useDataset";
@@ -3310,6 +3312,27 @@ function ResultSetHeatmap({
     return { ...q.data, geneExpressionLevels: levels };
   }, [q.data]);
 
+  // The DE payload names each probe but carries no element id, which
+  // is what the probe page is addressed by — resolve them all at once.
+  const probeNames = useMemo(
+    () =>
+      [
+        ...new Set(
+          (q.data?.geneExpressionLevels ?? [])
+            .map((l) => l.vectors?.[0]?.designElementName)
+            .filter((n): n is string => !!n),
+        ),
+      ].sort(),
+    [q.data],
+  );
+  const probeIdsQ = useQuery({
+    queryKey: ["platformElementIdsByName", platformShortName, probeNames],
+    queryFn: ({ signal }) =>
+      getPlatformElementIdsByName(platformShortName!, probeNames, signal),
+    enabled: !!platformShortName && probeNames.length > 0,
+    staleTime: Infinity,
+  });
+
   const payload = useMemo<HeatmapPayload | null>(() => {
     if (!orderedData || !samplesQ.data || !designQ.data) return null;
     return buildDeHeatmapPayload(orderedData, samplesQ.data, designQ.data, datasetId);
@@ -3397,8 +3420,13 @@ function ResultSetHeatmap({
       // Ids, not hrefs: both links are in-app routes now rather than
       // absolute URLs into the legacy JSP UI.
       geneNcbiId: lvl.geneNcbiId ?? null,
+      geneId: lvl.geneId ?? null,
       probeName: vec?.designElementName ?? null,
-      designElementId: vec?.designElementId ?? null,
+      designElementId:
+        vec?.designElementId ??
+        (vec?.designElementName
+          ? (probeIdsQ.data?.get(vec.designElementName) ?? null)
+          : null),
     };
   };
   return (
@@ -3438,21 +3466,28 @@ function ResultSetHeatmap({
         rowLabelTooltip={(i) => {
           const r = rowInfo(i);
           if (!r) return null;
+          // The same pop-up every other heatmap uses; what's particular
+          // to a DE row — its FDR, p and fold change — goes in the slot.
           return (
-            <div className="space-y-1">
-              {r.symbol ? (
-                <div className="font-semibold text-slate-800">{r.symbol}</div>
-              ) : null}
-              {r.officialName ? (
-                <div className="text-slate-600">{r.officialName}</div>
-              ) : null}
-              {r.probeName ? (
-                <div className="text-[10px] text-slate-500 font-mono">
-                  {r.probeName}
-                </div>
-              ) : null}
+            <ProbeRowTooltip
+              designElementName={r.probeName}
+              designElementId={r.designElementId}
+              genes={
+                r.geneId != null || r.symbol
+                  ? [
+                      {
+                        id: r.geneId ?? -1,
+                        officialSymbol: r.symbol,
+                        name: r.officialName,
+                        ncbiId: r.geneNcbiId,
+                      },
+                    ]
+                  : []
+              }
+              platformShortName={platformShortName}
+            >
               {r.fdr != null || r.pvalue != null || r.log2FoldChange != null ? (
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1 text-[10px] font-mono tabular-nums text-slate-600">
+                <div className="flex flex-wrap gap-x-3 gap-y-0.5 py-1 text-[10px] font-mono tabular-nums text-slate-600">
                   {r.fdr != null ? (
                     <span>
                       <span className="text-slate-400">FDR </span>
@@ -3473,30 +3508,14 @@ function ResultSetHeatmap({
                   ) : null}
                 </div>
               ) : null}
-              <div className="flex gap-3 pt-1 text-[11px]">
-                {r.geneNcbiId != null ? (
-                  <Link
-                    to="/gene/ncbi/$ncbiId"
-                    params={{ ncbiId: String(r.geneNcbiId) }}
-                    className="text-sky-700 hover:underline"
-                  >
-                    gene page →
-                  </Link>
-                ) : null}
-                {platformShortName && r.designElementId != null ? (
-                  <Link
-                    to="/platforms/$shortName/probe/$elementId"
-                    params={{
-                      shortName: platformShortName,
-                      elementId: String(r.designElementId),
-                    }}
-                    className="text-sky-700 hover:underline"
-                  >
-                    probe page →
-                  </Link>
-                ) : null}
-              </div>
-            </div>
+            </ProbeRowTooltip>
+          );
+        }}
+        renderRowLabelGene={(i, sym) => {
+          const r = rowInfo(i);
+          return rowLabelGeneLink(
+            r ? { geneSymbols: [r.symbol ?? ""], geneNcbiIds: [r.geneNcbiId] } : undefined,
+            sym,
           );
         }}
       />
@@ -3711,6 +3730,7 @@ function buildDeHeatmapPayload(
       designElementId: vec0?.designElementId ?? -1,
       designElementName: vec0?.designElementName ?? "",
       geneIds: lvl.geneId != null ? [lvl.geneId] : [],
+      geneNcbiIds: [lvl.geneNcbiId ?? null],
       geneSymbols: [sym],
       geneNames: [lvl.geneOfficialName ?? ""],
       // Raw p-value drives the leading gutter column (and the

@@ -23,7 +23,10 @@ import {
   getHeatmapData,
   getDatasetPlatforms,
 } from "@/api/endpoints";
-import { ProbeRowTooltip } from "@/features/dataset/ProbeRowTooltip";
+import {
+  ProbeRowTooltip,
+  rowLabelGeneLink,
+} from "@/features/dataset/ProbeRowTooltip";
 import { restUrl } from "@/api/base";
 import { useEscapeKey } from "@gemma/ui";
 import { adaptHeatmapWire } from "../VisualizeTab";
@@ -240,6 +243,9 @@ function PcLoadingsPopup({
                 defaultFitMode="squeeze"
                 showGroupGaps={false}
                 downloadFilenameStem={`pc${pc}-expression`}
+                renderRowLabelGene={(i, sym) =>
+                  rowLabelGeneLink(payload.rows[i], sym)
+                }
                 rowLabelTooltip={(i) => {
                   const r = wire?.rows[i];
                   if (!r) return null;

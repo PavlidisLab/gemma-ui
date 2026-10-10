@@ -70,6 +70,10 @@ export interface HeatmapPayloadRow {
   designElementName: string;
   geneIds: number[];
   geneSymbols: string[];
+  /** Parallel to ``geneIds``: each gene's NCBI id, the key its gene
+   *  page is addressed by. Optional — a host that doesn't link genes
+   *  can leave it out, and ``null`` marks a gene without one. */
+  geneNcbiIds?: Array<number | null>;
   /** Parallel to ``geneSymbols``. Optional — when present, the
    *  row-label gutter renders a second column with the full gene
    *  name. Use the empty string when a gene has no name on file. */
@@ -192,6 +196,33 @@ export function buildGeneRowLabel(
       ? names.map((n) => n || NAME_PLACEHOLDER).join(NAME_SEP)
       : '',
   };
+}
+
+/**
+ * A gutter symbol label split back into its genes, so a host can render
+ * each one on its own (e.g. as a link) while this package keeps sole
+ * ownership of the label format — the separator and the non-specific
+ * mark that ``buildGeneRowLabel`` writes.
+ *
+ * ``"Actb;Lrrc58*"`` → ``Actb`` (symbol), ``;``, ``Lrrc58`` (symbol),
+ * ``*``. A label that names no gene (the probe-name fallback) comes back
+ * as a single symbol part; the host is the one that knows whether it
+ * matches a gene on the row.
+ *
+ * Pure.
+ */
+export function splitRowLabelSymbols(
+  label: string,
+): Array<{ text: string; symbol: boolean }> {
+  const marked = label.endsWith(NONSPECIFIC_MARK);
+  const body = marked ? label.slice(0, -NONSPECIFIC_MARK.length) : label;
+  const parts: Array<{ text: string; symbol: boolean }> = [];
+  body.split(SYMBOL_SEP).forEach((sym, i) => {
+    if (i > 0) parts.push({ text: SYMBOL_SEP, symbol: false });
+    if (sym) parts.push({ text: sym, symbol: true });
+  });
+  if (marked) parts.push({ text: NONSPECIFIC_MARK, symbol: false });
+  return parts;
 }
 
 /** What a heatmap row needs to carry for the gutter to label it.

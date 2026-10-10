@@ -30,7 +30,7 @@ import {
 } from "@/api/endpoints";
 import type { Dataset } from "@/lib/types";
 import { taxonPathParam } from "@/lib/gemmaConfig";
-import { ProbeRowTooltip } from "./ProbeRowTooltip";
+import { ProbeRowTooltip, rowLabelGeneLink } from "./ProbeRowTooltip";
 
 function toCell(v: unknown): number | null {
   if (v == null) return null;
@@ -68,6 +68,7 @@ export function adaptHeatmapWire(
         designElementId: r.designElementId,
         designElementName: r.designElementName,
         geneIds,
+        geneNcbiIds: rowGenes.map((g) => g.ncbiId ?? null),
         geneSymbols: rowGenes.map((g) => g.officialSymbol ?? ""),
         geneNames: rowGenes.map((g) => g.name ?? ""),
         ...buildGeneRowLabel(rowGenes, queried),
@@ -166,6 +167,7 @@ export function VisualizeTab({
           queried={input.queried}
         />
       )}
+      renderRowLabelGene={rowLabelGeneLink}
     />
   );
 }

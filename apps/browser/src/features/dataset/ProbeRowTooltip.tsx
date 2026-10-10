@@ -31,12 +31,19 @@
  * linking beats linking somewhere wrong.
  */
 
+import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
-import { NONSPECIFIC_MARK, type HeatmapRowGene } from "@gemma/heatmap";
+import {
+  NONSPECIFIC_MARK,
+  type HeatmapPayloadRow,
+  type HeatmapRowGene,
+} from "@gemma/heatmap";
+import { GeneSymbolLink } from "@/features/gene/GeneSymbolLink";
 
 export interface ProbeRowTooltipProps {
-  /** Probe name, e.g. ``1007_s_at``. */
-  designElementName: string;
+  /** Probe name, e.g. ``1007_s_at``. Absent ⇒ no probe line: the DE
+   *  endpoint returns some genes with no probe vector at all. */
+  designElementName?: string | null;
   /** Probe id — what the probe page is addressed by. */
   designElementId?: number | null;
   /** Every gene the probe maps to, in wire order. */
@@ -47,6 +54,10 @@ export interface ProbeRowTooltipProps {
   /** Genes the viewer searched for. Empty (the default) means no
    *  search is driving the view, and nothing is tagged. */
   queried?: ReadonlySet<number>;
+  /** What a particular heatmap knows about the row beyond the probe
+   *  and its genes — the DE heatmap's FDR / p / log2FC. Rendered
+   *  between the genes and the probe line. */
+  children?: ReactNode;
 }
 
 export function ProbeRowTooltip({
@@ -55,6 +66,7 @@ export function ProbeRowTooltip({
   genes,
   platformShortName,
   queried,
+  children,
 }: ProbeRowTooltipProps) {
   const searched = queried ?? new Set<number>();
   // A gene with neither symbol nor name has nothing to show; drop it
@@ -64,7 +76,7 @@ export function ProbeRowTooltip({
 
   // Sits flush under the last gene's ``ncbi:`` line and reads the same
   // way — both are "identifier: value" for the thing above them.
-  const probeLine = (
+  const probeLine = !designElementName ? null : (
     <div className="text-[10px] text-slate-500 font-mono">
       {platformShortName && designElementId != null ? (
         <Link
@@ -88,6 +100,7 @@ export function ProbeRowTooltip({
     return (
       <div className="text-xs text-slate-500">
         <div className="italic">maps to no gene</div>
+        {children}
         {probeLine}
       </div>
     );
@@ -101,18 +114,12 @@ export function ProbeRowTooltip({
           const symbol = g.officialSymbol || `gene ${g.id}`;
           return (
             <div key={g.id}>
-              {ncbiId != null ? (
-                <Link
-                  to="/gene/ncbi/$ncbiId"
-                  params={{ ncbiId: String(ncbiId) }}
-                  className="font-mono font-semibold text-sky-700 hover:underline"
-                  title="Open this gene's page"
-                >
-                  {symbol}
-                </Link>
-              ) : (
-                <span className="font-mono font-semibold">{symbol}</span>
-              )}
+              <GeneSymbolLink
+                symbol={symbol}
+                ncbiId={ncbiId}
+                className="font-mono font-semibold"
+                linkClassName="text-sky-700 hover:underline"
+              />
               {g.name ? (
                 <span className="ml-2 text-slate-600">{g.name}</span>
               ) : null}
@@ -122,14 +129,23 @@ export function ProbeRowTooltip({
                 </span>
               ) : null}
               {ncbiId != null ? (
-                <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                  ncbi:{ncbiId}
+                <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                  <a
+                    href={`https://www.ncbi.nlm.nih.gov/gene/${ncbiId}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sky-700 hover:underline"
+                    title="Open this gene at NCBI"
+                  >
+                    ncbi:{ncbiId}
+                  </a>
                 </div>
               ) : null}
             </div>
           );
         })}
       </div>
+      {children}
       {/* The probe belongs to the row, not to each gene — one line at
           the bottom rather than repeated in every block. */}
       {probeLine}
@@ -141,5 +157,28 @@ export function ProbeRowTooltip({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One gene symbol in a heatmap row's gutter label, as a link to its gene
+ * page — the `renderRowLabelGene` every browser heatmap passes, so the
+ * gutter links the same way the pop-up above does. The symbol is looked
+ * up among the row's own genes; one that isn't there (the probe-name
+ * fallback) stays plain text.
+ */
+export function rowLabelGeneLink(
+  row: Pick<HeatmapPayloadRow, "geneSymbols" | "geneNcbiIds"> | undefined,
+  symbol: string,
+): ReactNode {
+  const gi = row ? row.geneSymbols.indexOf(symbol) : -1;
+  if (!row || gi < 0) return null;
+  return (
+    <GeneSymbolLink
+      symbol={symbol}
+      ncbiId={row.geneNcbiIds?.[gi]}
+      // Inside the label, whose own click pins the pop-up.
+      stopPropagation
+    />
   );
 }
