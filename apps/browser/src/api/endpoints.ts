@@ -1686,6 +1686,30 @@ export async function resolveGeneNcbiId(
   return hits[0]?.ncbiId ?? null;
 }
 
+/** Gemma internal gene id → NCBI gene id, for legacy
+ *  `/gene/showGene.html?id=N` links (redirected to `#/gene/id/N`).
+ *
+ *  Its own route, `/genes/internalId/{id}`, because the regular gene
+ *  routes read any bare number as an NCBI id, and Gemma ids overlap that
+ *  range entirely. A 404 (no such gene) resolves to null, not an error.
+ */
+export async function resolveGeneByInternalId(
+  id: string,
+  signal?: AbortSignal,
+): Promise<number | null> {
+  if (!/^\d+$/.test(id)) return null;
+  try {
+    const r = await apiGet<{ data: Gene }>(
+      `${BASE}/genes/internalId/${id}`,
+      { signal },
+    );
+    return r.data?.ncbiId ?? null;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 /** Bulk symbol → gene lookup. ``/genes/{genes}`` takes a
  *  comma-separated list and resolves each entry as an NCBI id, an
  *  Ensembl id, or an official symbol — so one call covers a whole

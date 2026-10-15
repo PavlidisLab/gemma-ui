@@ -147,6 +147,16 @@ const geneLegacyRoute = createRoute({
   component: () => <GeneRedirect />,
 });
 
+// Legacy redirect by Gemma's internal gene id — the target of old
+// /gene/showGene.html?id=N links, which the Apache vhost rewrites to
+// #/gene/id/N. Forwards to /gene/ncbi/$ncbiId. The static `id` segment
+// outranks geneLegacyRoute's $id, so /gene/id/… never lands there.
+const geneInternalIdRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/gene/id/$id",
+  component: () => <GeneRedirect byInternalId />,
+});
+
 const mcpRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/mcp",
@@ -177,6 +187,7 @@ export const routeTree = rootRoute.addChildren([
   genesRoute,
   geneRoute,
   geneLegacyRoute,
+  geneInternalIdRoute,
   mcpRoute,
   adminSystemRoute,
 ]);

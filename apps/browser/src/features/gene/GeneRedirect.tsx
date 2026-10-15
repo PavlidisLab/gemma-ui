@@ -5,22 +5,33 @@
 // across taxa — so the canonical route is now NCBI-id-keyed. This shim
 // keeps old links (and bookmarks) alive: it resolves the legacy param to
 // an NCBI id and replaces the history entry with the canonical URL.
+//
+// With `byInternalId` it serves /gene/id/$id instead: $id is Gemma's own
+// gene id, which is what legacy /gene/showGene.html?id=N links carry
+// (the server rewrites those to #/gene/id/N). Same forward, different
+// lookup — a Gemma id can't go through the /gene/$id path, where a bare
+// number is read as an NCBI id.
 
 import { useEffect } from "react";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useUrlInitial } from "@/features/shared/useUrlInitial";
 import { useQuery } from "@tanstack/react-query";
-import { resolveGeneNcbiId } from "@/api/endpoints";
+import { resolveGeneByInternalId, resolveGeneNcbiId } from "@/api/endpoints";
 import { PageMask } from "@gemma/ui";
 
-export function GeneRedirect() {
-  const { id } = useParams({ from: "/gene/$id" });
+export function GeneRedirect({ byInternalId = false }: { byInternalId?: boolean }) {
+  const { id } = useParams({ strict: false }) as { id: string };
   const { taxon } = useUrlInitial();
   const navigate = useNavigate();
 
   const q = useQuery({
-    queryKey: ["gene-resolve", id, taxon ?? ""],
-    queryFn: ({ signal }) => resolveGeneNcbiId(id, { taxon, signal }),
+    queryKey: byInternalId
+      ? ["gene-resolve-internal", id]
+      : ["gene-resolve", id, taxon ?? ""],
+    queryFn: ({ signal }) =>
+      byInternalId
+        ? resolveGeneByInternalId(id, signal)
+        : resolveGeneNcbiId(id, { taxon, signal }),
     enabled: !!id,
   });
 
@@ -42,7 +53,9 @@ export function GeneRedirect() {
             Gene not found.
           </h1>
           <p className="text-xs text-gemma-subtle">
-            No gene matched "{id}".
+            {byInternalId
+              ? `No gene has Gemma id ${id}.`
+              : `No gene matched "${id}".`}
           </p>
         </div>
       </div>
