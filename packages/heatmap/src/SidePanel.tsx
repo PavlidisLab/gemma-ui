@@ -9,9 +9,17 @@
  *   - matrix cell  → probe/gene + sample + value sections
  *   - strip cell   → factor metadata + clicked sample's FV + statements
  */
-import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { groupStatementsBySharedSubject, OntologyTermLink } from '@gemma/ontology';
 import { continuousValueOf, parseFactorUnit } from './payload';
+import { measureSidePanelBounds, sidePanelMaxHeight } from './sidePanelHeight';
 import type {
   Factor,
   HeatmapPayload,
@@ -89,6 +97,44 @@ export function SidePanel({
     };
   }, [onClose]);
 
+  // Fit the panel to the room it has where it is rendered — see
+  // `sidePanelHeight.ts`. Measured before paint, and again whenever
+  // that room can change: a resize, a scroll, or the clipping box
+  // (usually the widget's own card) or the heatmap row changing size.
+  const [maxHeight, setMaxHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    let frame = 0;
+    let observed: HTMLElement | null = null;
+    const ro =
+      typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => schedule());
+    function measure() {
+      frame = 0;
+      if (!el) return;
+      const { bounds, clipper } = measureSidePanelBounds(el);
+      setMaxHeight(sidePanelMaxHeight(bounds));
+      if (ro && clipper !== observed) {
+        if (observed) ro.unobserve(observed);
+        if (clipper) ro.observe(clipper);
+        observed = clipper;
+      }
+    }
+    function schedule() {
+      if (!frame) frame = requestAnimationFrame(measure);
+    }
+    measure();
+    if (ro && el.parentElement?.parentElement) ro.observe(el.parentElement.parentElement);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('scroll', schedule, { capture: true, passive: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      ro?.disconnect();
+      window.removeEventListener('resize', schedule);
+      window.removeEventListener('scroll', schedule, { capture: true });
+    };
+  }, []);
+
   const fmt =
     formatValue ??
     ((v: number) =>
@@ -109,7 +155,7 @@ export function SidePanel({
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
-    maxHeight: '80vh',
+    maxHeight: maxHeight ?? '80vh',
   };
 
   return (

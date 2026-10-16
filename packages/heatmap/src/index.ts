@@ -76,4 +76,11 @@ export {
   projectedDomain,
 } from './strips/continuous';
 export { SidePanel, type SidePanelProps, type SidePanelClick } from './SidePanel';
+export {
+  sidePanelMaxHeight,
+  SIDE_PANEL_MARGIN,
+  SIDE_PANEL_MIN_H,
+  SIDE_PANEL_MAX_VH,
+  type SidePanelBounds,
+} from './sidePanelHeight';
 export { HeatmapTooltip, type HeatmapTooltipProps, type TooltipState } from './Tooltip';
