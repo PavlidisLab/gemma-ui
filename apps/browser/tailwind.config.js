@@ -22,7 +22,16 @@ export default {
   // branch. This app has no theme toggle, so nothing puts `dark` on
   // <html> and the site stays light everywhere.
   darkMode: "class",
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // The shared packages are scanned too: a class used only there is
+  // otherwise never generated. GeneExpressionPanel's `lg:flex-1
+  // lg:min-w-0` went missing that way, leaving the heatmap column
+  // content-sized — the heatmap measured its own canvas and crept
+  // wider a few px per render, for seconds on a large dataset.
+  content: [
+    "./index.html",
+    "./src/**/*.{ts,tsx}",
+    "../../packages/*/src/**/*.{ts,tsx}",
+  ],
   theme: {
     extend: {
       colors: {

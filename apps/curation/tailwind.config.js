@@ -1,6 +1,14 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+  // The shared packages are scanned too: a class used only there is
+  // otherwise never generated (GeneExpressionPanel's `lg:flex-1
+  // lg:min-w-0` was, which let its heatmap creep wider render by
+  // render — see apps/browser/tailwind.config.js).
+  content: [
+    "./index.html",
+    "./src/**/*.{ts,tsx}",
+    "../../packages/*/src/**/*.{ts,tsx}",
+  ],
   // Class-based dark mode: a `useTheme` hook toggles `dark` on the
   // <html> element. We don't auto-respond to `prefers-color-scheme`
   // at the CSS level — the hook honours it via the "system" theme
