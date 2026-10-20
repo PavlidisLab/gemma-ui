@@ -25,6 +25,7 @@ import {
   getDatasetQuantitationTypes,
   getDatasetPublications,
   getDatasetPipelineStatus,
+  getDatasetAuditEvents,
   getDatasetDiffExAnalyses,
   getDatasetResultSets,
   getTopDiffExpressedGenes,
@@ -87,6 +88,7 @@ import type {
   FactorValueBasic,
   Publication,
   PipelineStatus,
+  AuditEvent,
   DiffExAnalysis,
   DiffExNestedResultSet,
   DiffExResultSet,
@@ -104,7 +106,8 @@ type TabId =
   | "diagnostics"
   | "visualize"
   | "downloads"
-  | "quantitationtypes";
+  | "quantitationtypes"
+  | "history";
 
 // ``adminOnly`` tabs are hidden from the nav for non-admins AND their
 // content is gated in DatasetPage, so a hand-typed ``?tab=`` URL can't
@@ -118,6 +121,7 @@ const TABS: { id: TabId; label: string; adminOnly?: boolean }[] = [
   { id: "visualize",        label: "Expression"              },
   { id: "downloads",        label: "Downloads"               },
   { id: "quantitationtypes", label: "Quantitation Types", adminOnly: true },
+  { id: "history",          label: "History",            adminOnly: true },
 ];
 
 
@@ -186,6 +190,7 @@ export function DatasetPage() {
         {activeTab === "visualize"  && <VisualizeTab  dataset={dataset} isAdmin={isAdmin} />}
         {activeTab === "downloads"  && <DownloadsTab  dataset={dataset} />}
         {activeTab === "quantitationtypes" && isAdmin && <QuantitationTypesTab datasetId={dataset.id ?? Number(id)} />}
+        {activeTab === "history"    && isAdmin && <HistoryTab    datasetId={dataset.id ?? Number(id)} />}
       </div>
     </PageShell>
   );
@@ -2189,6 +2194,75 @@ function QuantitationTypesTab({ datasetId }: { datasetId: number }) {
       )}
     </SectionCard>
   );
+}
+
+// ─── History tab ──────────────────────────────────────────────────────────────
+
+/** The dataset's audit trail, newest first. The server ships it oldest
+ *  first, and the recent end is the end anyone opens this tab for. */
+function HistoryTab({ datasetId }: { datasetId: number }) {
+  const q = useQuery({
+    queryKey: ["datasetAuditEvents", datasetId],
+    queryFn: ({ signal }) => getDatasetAuditEvents(datasetId, signal),
+  });
+  const events: AuditEvent[] = useMemo(
+    () => [...(q.data ?? [])].sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || b.id - a.id),
+    [q.data],
+  );
+
+  return (
+    <SectionCard title="History"
+      subtitle={q.isLoading ? "loading…" : `${events.length} audit event${events.length === 1 ? "" : "s"}`}>
+      {q.isLoading ? <LoadingRow /> : q.isError ? <ErrorRow /> : events.length === 0 ? <Empty msg="no audit events" /> : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-slate-200">
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Date</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Performer</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-slate-600">Event type</th>
+                <th className="text-left py-1.5 font-medium text-slate-600">Comment</th>
+              </tr>
+            </thead>
+            <tbody>
+              {events.map((e) => (
+                <tr key={e.id} className="border-b border-slate-100">
+                  <td className="py-1.5 pr-4 text-slate-600 align-top whitespace-nowrap tabular-nums" title={e.date}>
+                    {formatAuditDate(e.date)}
+                  </td>
+                  <td className="py-1.5 pr-4 text-slate-800 align-top whitespace-nowrap">{e.performer || "—"}</td>
+                  <td className="py-1.5 pr-4 align-top whitespace-nowrap">
+                    {/* Plain create/update events carry no type; say which
+                        of the two it was rather than leave the cell blank. */}
+                    {e.eventTypeName
+                      ? <span className="text-slate-800">{e.eventTypeName}</span>
+                      : <span className="text-slate-400">{e.actionName ?? "—"}</span>}
+                  </td>
+                  <td className="py-1.5 text-slate-700 align-top">
+                    <div className="whitespace-pre-wrap break-words">{e.note || "—"}</div>
+                    {e.detail && (
+                      <details className="mt-0.5">
+                        <summary className="cursor-pointer text-slate-500">detail</summary>
+                        <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] text-slate-600">{e.detail}</pre>
+                      </details>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+/** `2026-09-15 02:35` in the viewer's local time. */
+function formatAuditDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function FlagChip({ label, color }: { label: string; color: "red" | "amber" | "sky" | "slate" }) {

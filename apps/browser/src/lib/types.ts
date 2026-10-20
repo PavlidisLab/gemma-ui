@@ -230,6 +230,26 @@ export interface PipelineStep {
   details?: string | null;
 }
 
+/** One row of `GET /datasets/{id}/auditEvents` — Gemma's
+ *  `AuditEventValueObject`. Ships oldest first. */
+export interface AuditEvent {
+  id: number;
+  /** Username; may be null on very old events. */
+  performer?: string | null;
+  /** ISO timestamp. */
+  date: string;
+  /** "C" (create) or "U" (update). */
+  action?: string | null;
+  /** "Create" / "Update" — spelled-out `action`. */
+  actionName?: string | null;
+  /** Simple class name of the AuditEventType, e.g.
+   *  `SampleCorrelationAnalysisEvent`. "" for plain create/update
+   *  events that carry no type. */
+  eventTypeName?: string | null;
+  note?: string | null;
+  detail?: string | null;
+}
+
 export interface PipelineStatus {
   /** NOT `experimentId`. */
   datasetId: number;

@@ -1194,6 +1194,7 @@ import type {
   BioAssay,
   Publication,
   PipelineStatus,
+  AuditEvent,
   DiffExAnalysis,
   DiffExResultSet,
   DiffExpressionResponse,
@@ -1249,6 +1250,14 @@ export async function getDatasetPipelineStatus(
 ): Promise<PipelineStatus | null> {
   const r = await apiGet<{ data?: PipelineStatus }>(`${BASE}/datasets/${id}/pipelineStatus`, { signal });
   return r.data ?? null;
+}
+
+export async function getDatasetAuditEvents(
+  id: number | string,
+  signal?: AbortSignal,
+): Promise<AuditEvent[]> {
+  const r = await apiGet<{ data?: AuditEvent[] }>(`${BASE}/datasets/${id}/auditEvents`, { signal });
+  return r.data ?? [];
 }
 
 export async function getDatasetDiffExAnalyses(
