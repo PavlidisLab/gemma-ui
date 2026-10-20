@@ -9,6 +9,7 @@ import { ExternalLink, Pencil, ChevronRight } from "lucide-react";
 import { useDocumentTitle, pageTitle } from "@gemma/ui";
 import { useMe } from "@/api/auth";
 import { VisibilityChip } from "@/components/VisibilityChip";
+import { Modal } from "@/features/shared/Modal";
 import { curationUrl } from "@/lib/appLinks";
 import {
   groupStatementsBySubject,
@@ -2205,6 +2206,7 @@ function HistoryTab({ datasetId }: { datasetId: number }) {
     queryKey: ["datasetAuditEvents", datasetId],
     queryFn: ({ signal }) => getDatasetAuditEvents(datasetId, signal),
   });
+  const [opened, setOpened] = useState<AuditEvent | null>(null);
   const events: AuditEvent[] = useMemo(
     () => [...(q.data ?? [])].sort((a, b) => Date.parse(b.date) - Date.parse(a.date) || b.id - a.id),
     [q.data],
@@ -2238,14 +2240,8 @@ function HistoryTab({ datasetId }: { datasetId: number }) {
                       ? <span className="text-slate-800">{e.eventTypeName}</span>
                       : <span className="text-slate-400">{e.actionName ?? "—"}</span>}
                   </td>
-                  <td className="py-1.5 text-slate-700 align-top">
-                    <div className="whitespace-pre-wrap break-words">{e.note || "—"}</div>
-                    {e.detail && (
-                      <details className="mt-0.5">
-                        <summary className="cursor-pointer text-slate-500">detail</summary>
-                        <pre className="mt-1 whitespace-pre-wrap break-words text-[11px] text-slate-600">{e.detail}</pre>
-                      </details>
-                    )}
+                  <td className="py-1.5 text-slate-700 align-top break-words">
+                    <AuditComment event={e} onOpen={() => setOpened(e)} />
                   </td>
                 </tr>
               ))}
@@ -2253,7 +2249,44 @@ function HistoryTab({ datasetId }: { datasetId: number }) {
           </table>
         </div>
       )}
+      <Modal open={opened !== null} onClose={() => setOpened(null)}
+        title={opened ? `${opened.eventTypeName || opened.actionName || "Event"} · ${formatAuditDate(opened.date)}` : ""}>
+        {opened && (
+          <div className="space-y-4 text-sm text-slate-700">
+            <div className="text-xs text-slate-500">by {opened.performer || "—"}</div>
+            <div className="whitespace-pre-wrap break-words">{opened.note || "—"}</div>
+            {opened.detail && (
+              <div>
+                <div className="text-xs font-medium text-slate-600 mb-1">Detail</div>
+                <pre className="whitespace-pre-wrap break-words text-xs text-slate-600 bg-slate-50 rounded p-3">{opened.detail}</pre>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
     </SectionCard>
+  );
+}
+
+/** Longest comment the History table shows inline. Past it — or when
+ *  the event carries a `detail` the cell never shows — the comment
+ *  opens whole in a modal instead. */
+const AUDIT_COMMENT_MAX = 160;
+
+/** A comment cell: one line of at most {@link AUDIT_COMMENT_MAX}
+ *  characters, whitespace collapsed so a multi-line note can't stretch
+ *  its row. The modal keeps the original line breaks. */
+function AuditComment({ event, onOpen }: { event: AuditEvent; onOpen: () => void }) {
+  const note = (event.note ?? "").replace(/\s+/g, " ").trim();
+  const truncated = note.length > AUDIT_COMMENT_MAX;
+  const shown = truncated ? note.slice(0, AUDIT_COMMENT_MAX).trimEnd() + "…" : note || "—";
+  if (!truncated && !event.detail) return <>{shown}</>;
+  return (
+    <button type="button" onClick={onOpen} title="show the whole comment"
+      className="text-left text-slate-700 hover:text-sky-700 cursor-pointer bg-transparent border-none p-0">
+      {shown}
+      {event.detail && <span className="ml-1.5 text-[10px] text-sky-700 underline">+ detail</span>}
+    </button>
   );
 }
 

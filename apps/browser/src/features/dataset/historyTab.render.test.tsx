@@ -6,7 +6,7 @@
  * `?tab=history` must not fetch the trail for them either.
  */
 import { describe, expect, it, afterEach } from "vitest";
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 
 import { renderRoute } from "../../../test/renderRoute";
 import {
@@ -44,6 +44,11 @@ const EVENTS = [
     action: "U", actionName: "Update", eventTypeName: "SampleCorrelationAnalysisEvent",
     note: "Sample correlation has been computed.", detail: "a long stack trace",
   },
+  {
+    id: 3, performer: "curator", date: "2026-10-01T10:00:00.000+00:00",
+    action: "U", actionName: "Update", eventTypeName: "CommentedEvent",
+    note: "x".repeat(150) + " END-OF-LONG-NOTE", detail: null,
+  },
 ];
 
 let stub: GemmaFetchStub | null = null;
@@ -75,12 +80,32 @@ describe("dataset History tab", () => {
     const rows = screen.getAllByRole("row");
     expect(within(rows[0]).getAllByRole("columnheader").map((h) => h.textContent))
       .toEqual(["Date", "Performer", "Event type", "Comment"]);
-    expect(rows[1]).toHaveTextContent("gemmaAgent");
-    expect(rows[1]).toHaveTextContent("Sample correlation has been computed.");
+    expect(rows[1]).toHaveTextContent("curator");
+    expect(rows[2]).toHaveTextContent("gemmaAgent");
+    expect(rows[2]).toHaveTextContent("Sample correlation has been computed.");
     // An untyped event says which action it was rather than leave a blank.
-    expect(rows[2]).toHaveTextContent("administrator");
-    expect(rows[2]).toHaveTextContent("Create");
-    expect(screen.getByText("a long stack trace")).toBeInTheDocument();
+    expect(rows[3]).toHaveTextContent("administrator");
+    expect(rows[3]).toHaveTextContent("Create");
+    // Detail stays out of the table until asked for.
+    expect(screen.queryByText("a long stack trace")).toBeNull();
+  });
+
+  it("cuts a long comment short and opens it whole in a modal", async () => {
+    mount("/dataset/1658?tab=history", ADMIN);
+    await screen.findByText("CommentedEvent");
+    expect(screen.queryByText(/END-OF-LONG-NOTE/)).toBeNull();
+
+    fireEvent.click(screen.getByText(/^x+ END-OF-LO…$/));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/END-OF-LONG-NOTE/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("opens a short comment's detail in the modal", async () => {
+    mount("/dataset/1658?tab=history", ADMIN);
+    fireEvent.click(await screen.findByText("+ detail"));
+    expect(within(screen.getByRole("dialog")).getByText("a long stack trace")).toBeInTheDocument();
   });
 
   it("is hidden from non-admins, and a typed URL does not fetch the trail", async () => {
