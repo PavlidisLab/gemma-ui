@@ -15,7 +15,9 @@ import { useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { navigate, workflowRoute } from "@/routes";
-import { useTicket, usePatchTicketTarget } from "@/api/tickets";
+import { targetDisposition, useTicket, usePatchTicketTarget } from "@/api/tickets";
+import { snakeify } from "@/api/client";
+import { resolveGemmaMode } from "@/lib/gemmaMode";
 import type { TicketTargetTriageDisposition } from "@/api/tickets";
 import { DispositionPicker } from "@/components/ui/DispositionPicker";
 import {
@@ -97,6 +99,39 @@ interface IdentifyingMetadata {
   sample_details?: string;
   scrapedAt?: string;
   scraped_at?: string;
+}
+
+/** The candidate, from whichever service holds it.
+ *
+ *  🛑 Remote mode: Gemma has no dataset named ``preboarding:N`` — ``/datasets/
+ *  preboarding%3AN`` answers an EMPTY LIST, not an error, so the page rendered a
+ *  record with no fields (Amanda, 2026-10-29: "the preboarding page is completely
+ *  blank"). The candidate is Gemma's ``/preboarded/{id}`` (accession + the
+ *  identifying-metadata JSON string, camelCase inside — normalised here once, as
+ *  TriageView does). The store's ``/datasets/preboarding:N`` is unchanged. */
+async function fetchPreboardingRow(experimentId: string | number): Promise<PreboardingRow> {
+  const rowId = preboardingRowId(experimentId);
+  if (resolveGemmaMode().mode === "remote" && rowId != null) {
+    const p = await api.get<{ accession?: string; source?: string; identifying_metadata?: string | null }>(
+      `/rest/v2/preboarded/${rowId}`,
+    );
+    let im: IdentifyingMetadata | null = null;
+    try {
+      im = p.identifying_metadata ? (snakeify(JSON.parse(p.identifying_metadata)) as IdentifyingMetadata) : null;
+    } catch {
+      im = null;
+    }
+    return {
+      id: experimentId,
+      short_name: p.accession,
+      accession: p.accession,
+      name: im?.title,
+      external_database: p.source,
+      number_of_bio_assays: im?.num_samples ?? im?.numSamples,
+      identifying_metadata: im,
+    };
+  }
+  return api.get<PreboardingRow>(`/rest/v2/datasets/${encodeURIComponent(String(experimentId))}`);
 }
 
 function pickIm(
@@ -197,7 +232,7 @@ function usePreboardingDecision(
     siblings,
     go,
     prompt: parsePayload(ticket ? ticketPayload(ticket) : undefined).decision?.prompt,
-    disposition: target?.triage_disposition ?? null,
+    disposition: targetDisposition(target),
     saving: patch.isPending,
     error: patch.error as Error | null,
     set: (next: TicketTargetTriageDisposition) => {
@@ -247,11 +282,8 @@ export function PreboardingDetailPage({
   // also keeps React Query from firing a duplicate request when
   // ``preloaded`` is provided.
   const { data: fetched, isLoading, error } = useQuery({
-    queryKey: ["preboarding-detail", String(experimentId)],
-    queryFn: () =>
-      api.get<PreboardingRow>(
-        `/rest/v2/datasets/${encodeURIComponent(String(experimentId))}`,
-      ),
+    queryKey: ["preboarding-detail", String(experimentId), resolveGemmaMode().mode],
+    queryFn: () => fetchPreboardingRow(experimentId),
     enabled: !!experimentId && !preloaded,
   });
 

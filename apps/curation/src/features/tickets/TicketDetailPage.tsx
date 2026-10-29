@@ -17,6 +17,7 @@ import { navigate } from "@/routes";
 import {
   canCloseTicket,
   closeBlockedReason,
+  targetDisposition,
   useCreateTicket,
   usePatchTicket,
   useRunTicketAction,
@@ -202,7 +203,13 @@ function TicketDetailBody({
           ) : null}
           <ModeToggle ticketId={ticketId} mode={ticket.mode} />
         </div>
-        {isTriage ? <BatchRunnerPanel ticketId={ticketId} who={who} /> : null}
+        {isTriage ? (
+          <BatchRunnerPanel
+            ticketId={ticketId}
+            who={who}
+            included={ticket.targets.filter((t) => targetDisposition(t) === "include").length}
+          />
+        ) : null}
         {isTriage ? null : (
           <NextActionBar
             ticketId={ticketId}

@@ -30,7 +30,14 @@ function when(iso?: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-export function BatchRunnerPanel({ ticketId, who }: { ticketId: number; who: string }) {
+export function BatchRunnerPanel({ ticketId, who, included }: {
+  ticketId: number;
+  who: string;
+  /** Targets marked Include. Only those move on: the runner reads the ticket's INCLUDE
+   *  targets (Amanda, 2026-10-29: "all the subsequent steps only happen after we've
+   *  decided to include an experiment"). */
+  included: number;
+}) {
   const state = useBatchState(ticketId);
   const post = usePostBatchRequest(ticketId);
   const [agentRuns, setAgentRuns] = useState(0);
@@ -61,7 +68,7 @@ export function BatchRunnerPanel({ ticketId, who }: { ticketId: number; who: str
                 title="Dry run: shows what the next run would do for each experiment. Writes nothing.">
           {waiting("preview") ? "Preview requested…" : "Preview next steps"}
         </button>
-        <button type="button" className="btn primary text-xs" disabled={post.isPending || waiting("run")}
+        <button type="button" className="btn primary text-xs" disabled={post.isPending || waiting("run") || included === 0}
                 onClick={() => ask("run")}
                 title="Advance every experiment one step, under the executor's locks and guards.">
           {waiting("run") ? "Run requested…" : latest?.next_label || "Run next steps"}
@@ -92,6 +99,11 @@ export function BatchRunnerPanel({ ticketId, who }: { ticketId: number; who: str
         )}
       </div>
 
+      <div className="text-xs text-slate-600 dark:text-slate-300">
+        {included === 0
+          ? "Nothing is marked Include yet. These controls advance only the experiments you include; decide in the table below first."
+          : `These controls advance the ${included} experiment${included === 1 ? "" : "s"} marked Include; the rest wait for your decision.`}
+      </div>
       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 flex-wrap">
         <span>
           {latest

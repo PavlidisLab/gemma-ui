@@ -32,6 +32,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { api, snakeify } from "@/api/client";
 import {
+  targetDisposition,
   useCreateTicket,
   useFinalizeTriage,
   usePatchTicketTarget,
@@ -150,7 +151,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   const counts = useMemo(() => {
     let inc = 0, exc = 0, uns = 0, und = 0;
     for (const t of triageTargets) {
-      const d = t.triage_disposition ?? null;
+      const d = targetDisposition(t);
       if (d === "include") inc++;
       else if (d === "exclude") exc++;
       // `unsure` is REVIEWED-and-unresolved and must not fall into
@@ -172,7 +173,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   const q = search.trim().toLowerCase();
   const filtered = triageTargets.filter((t) => {
     // disposition tab
-    const d = t.triage_disposition ?? null;
+    const d = targetDisposition(t);
     if (filter === "undecided" && d !== null) return false;
     if (filter === "include" && d !== "include") return false;
     if (filter === "exclude" && d !== "exclude") return false;
@@ -252,7 +253,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     const neverReviewed = [];
     const unsure = [];
     for (const t of triageTargets) {
-      const d = t.triage_disposition ?? null;
+      const d = targetDisposition(t);
       const row = {
         targetId: t.target_id,
         label: metaOf(t)?.accession || String(t.target_id),
@@ -875,7 +876,7 @@ function TriageRow({
       : `${organisms[0]} +${organisms.length - 1}`;
   const typeLabel = ident ? deriveTypeLabel(ident) : "—";
   const matched = meta?.matched_criteria ?? ident?.matched_criteria ?? [];
-  const disposition = target.triage_disposition ?? null;
+  const disposition = targetDisposition(target);
 
   const apply = (
     next: TicketTargetTriageDisposition,
@@ -904,8 +905,8 @@ function TriageRow({
   };
 
   const detailHref =
-    meta?.preboarding_id != null
-      ? `#/experiments/preboarding:${meta.preboarding_id}?ticket=${ticketId}`
+    (meta?.preboarding_id ?? (target.target_type === "PREBOARDED_EXPERIMENT" ? target.target_id : null)) != null
+      ? `#/experiments/preboarding:${meta?.preboarding_id ?? target.target_id}?ticket=${ticketId}`
       : null;
 
   // The whole row opens the candidate. The accession link below is the
@@ -1045,7 +1046,9 @@ function TriageRow({
       </td>
       {pipeline ? (
         <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">
-          {pipeline(accession).map((x) => (
+          {/* Only an INCLUDED experiment moves on (Amanda, 2026-10-29: "all the
+              subsequent steps only happen after we've decided to include"). */}
+          {disposition !== "include" ? <span className="text-slate-400">—</span> : pipeline(accession).map((x) => (
             <div key={`${x.accession}-${x.eid}`} title={x.detail || undefined}>
               {pipeline(accession).length > 1 ? <span className="font-mono">{x.accession} </span> : null}
               {x.stage === "done" ? "done" : x.action.replace(/_/g, " ")}
@@ -1204,7 +1207,7 @@ function CandidateCard({
   const studyTitle = (
     meta?.identifying_metadata as { title?: string } | null | undefined
   )?.title;
-  const disposition = target.triage_disposition ?? null;
+  const disposition = targetDisposition(target);
 
   const apply = (
     next: TicketTargetTriageDisposition,

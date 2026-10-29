@@ -240,7 +240,11 @@ export type TicketTargetType =
   | "ARRAY_DESIGN"
   | "FACTOR_VALUE"
   | "GEO_SCRAPE_WATERMARK"
-  | "GEO_ACCESSION";
+  | "GEO_ACCESSION"
+  /** Gemma's screening-ticket targets (ticket #49): the target id IS the
+   *  preboarded row's id. */
+  | "PREBOARDED_EXPERIMENT"
+  | "BIBLIOGRAPHIC_REFERENCE";
 
 export type TicketTargetStatus = "NOT_DONE" | "UNDERWAY" | "DONE";
 
@@ -319,6 +323,35 @@ export interface TicketTarget {
    *  the BULK read: a leftover pile is a class-level signal, and
    *  behind a per-target fetch nobody would wire it. */
   triage_disposition_reason?: string | null;
+  /** Gemma's spelling of the same decision (snake-cased by the client). Gemma
+   *  tickets carry THIS and never ``triage_disposition`` — read both through
+   *  ``targetDisposition``. */
+  screening_result?: "INCLUDE" | "REJECT" | "UNDECIDED" | null;
+  screening_result_reason?: string | null;
+}
+
+/** The curator's decision on a screening target, from either store.
+ *
+ *  🛑 Remote mode wrote decisions to Gemma (`gemmaScreeningResult` on the way out)
+ *  but read only `triage_disposition` on the way back, which Gemma tickets do not
+ *  carry — so every decision read back as undecided (Amanda, 2026-10-29: "it doesnt
+ *  look like the include/exclude/unsure decision are persisting"; ticket #49's log
+ *  had the SCREENING_RESULT_CHANGED events all along). */
+export function targetDisposition(
+  t: Pick<TicketTarget, "triage_disposition" | "screening_result"> | null | undefined,
+): TicketTargetTriageDisposition {
+  if (!t) return null;
+  if (t.triage_disposition !== undefined && t.triage_disposition !== null) return t.triage_disposition;
+  switch (t.screening_result) {
+    case "INCLUDE":
+      return "include";
+    case "REJECT":
+      return "exclude";
+    case "UNDECIDED":
+      return "unsure";
+    default:
+      return null;
+  }
 }
 
 export type TicketMode = "MANUAL" | "AUTO";
