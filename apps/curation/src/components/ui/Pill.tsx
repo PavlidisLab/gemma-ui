@@ -8,8 +8,10 @@ import type { ReactNode } from "react";
  *  ``opacity-70`` plus a "(Gemma)" suffix, which on a factor where two
  *  levels both carry control terms made unmarking one look like it did
  *  nothing but resort the rows. */
-type PillVariant = "high" | "medium" | "baseline" | "baseline-auto";
+type PillVariant = "high" | "medium" | "baseline" | "baseline-auto" | "neutral";
 
+/** ``neutral`` is a plain count / label with no judgement attached (batch automation's
+ *  "next: add geo data · 10" tallies). */
 export function Pill({
   variant,
   children,

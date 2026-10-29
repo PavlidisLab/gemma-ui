@@ -111,6 +111,7 @@
     "ontology-resolved" elsewhere.
    */
   .pill.baseline { @apply bg-sky-100 text-sky-800; }
+  .pill.neutral  { @apply bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200; }
   /*
     Hollow twin of ``.pill.baseline``: same sky hue (the palette is the
     subject — "baseline" — not the source), no fill. Filled = the FV

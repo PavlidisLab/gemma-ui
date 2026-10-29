@@ -44,6 +44,7 @@ import type {
   TriageFinalizeResponse,
 } from "@/api/tickets";
 import { DispositionPicker } from "@/components/ui/DispositionPicker";
+import { useBatchState, type SnapshotExperiment } from "@/api/batchRunner";
 import {
   followUpTicketBody,
   nextStageFor,
@@ -74,6 +75,19 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
   const [facets, setFacets] = useState<Record<string, string>>({});
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // Where each experiment is in the workflow, from the batch runner's latest reply on
+  // this ticket (remote mode; `@/api/batchRunner`). Keyed by GSE base accession, so a
+  // series split by platform shows its parts together.
+  const batch = useBatchState(ticket.id);
+  const pipelineByAccession = useMemo(() => {
+    const m = new Map<string, SnapshotExperiment[]>();
+    for (const x of batch.data?.latest?.experiments ?? []) {
+      const k = x.accession.split(".")[0];
+      m.set(k, [...(m.get(k) ?? []), x]);
+    }
+    return m;
+  }, [batch.data]);
+  const showPipeline = pipelineByAccession.size > 0;
   const [closeOpen, setCloseOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [finalized, setFinalized] = useState<TriageFinalizeResponse | null>(
@@ -580,6 +594,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
                 <th className="px-3 py-2 font-medium">Samples</th>
                 <th className="px-3 py-2 font-medium">PMIDs</th>
                 <th className="px-3 py-2 font-medium">Decision</th>
+                {showPipeline ? <th className="px-3 py-2 font-medium">Pipeline</th> : null}
                 <th className="px-2 py-2 w-6" />
               </tr>
             </thead>
@@ -594,6 +609,7 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
                   rejectLabel={rejectLabel}
                   selected={selected.has(t.target_id)}
                   onToggleSelect={() => toggleSelect(t.target_id)}
+                  pipeline={showPipeline ? (pipelineOf: string) => pipelineByAccession.get(pipelineOf.split(".")[0]) ?? [] : undefined}
                 />
               ))}
             </tbody>
@@ -734,6 +750,7 @@ function TriageRow({
   rejectLabel,
   selected,
   onToggleSelect,
+  pipeline,
 }: {
   ticketId: number;
   target: TicketTarget;
@@ -745,6 +762,8 @@ function TriageRow({
   rejectLabel: string;
   selected: boolean;
   onToggleSelect: () => void;
+  /** Looks up this row's workflow position by accession; absent = no column. */
+  pipeline?: (accession: string) => SnapshotExperiment[];
 }) {
   const patch = usePatchTicketTarget(ticketId);
 
@@ -1024,6 +1043,19 @@ function TriageRow({
           </div>
         ) : null}
       </td>
+      {pipeline ? (
+        <td className="px-3 py-2 whitespace-nowrap text-slate-700 dark:text-slate-300">
+          {pipeline(accession).map((x) => (
+            <div key={`${x.accession}-${x.eid}`} title={x.detail || undefined}>
+              {pipeline(accession).length > 1 ? <span className="font-mono">{x.accession} </span> : null}
+              {x.stage === "done" ? "done" : x.action.replace(/_/g, " ")}
+              <span className="text-slate-500">
+                {x.decision === "human" ? " · a person" : x.decision === "waiting" ? " · waiting" : ""}
+              </span>
+            </div>
+          ))}
+        </td>
+      ) : null}
       {/* Trailing chevron — says "this row goes somewhere" without
           making the curator hunt for a link to prove it. */}
       <td className="px-2 py-2 align-middle text-right">

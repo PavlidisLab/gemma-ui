@@ -32,6 +32,7 @@ import type { BadgeTone } from "@/features/workflow/PipelineStatusRow";
 import { TriageView } from "@/features/triage/TriageView";
 import { useMe } from "@/api/session";
 import { useToast } from "@/components/ui/Toast";
+import { BatchRunnerPanel } from "./BatchRunnerPanel";
 import {
   dirtyExperimentTargets,
   exportTicketAsGzip,
@@ -83,7 +84,7 @@ export function TicketDetailPage({
             Ticket {ticketId} not found.
           </div>
         ) : (
-          <TicketDetailBody ticket={ticket} ticketId={ticketId} />
+          <TicketDetailBody ticket={ticket} ticketId={ticketId} who={reviewer} />
         )}
       </main>
     </div>
@@ -105,9 +106,12 @@ const TASK_BADGE: Record<string, { label: string; tone: BadgeTone }> = {
 function TicketDetailBody({
   ticket,
   ticketId,
+  who,
 }: {
   ticket: Ticket;
   ticketId: number;
+  /** Shown in batch-request comments; the runner acts as the logged-in Gemma user. */
+  who: string;
 }) {
   const n = ticket.targets.length;
   const nDone = ticket.targets.filter((t) => t.status === "DONE").length;
@@ -198,6 +202,7 @@ function TicketDetailBody({
           ) : null}
           <ModeToggle ticketId={ticketId} mode={ticket.mode} />
         </div>
+        {isTriage ? <BatchRunnerPanel ticketId={ticketId} who={who} /> : null}
         {isTriage ? null : (
           <NextActionBar
             ticketId={ticketId}
