@@ -124,7 +124,10 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
       ) : null}
       {pending.length ? (
         <div className="text-xs text-amber-700 dark:text-amber-400">
-          Waiting for the runner (it checks every few minutes): {pending.map((p) => `${p.action} by ${p.who}`).join(", ")}.
+          {post.data?.kicked === false
+            ? "Waiting for the runner (the agents' service did not answer, so its next scheduled pass picks this up within 3 minutes): "
+            : "Running: "}
+          {pending.map((p) => `${p.action} by ${p.who}`).join(", ")}…
         </div>
       ) : null}
       {latest?.error ? (

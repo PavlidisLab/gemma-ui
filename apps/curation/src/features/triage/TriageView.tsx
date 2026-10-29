@@ -88,7 +88,11 @@ export function TriageView({ ticket }: { ticket: Ticket }) {
     }
     return m;
   }, [batch.data]);
-  const showPipeline = pipelineByAccession.size > 0;
+  // Only on the Include view: nothing moves until an experiment is included, and the
+  // column next to undecided / excluded rows read as if they were in the pipeline too
+  // (Amanda, 2026-10-29: "fully remove the status column for the to review and exclude
+  // pages").
+  const showPipeline = filter === "include" && pipelineByAccession.size > 0;
   const [closeOpen, setCloseOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [finalized, setFinalized] = useState<TriageFinalizeResponse | null>(

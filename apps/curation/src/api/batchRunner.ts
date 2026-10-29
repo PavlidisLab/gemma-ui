@@ -168,7 +168,7 @@ export function useBatchState(ticketId: number, enabled = true) {
     queryKey: ["ticket", ticketId, "batch-runner"],
     queryFn: async () => batchState(asEvents(await api.get<unknown>(`/rest/v2/tickets/${ticketId}/events`))),
     enabled: enabled && batchControlsAvailable(),
-    refetchInterval: (q) => ((q.state.data?.pending.length ?? 0) > 0 ? 15000 : 60000),
+    refetchInterval: (q) => ((q.state.data?.pending.length ?? 0) > 0 ? 5000 : 60000),
   });
 }
 
@@ -180,9 +180,19 @@ export function usePostBatchRequest(ticketId: number) {
       if (!batchControlsAvailable()) {
         throw new Error("Batch controls act on Gemma's tickets; this session is reading the curation store.");
       }
-      return await api.patch<unknown>(`/rest/v2/tickets/${ticketId}`, {
+      await api.patch<unknown>(`/rest/v2/tickets/${ticketId}`, {
         comment: renderRequest(r.action, r.who, r.agentRuns ?? 0, r.intervalHours ?? 6),
       });
+      // Run it now (Amanda, 2026-10-29: "it's annoying to wait"). The comment above is
+      // the record; this only starts the runner on frink. If the agents' service is
+      // unreachable the cron pass answers within minutes, so a failure here is not an
+      // error the curator has to act on.
+      try {
+        await api.post<unknown>(`/batch-runner/${ticketId}/kick`, {});
+        return { kicked: true };
+      } catch {
+        return { kicked: false };
+      }
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["ticket", ticketId, "batch-runner"] }),
   });
