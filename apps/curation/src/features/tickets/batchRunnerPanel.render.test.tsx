@@ -15,7 +15,8 @@ import type { BatchState } from "@/api/batchRunner";
 const state: { current: BatchState } = { current: { latest: null, pending: [], auto: { on: false, interval_hours: 6, agent_runs: 0 } } };
 const mutate = vi.fn();
 
-vi.mock("@/api/batchRunner", () => ({
+vi.mock("@/api/batchRunner", async (orig) => ({
+  nextRunBreakdown: (await orig<typeof import("@/api/batchRunner")>()).nextRunBreakdown,
   batchControlsAvailable: () => true,
   useBatchState: () => ({ data: state.current, isLoading: false }),
   usePostBatchRequest: () => ({ mutate, isPending: false, isError: false, data: { kicked: true } }),
@@ -73,5 +74,6 @@ describe("BatchRunnerPanel", () => {
     renderPanel();
     expect(screen.getByRole("button", { name: "Land in Gemma" })).toBeTruthy();
     expect(screen.getByText(/advance the 16 experiments marked Include/)).toBeTruthy();
+    expect(screen.getByText(/1 land in Gemma/)).toBeTruthy();
   });
 });

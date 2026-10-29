@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   batchControlsAvailable,
+  nextRunBreakdown,
   useBatchState,
   usePostBatchRequest,
   type BatchAction,
@@ -122,6 +123,13 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
         )}
       </div>
 
+      {latest && nextRunBreakdown(latest) ? (
+        <div className="text-xs text-slate-700 dark:text-slate-200">
+          <span className="font-medium">{latest.kind === "preview" ? "Next run would:" : "Next run:"}</span>{" "}
+          {nextRunBreakdown(latest)}
+          <span className="text-slate-500"> — one step for each included experiment.</span>
+        </div>
+      ) : null}
       <div className="text-xs text-slate-600 dark:text-slate-300">
         {included === 0
           ? "Nothing is marked Include yet. These controls advance only the experiments you include; decide in the table below first."

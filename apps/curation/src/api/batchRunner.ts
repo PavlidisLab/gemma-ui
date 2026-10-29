@@ -152,6 +152,34 @@ export function batchState(events: TicketEvent[]): BatchState {
   return { latest, pending, auto };
 }
 
+/** Step names, as the agents' `ticket_channel.NEXT_LABELS` spells them (the button
+ *  label comes from there; these name the steps in the breakdown beside it). */
+export const STEP_LABELS: Record<string, string> = {
+  add_geo_data: "Land in Gemma", split_on_landing: "Land in Gemma",
+  run_rnaseq_pipeline: "Run RNA-seq pipeline", load_sc_data: "Load single-cell data",
+  run_curation_agent: "Run proposer", load_cta: "Load cell types",
+  run_sc_annotation: "Run cell-type annotation", aggregate: "Aggregate single-cell data",
+  reprocess: "Reprocess for the design", fill_batch_info: "Fetch batch information",
+  remove_outliers: "Remove outliers", plan_dea: "Run DEA", run_dea: "Run DEA",
+  split_after_curation: "Split experiments",
+};
+
+/** What the next run would do automatically: "22 land in Gemma · 2 run RNA-seq
+ *  pipeline". Amanda, 2026-10-29: "I don't understand what the land in gemma button
+ *  is supposed to do" — it was named after the most common step while the same click
+ *  also launched pipelines. */
+export function nextRunBreakdown(s: BatchSnapshot | null): string {
+  if (!s) return "";
+  const n = new Map<string, number>();
+  for (const x of s.experiments) {
+    if (x.decision !== "run") continue;
+    const label = STEP_LABELS[x.action] ?? x.action.replace(/_/g, " ");
+    n.set(label, (n.get(label) ?? 0) + 1);
+  }
+  return [...n.entries()].sort((a, b) => b[1] - a[1])
+    .map(([label, k]) => `${k} ${label.charAt(0).toLowerCase()}${label.slice(1)}`).join(" · ");
+}
+
 function asEvents(raw: unknown): TicketEvent[] {
   if (Array.isArray(raw)) return raw as TicketEvent[];
   const d = (raw as { data?: unknown } | null)?.data;

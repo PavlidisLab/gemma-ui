@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import ticket49 from "./__fixtures__/batchRunnerEvents.ticket49.json";
-import { batchState, commentText, renderRequest, type TicketEvent } from "./batchRunner";
+import { batchState, commentText, nextRunBreakdown, renderRequest, type TicketEvent } from "./batchRunner";
 import { snakeify } from "./client";
 
 // The two real events from Gemma ticket #49 (2026-10-29): amaximo's preview request
@@ -53,5 +53,11 @@ describe("batch runner channel", () => {
     const s = batchState([comment(1, "gemmaAgent", renderRequest("run", "x")), comment(2, "amaximo", "please run")]);
     expect(s.pending).toEqual([]);
     expect(s.latest).toBeNull();
+  });
+
+  it("breaks the next run down by step", () => {
+    const s = batchState(real).latest!;
+    expect(nextRunBreakdown(s)).toMatch(/^\d+ land in Gemma · 2 run RNA-seq pipeline$/);
+    expect(nextRunBreakdown(null)).toBe("");
   });
 });
