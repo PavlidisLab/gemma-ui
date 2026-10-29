@@ -16,7 +16,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   batchControlsAvailable,
   nextRunBreakdown,
+  STEP_LABELS,
   useBatchState,
+  useRunnerStatus,
   usePostBatchRequest,
   type BatchAction,
 } from "@/api/batchRunner";
@@ -77,6 +79,11 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
   const pending = s?.pending ?? [];
   const auto = s?.auto ?? { on: false, interval_hours: 6, agent_runs: 0 };
   const waiting = (a: BatchAction) => pending.some((p) => p.action === a);
+  // Amanda, 2026-10-29: "while it's running we can make that button unclickable".
+  // Busy = a request the runner has not answered yet, or the runner reporting a run.
+  const status = useRunnerStatus(ticketId, pending.length > 0);
+  const busy = post.isPending || pending.length > 0 || Boolean(status.data?.running);
+  const step = status.data?.step;
   const send = (action: BatchAction) => {
     if (action === "preview" || action === "run") answeredAfter.current = latestId ?? 0;
     post.mutate({ action, who, agentRuns, intervalHours: hours });
@@ -87,12 +94,12 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
   return (
     <div className="pt-2 space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
-        <button type="button" className="btn text-xs" disabled={post.isPending || waiting("preview")}
+        <button type="button" className="btn text-xs" disabled={busy}
                 onClick={() => ask("preview")}
                 title="Dry run: shows what the next run would do for each experiment. Writes nothing.">
           {waiting("preview") ? "Preview requested…" : "Preview next steps"}
         </button>
-        <button type="button" className="btn primary text-xs" disabled={post.isPending || waiting("run") || included === 0}
+        <button type="button" className="btn primary text-xs" disabled={busy || included === 0}
                 onClick={() => ask("run")}
                 title="Advance every experiment one step, under the executor's locks and guards.">
           {waiting("run") ? "Run requested…" : latest?.next_label || "Run next steps"}
@@ -111,7 +118,7 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
           </button>
         ) : (
           <>
-            <button type="button" className="btn text-xs" disabled={post.isPending} onClick={() => ask("auto_on")}
+            <button type="button" className="btn text-xs" disabled={busy} onClick={() => ask("auto_on")}
                     title="Keep running the next steps on a schedule until stopped.">
               Auto-continue
             </button>
@@ -157,8 +164,10 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
         <div className="text-xs text-amber-700 dark:text-amber-400">
           {post.data?.kicked === false
             ? "Waiting for the runner (the agents' service did not answer, so its next scheduled pass picks this up within 3 minutes): "
-            : "Running: "}
-          {pending.map((p) => `${p.action} by ${p.who}`).join(", ")}…
+            : `${pending.some((p) => p.action === "run") ? "Running" : "Previewing"}`}
+          {step && status.data?.running
+            ? `: step ${step.i} of ${step.n} — ${step.accession}, ${(STEP_LABELS[step.action] ?? step.action.replace(/_/g, " ")).toLowerCase()}. The buttons come back when it finishes.`
+            : `: ${pending.map((p) => `${p.action} by ${p.who}`).join(", ")}…`}
         </div>
       ) : null}
       {latest?.error ? (

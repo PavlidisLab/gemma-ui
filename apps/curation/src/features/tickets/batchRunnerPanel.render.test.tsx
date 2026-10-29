@@ -15,8 +15,12 @@ import type { BatchState } from "@/api/batchRunner";
 const state: { current: BatchState } = { current: { latest: null, pending: [], auto: { on: false, interval_hours: 6, agent_runs: 0 } } };
 const mutate = vi.fn();
 
+const runner: { current: unknown } = { current: null };
+
 vi.mock("@/api/batchRunner", async (orig) => ({
   nextRunBreakdown: (await orig<typeof import("@/api/batchRunner")>()).nextRunBreakdown,
+  STEP_LABELS: (await orig<typeof import("@/api/batchRunner")>()).STEP_LABELS,
+  useRunnerStatus: () => ({ data: runner.current }),
   batchControlsAvailable: () => true,
   useBatchState: () => ({ data: state.current, isLoading: false }),
   usePostBatchRequest: () => ({ mutate, isPending: false, isError: false, data: { kicked: true } }),
@@ -48,6 +52,7 @@ function renderPanel(show = vi.fn()) {
 describe("BatchRunnerPanel", () => {
   beforeEach(() => {
     mutate.mockReset();
+    runner.current = null;
     state.current = reply(1384);
   });
 
@@ -75,5 +80,16 @@ describe("BatchRunnerPanel", () => {
     expect(screen.getByRole("button", { name: "Land in Gemma" })).toBeTruthy();
     expect(screen.getByText(/advance the 16 experiments marked Include/)).toBeTruthy();
     expect(screen.getByText(/1 land in Gemma/)).toBeTruthy();
+  });
+
+  it("locks every button while a run is going, and says which step it is on", () => {
+    state.current = { ...reply(1384), pending: [{ id: 1390, action: "run", who: "amaximo" }] };
+    runner.current = { running: true, mode: "apply", finished: false,
+                       step: { i: 3, n: 25, accession: "GSE335985", decision: "run", action: "add_geo_data" } };
+    renderPanel();
+    for (const name of ["Preview next steps", "Run requested…", "Auto-continue"]) {
+      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect(screen.getByText(/step 3 of 25 — GSE335985, land in gemma/)).toBeTruthy();
   });
 });

@@ -200,6 +200,31 @@ export function useBatchState(ticketId: number, enabled = true) {
   });
 }
 
+export interface RunnerStatus {
+  running: boolean;
+  mode: string;
+  finished: boolean;
+  step: { i: number; n: number; accession: string; decision: string; action: string } | null;
+}
+
+/** Where the runner is, from the agents' service (`GET /batch-runner/{ticket}/status`),
+ *  polled while a request is pending. A missing service reads as "unknown", never as
+ *  an error the curator must act on. */
+export function useRunnerStatus(ticketId: number, enabled: boolean) {
+  return useQuery<RunnerStatus | null>({
+    queryKey: ["batch-runner-status", ticketId],
+    queryFn: async () => {
+      try {
+        return await api.get<RunnerStatus>(`/batch-runner/${ticketId}/status`);
+      } catch {
+        return null;
+      }
+    },
+    enabled: enabled && batchControlsAvailable(),
+    refetchInterval: enabled ? 5000 : false,
+  });
+}
+
 /** Post a request comment on the Gemma ticket. */
 export function usePostBatchRequest(ticketId: number) {
   const qc = useQueryClient();
