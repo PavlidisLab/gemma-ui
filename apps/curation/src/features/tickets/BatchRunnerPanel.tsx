@@ -12,7 +12,7 @@
  *  than a table here. Checked TicketDetailPage's NextActionBar first: it drives the
  *  curation store's `/actions` route, which Gemma tickets cannot use (`assertStoreTickets`),
  *  and has no allowance / preview / auto controls — a different contract, so a sibling. */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   batchControlsAvailable,
   useBatchState,
@@ -21,6 +21,7 @@ import {
 } from "@/api/batchRunner";
 import { ConfirmModal } from "@/components/ui/ConfirmModal";
 import { Pill } from "@/components/ui/Pill";
+import { useToast } from "@/components/ui/Toast";
 
 const COST_PER_AGENT_RUN = "≈ $0.66–0.90";
 
@@ -43,6 +44,25 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
   const [agentRuns, setAgentRuns] = useState(0);
   const [hours, setHours] = useState(6);
   const [confirm, setConfirm] = useState<BatchAction | null>(null);
+  const [open, setOpen] = useState(false);
+  const toast = useToast();
+  // The event id of the newest reply when the curator last clicked: a newer reply is
+  // the answer to that click, so the report opens by itself (Amanda, 2026-10-29:
+  // "Nothing happens when I click preview" — it had run; nothing showed what it found).
+  const answeredAfter = useRef<number | null>(null);
+  const latestId = state.data?.latest?.event_id ?? null;
+  useEffect(() => {
+    if (answeredAfter.current === null || latestId === null || latestId <= answeredAfter.current) return;
+    answeredAfter.current = null;
+    setOpen(true);
+    const l = state.data?.latest;
+    toast.show(
+      l?.error
+        ? `The ${l.kind} did not finish: ${l.error}`
+        : `${l?.kind === "preview" ? "Preview" : "Run"} ready: next step "${l?.next_label}".`,
+      l?.error ? "danger" : "success",
+    );
+  }, [latestId, state.data, toast]);
 
   if (!batchControlsAvailable()) {
     return (
@@ -56,7 +76,10 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
   const pending = s?.pending ?? [];
   const auto = s?.auto ?? { on: false, interval_hours: 6, agent_runs: 0 };
   const waiting = (a: BatchAction) => pending.some((p) => p.action === a);
-  const send = (action: BatchAction) => post.mutate({ action, who, agentRuns, intervalHours: hours });
+  const send = (action: BatchAction) => {
+    if (action === "preview" || action === "run") answeredAfter.current = latestId ?? 0;
+    post.mutate({ action, who, agentRuns, intervalHours: hours });
+  };
   const ask = (action: BatchAction) =>
     (action === "run" || action === "auto_on") && agentRuns > 0 ? setConfirm(action) : send(action);
 
@@ -134,6 +157,43 @@ export function BatchRunnerPanel({ ticketId, who, included }: {
         <div className="text-xs text-rose-700 dark:text-rose-400">The last run did not finish: {latest.error}</div>
       ) : null}
       {post.isError ? <div className="text-xs text-rose-700">request failed: {(post.error as Error).message}</div> : null}
+
+      {latest ? (
+        <div className="text-xs">
+          <button type="button" className="underline text-slate-600 dark:text-slate-300"
+                  onClick={() => setOpen((x) => !x)}>
+            {open ? "Hide" : "Show"} what the last {latest.kind === "preview" ? "preview found" : "run did"}
+          </button>
+          {open ? (
+            <div className="mt-1 grid gap-3 sm:grid-cols-2 max-w-4xl">
+              {[
+                { title: latest.kind === "preview" ? "Would run automatically" : "Ran / runs automatically",
+                  rows: latest.experiments.filter((x) => x.decision === "run") },
+                { title: "Waiting on a person or a running step",
+                  rows: latest.experiments.filter((x) => x.decision === "human" || x.decision === "waiting") },
+              ].map((g) => (
+                <div key={g.title}>
+                  <div className="font-semibold text-slate-700 dark:text-slate-200">{g.title} ({g.rows.length})</div>
+                  {g.rows.length === 0 ? <div className="text-slate-400">none</div> : (
+                    <ul className="mt-0.5 space-y-0.5">
+                      {g.rows.map((x, i) => (
+                        <li key={`${x.accession}-${x.eid}-${i}`} title={x.detail || undefined}>
+                          <span className="font-mono">{x.accession}</span>{" "}
+                          {x.action.replace(/_/g, " ")}
+                          {x.outcome && x.outcome !== "dry_run" ? ` — ${x.outcome}` : ""}
+                          {x.decision !== "run" && x.detail ? (
+                            <span className="text-slate-500"> — {x.detail.slice(0, 120)}</span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <ConfirmModal
         open={confirm !== null}
