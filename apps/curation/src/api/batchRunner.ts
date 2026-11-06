@@ -161,7 +161,7 @@ export const STEP_LABELS: Record<string, string> = {
   run_sc_annotation: "Run cell-type annotation", aggregate: "Aggregate single-cell data",
   reprocess: "Reprocess for the design", fill_batch_info: "Fetch batch information",
   remove_outliers: "Remove outliers", plan_dea: "Run DEA", run_dea: "Run DEA",
-  split_after_curation: "Split experiments",
+  split_after_curation: "Split experiments", apply_proposal: "Apply confident designs",
 };
 
 /** What the next run would do automatically: "22 land in Gemma · 2 run RNA-seq
