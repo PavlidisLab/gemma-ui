@@ -83,4 +83,5 @@ export {
   SIDE_PANEL_MAX_VH,
   type SidePanelBounds,
 } from './sidePanelHeight';
+export { sparklineGeometry, type SparklineGeometry } from './sparkline';
 export { HeatmapTooltip, type HeatmapTooltipProps, type TooltipState } from './Tooltip';

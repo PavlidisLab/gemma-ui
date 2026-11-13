@@ -20,6 +20,7 @@ import {
 import { groupStatementsBySharedSubject, OntologyTermLink } from '@gemma/ontology';
 import { continuousValueOf, parseFactorUnit } from './payload';
 import { measureSidePanelBounds, sidePanelMaxHeight } from './sidePanelHeight';
+import { sparklineGeometry } from './sparkline';
 import type {
   Factor,
   HeatmapPayload,
@@ -523,32 +524,17 @@ function Sparkline({
   width?: number;
   height?: number;
 }) {
-  const finite = values
-    .map((v, i) => ({ v, i }))
-    .filter((d): d is { v: number; i: number } => d.v != null && Number.isFinite(d.v));
-  if (finite.length < 2) {
+  const geom = sparklineGeometry(values, width, height);
+  if (!geom) {
     return (
       <div style={{ color: SUBTLE, fontStyle: 'italic', fontSize: 11 }}>
         not enough values to plot
       </div>
     );
   }
-  let lo = Infinity;
-  let hi = -Infinity;
-  for (const d of finite) {
-    if (d.v < lo) lo = d.v;
-    if (d.v > hi) hi = d.v;
-  }
-  const range = hi - lo || 1;
-  const xs = values.length;
-  const sx = (i: number) => (i / Math.max(1, xs - 1)) * width;
-  const sy = (v: number) => height - ((v - lo) / range) * height;
-  // Polyline through finite values.
-  const points: Array<[number, number]> = finite.map((d) => [sx(d.i), sy(d.v)]);
-  const path = points
-    .map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`)
-    .join(' ');
+  const { d, dots, sx, sy } = geom;
   const hv = values[highlightIndex];
+  const hasValue = hv != null && Number.isFinite(hv);
   const hx = sx(highlightIndex);
   return (
     <svg
@@ -556,7 +542,12 @@ function Sparkline({
       height={height}
       style={{ display: 'block', overflow: 'visible' }}
     >
-      <path d={path} fill="none" stroke={SUBTLE} strokeWidth={1} />
+      <path d={d} fill="none" stroke={SUBTLE} strokeWidth={1} />
+      {dots.map(([x, y], i) => (
+        <circle key={i} cx={x} cy={y} r={1} fill={SUBTLE} />
+      ))}
+      {/* Dashed when the clicked sample is NA: it marks the column, not
+          a value on the line. */}
       <line
         x1={hx}
         x2={hx}
@@ -564,8 +555,9 @@ function Sparkline({
         y2={height}
         stroke={ACCENT_3}
         strokeWidth={1}
+        strokeDasharray={hasValue ? undefined : '2 2'}
       />
-      {hv != null && Number.isFinite(hv) ? (
+      {hasValue ? (
         <circle cx={hx} cy={sy(hv)} r={2.5} fill={ACCENT_3} />
       ) : null}
     </svg>
