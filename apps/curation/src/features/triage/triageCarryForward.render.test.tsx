@@ -21,7 +21,9 @@ import { TriageView } from "./TriageView";
 const createTicket = vi.hoisted(() => vi.fn());
 const finalize = vi.hoisted(() => vi.fn());
 
-vi.mock("@/api/tickets", () => ({
+vi.mock("@/api/tickets", async (orig) => ({
+  // `targetDisposition` stays real: the table reads every decision through it.
+  targetDisposition: (await orig<typeof import("@/api/tickets")>()).targetDisposition,
   useFinalizeTriage: () => ({
     mutateAsync: finalize,
     isPending: false,

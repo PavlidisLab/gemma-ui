@@ -28,7 +28,9 @@ vi.mock("@/routes", async (orig) => ({
 const ticket = vi.hoisted(() => ({ current: null as Ticket | null }));
 const mutate = vi.hoisted(() => vi.fn());
 
-vi.mock("@/api/tickets", () => ({
+vi.mock("@/api/tickets", async (orig) => ({
+  // `targetDisposition` stays real: it is the read the page is being tested on.
+  targetDisposition: (await orig<typeof import("@/api/tickets")>()).targetDisposition,
   useTicket: () => ({ data: ticket.current }),
   usePatchTicketTarget: () => ({ mutate, isPending: false, error: null }),
 }));

@@ -455,6 +455,15 @@ export default defineConfig(({ mode }) => {
           target: PROPOSER_URL,
           changeOrigin: true,
         },
+        // Batch automation "run now": after a batch button posts its request comment
+        // on the Gemma ticket, the UI asks the agents' service to run the ticket runner
+        // for that ticket at once instead of waiting for its cron pass
+        // (`@/api/batchRunner`). Its own prefix, for the reason the `/curation-*`
+        // relays below give.
+        "/batch-runner": {
+          target: PROPOSER_URL,
+          changeOrigin: true,
+        },
         // Curation draft + lock relays. The agent is Gemma's
         // curation-write client (Paul, 2026-08-25: the curation UI is a
         // read-only client of Gemma and the agent does the writes), so

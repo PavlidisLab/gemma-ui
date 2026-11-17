@@ -24,7 +24,9 @@ vi.mock("@/routes", async (orig) => ({
   navigate,
 }));
 
-vi.mock("@/api/tickets", () => ({
+vi.mock("@/api/tickets", async (orig) => ({
+  // `targetDisposition` stays real: the table reads every decision through it.
+  targetDisposition: (await orig<typeof import("@/api/tickets")>()).targetDisposition,
   useFinalizeTriage: () => ({ mutateAsync: vi.fn(), isPending: false, isError: false }),
   usePatchTicketTarget: () => ({ mutate: vi.fn(), isPending: false, isError: false }),
   // Used by the close flow to carry `unsure` rows into a follow-up

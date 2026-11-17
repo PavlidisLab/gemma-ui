@@ -152,7 +152,11 @@ export function findTargetForPreboarding(
       return t;
     }
   }
-  return null;
+  // Gemma tickets have no payload candidates: their target IS the preboarded row
+  // (ticket #49: targetType PREBOARDED_EXPERIMENT, targetId = the preboarded id).
+  return (ticket.targets ?? []).find(
+    (t) => t.target_type === "PREBOARDED_EXPERIMENT" && t.target_id === preboardingId,
+  ) ?? null;
 }
 
 /**
@@ -179,7 +183,8 @@ export function preboardingSiblings(
   const parsed = parsePayload(ticketPayload(ticket));
   const ids: number[] = [];
   for (const t of ticket.targets ?? []) {
-    const id = parsed.candidates[String(t.target_id)]?.preboarding_id;
+    const id = parsed.candidates[String(t.target_id)]?.preboarding_id
+      ?? (t.target_type === "PREBOARDED_EXPERIMENT" ? t.target_id : undefined);
     if (id != null) ids.push(id);
   }
   if (ids.length === 0) return empty;
