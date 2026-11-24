@@ -34,13 +34,34 @@ export function SampleCorrelationCard({ datasetId }: { datasetId: number }) {
     staleTime: 10 * 60_000,
   });
 
-  const built = useMemo(
-    () => buildSampleCorrelationHeatmapData(data ?? null),
-    [data],
-  );
+  // Curator-flagged outliers are blanked on both axes (the matrix is
+  // symmetric, so one axis alone would leave the sample's correlations
+  // showing) and tinted, so the grey reads as "flagged" rather than
+  // "missing". Gemma 1.0 greyed these out. Predicted-only outliers are
+  // not blanked; the footer still names them.
+  const masked = useMemo(() => {
+    if (!data) return null;
+    const flagged = new Set(data.actualOutlierBioAssayIds ?? []);
+    const out = data.bioAssayIds.map((id) => flagged.has(id));
+    if (!out.some(Boolean)) return { input: data, out };
+    return {
+      input: {
+        ...data,
+        values: data.values.map((row, i) =>
+          row.map((v, j) => (out[i] || out[j] ? NaN : v)),
+        ),
+      },
+      out,
+    };
+  }, [data]);
+  const built = useMemo(() => {
+    const h = buildSampleCorrelationHeatmapData(masked?.input ?? null);
+    if (!h || !masked || !masked.out.some(Boolean)) return h;
+    return { ...h, markRows: masked.out };
+  }, [masked]);
   const seqDomain = useMemo(
-    () => computeSampleCorrelationDomain(data?.values),
-    [data],
+    () => computeSampleCorrelationDomain(masked?.input.values),
+    [masked],
   );
   // The box the canvas must fit in: the measured body, less the
   // widget's own vertical content padding.
