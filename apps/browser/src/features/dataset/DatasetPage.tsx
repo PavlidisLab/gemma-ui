@@ -63,7 +63,6 @@ import {
 } from "@/lib/overviewAnnotations";
 import { AnnotationStatementChip } from "@/components/AnnotationStatementChip";
 import { tintForIndex, compareValuesNatural, compareSortColumn } from "@/lib/valueTint";
-import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { datasetSource } from "@/lib/externalSource";
 import {
   assayKindLabel,
@@ -326,9 +325,6 @@ function Banner({
     ? libraryProfileTitle(library)
     : null;
   const geeq = dataset.geeq;
-  const gemma1Url = useGemma1Url(
-    `/expressionExperiment/showExpressionExperiment.html?id=${dataset.id}`,
-  );
   const me = useMe();
   const curateHref = me.data ? curationUrl(`/#/experiments/${dataset.id}`) : null;
 
@@ -422,12 +418,6 @@ function Banner({
                 {source.database}: {source.label}
               </span>
             ) : null}
-            {gemma1Url && (
-              <a href={gemma1Url} target="_blank" rel="noopener noreferrer"
-                className="text-sky-700 hover:underline inline-flex items-center gap-1">
-                {GEMMA_1_LABEL}<ExternalLink size={11} />
-              </a>
-            )}
             {curateHref && (
               <a href={curateHref} target="_blank" rel="noopener noreferrer"
                 className="text-sky-700 hover:underline inline-flex items-center gap-1"
@@ -3863,9 +3853,6 @@ function buildDeHeatmapPayload(
 
 function DownloadsTab({ dataset }: { dataset: Dataset }) {
   const id = dataset.id;
-  const gemma1Full = useGemma1Url(
-    `/expressionExperiment/showExpressionExperiment.html?id=${id}`,
-  );
   // Result-set list — populates the per-contrast DE download rows.
   // We hit `/datasets/{id}/analyses/differential/resultSets` which 302s
   // to `/resultSets?datasets={id}`; fetch follows the redirect.
@@ -3950,24 +3937,6 @@ function DownloadsTab({ dataset }: { dataset: Dataset }) {
           </ul>
         )}
       </SectionCard>
-
-      {gemma1Full && (
-        <SectionCard title="Other" subtitle="External resources">
-          <ul className="text-sm space-y-1.5 text-sky-700">
-            <li>
-              <a
-                className="hover:underline inline-flex items-center gap-1"
-                href={gemma1Full}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {GEMMA_1_LABEL} page (full details)
-                <ExternalLink size={11} />
-              </a>
-            </li>
-          </ul>
-        </SectionCard>
-      )}
     </div>
   );
 }

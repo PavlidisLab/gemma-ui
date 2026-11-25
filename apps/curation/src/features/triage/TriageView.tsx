@@ -53,6 +53,7 @@ import {
 import { TriageCloseDialog } from "./TriageCloseDialog";
 import { navigate } from "@/routes";
 import { useEscapeKey } from "@gemma/ui";
+import { experimentPageUrl } from "@/lib/gemmaUrls";
 import {
   decisionLabels,
   parsePayload,
@@ -1282,7 +1283,7 @@ function CandidateCard({
             View study
           </button>
           <a
-            href={`https://gemma.msl.ubc.ca/expressionExperiment/showExpressionExperiment.html?shortName=${accession}`}
+            href={experimentPageUrl(accession)}
             target="_blank"
             rel="noreferrer"
             className="text-[11px] text-blue-700 dark:text-blue-300 hover:underline"
@@ -1409,7 +1410,7 @@ function StudyPreview({
       >
         <div className="flex items-center justify-between mb-3">
           <a
-            href={`https://gemma.msl.ubc.ca/expressionExperiment/showExpressionExperiment.html?shortName=${accession}`}
+            href={experimentPageUrl(accession)}
             target="_blank"
             rel="noreferrer"
             className="font-mono font-semibold text-blue-700 dark:text-blue-300 hover:underline"

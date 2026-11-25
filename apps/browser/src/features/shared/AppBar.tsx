@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useMe, useLogout } from "@/api/auth";
-import { GEMMA_1_LABEL, useGemma1Url } from "./gemma1";
 import { curationUrl } from "@/lib/appLinks";
 import { VisibilityChip } from "@/components/VisibilityChip";
 import { AboutModal } from "@/features/about/AboutModal";
@@ -23,10 +22,6 @@ export function AppBar() {
   const onBrowser = useRouterState({
     select: (s) => s.location.pathname.startsWith("/browser"),
   });
-  const gemma1Browse = useGemma1Url(
-    "/expressionExperiment/showAllExpressionExperiments.html",
-  );
-
   // Tapping an entry navigates but leaves the panel covering the page it
   // just opened, so the menu closes on any change of location rather than
   // per-entry — an ``onClick`` on each would miss the browser's own Back.
@@ -75,9 +70,6 @@ export function AppBar() {
 
       <div className="hidden lg:flex items-center gap-3">
         <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
-        {gemma1Browse ? (
-          <ExtAnchor href={gemma1Browse}>{GEMMA_1_LABEL}</ExtAnchor>
-        ) : null}
         <ExtAnchor href="https://pavlidislab.github.io/Gemma/">
           Docs
         </ExtAnchor>
@@ -123,9 +115,6 @@ export function AppBar() {
           <PrimaryNav user={user} isAdmin={isAdmin} />
           <div className="h-px w-full bg-gemma-grid my-2" />
           <NavButton onClick={() => setAboutOpen(true)}>About</NavButton>
-          {gemma1Browse ? (
-            <ExtAnchor href={gemma1Browse}>{GEMMA_1_LABEL}</ExtAnchor>
-          ) : null}
           <ExtAnchor href="https://pavlidislab.github.io/Gemma/">
             Docs
           </ExtAnchor>

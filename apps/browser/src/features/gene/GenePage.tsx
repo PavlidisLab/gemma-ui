@@ -28,7 +28,6 @@ import {
   formatMultifunctionalityRank,
 } from "@/api/endpoints";
 import type { Gene, GeneLocation } from "@/api/endpoints";
-import { GEMMA_1_LABEL, useGemma1Url } from "@/features/shared/gemma1";
 import { PageMask, pageTitle, useDocumentTitle } from "@gemma/ui";
 
 export function GenePage() {
@@ -98,7 +97,6 @@ function Breadcrumbs({ gene }: { gene: Gene }) {
 }
 
 function GeneHero({ gene }: { gene: Gene }) {
-  const gemma1 = useGemma1Url(`/gene/showGene.html?id=${gene.id}`);
   const taxon = gene.taxon?.commonName ?? gene.taxon?.scientificName ?? "—";
   return (
     <header className="bg-white border border-gemma-grid rounded-md p-5">
@@ -145,7 +143,6 @@ function GeneHero({ gene }: { gene: Gene }) {
             label={`Ensembl: ${gene.ensemblId}`}
           />
         ) : null}
-        {gemma1 ? <ExternalLink href={gemma1} label={GEMMA_1_LABEL} /> : null}
       </div>
     </header>
   );
