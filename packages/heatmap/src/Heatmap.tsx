@@ -85,6 +85,10 @@ export interface HeatmapProps {
    *  a larger value when using ``data.rowLabelColumns`` for
    *  multi-column labels. */
   rowLabelGutterWidth?: number;
+  /** Ask a shrink-to-fit host (a `width: max-content` pop-out) for the
+   *  width the matrix needs with cells at `cell.maxWidth`, so it opens
+   *  at that size. Narrower hosts still squeeze. */
+  reserveNaturalWidth?: boolean;
 
   // — back-compat shims for v1 callers —
   /** v1 alias: hover on matrix cell only. Prefer `onPointerOver`. */
@@ -122,6 +126,7 @@ export function Heatmap({
   rowLabelTitle,
   rowLabelGutterWidth,
   renderRowLabelGene,
+  reserveNaturalWidth,
 }: HeatmapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -280,7 +285,18 @@ export function Heatmap({
     !!data.colLabels && resolved.showColLabels !== false;
   // Annotation strip names need to be wider than the strip itself can be; they
   // hang off to the right alongside row labels (using the same gutter).
-  const matrixAvailableW = Math.max(0, containerW - rowLabelGutter);
+  // The canvas adds the marker gutter and the group gaps to the cells,
+  // so both come out of the width the cells are sized from. Drawing
+  // wider than the container widens a shrink-to-fit host, which is then
+  // measured again, and the matrix creeps outward.
+  const markGut = markGutterFor(data);
+  const allColGaps = (data.colGapsBefore ?? [])
+    .slice(1)
+    .reduce((s, g) => s + (g ?? 0), 0);
+  const matrixAvailableW = Math.max(
+    0,
+    containerW - rowLabelGutter - markGut - allColGaps,
+  );
 
   // First-pass layout to discover cellW so we can decide whether col labels
   // actually fit. We don't subtract the col-label gutter from availableH yet
@@ -358,7 +374,6 @@ export function Heatmap({
   }, [layout.columns, data.colGapsBefore]);
   // + the marker gutter, or the canvas overflows this grid column and
   // shoves the row labels across the plot.
-  const markGut = markGutterFor(data);
   const matrixRenderW = layout.matrixW + totalColGap + markGut;
 
   const renderResultRef = useRef<ReturnType<typeof renderMatrix> | null>(null);
@@ -429,6 +444,19 @@ export function Heatmap({
 
   return (
     <div ref={containerRef} className={className} style={{ width: '100%' }}>
+      {reserveNaturalWidth && !resolved.square ? (
+        <div
+          aria-hidden
+          style={{
+            width:
+              (data.values[0]?.length ?? 0) * resolved.cell.maxWidth +
+              allColGaps +
+              markGut +
+              rowLabelGutter,
+            maxWidth: '100%',
+          }}
+        />
+      ) : null}
       <div
         style={{
           display: 'grid',

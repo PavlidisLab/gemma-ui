@@ -3573,6 +3573,8 @@ function ResultSetHeatmap({
         defaultMaxWidth={14}
         defaultMaxHeight={18}
         rowLabelGutterWidth={370}
+        // Opens in a `max-content` pop-out.
+        reserveNaturalWidth
         downloadFilenameStem={downloadStem}
         rowLabelTooltip={(i) => {
           const r = rowInfo(i);

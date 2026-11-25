@@ -164,6 +164,8 @@ export interface HeatmapWidgetProps {
    *  220) when ``data.rowLabelColumns`` is used so the auto-sized
    *  grid columns have room. */
   rowLabelGutterWidth?: number;
+  /** See `HeatmapProps.reserveNaturalWidth`. */
+  reserveNaturalWidth?: boolean;
   /** Initial main-grouping factor id (payload path only). Overrides
    *  the widget's auto-pick so a caller can force a specific factor
    *  (e.g. a DE result set groups by its contrast factor). The user
@@ -347,6 +349,7 @@ export function HeatmapWidget({
   dimRows,
   markRows,
   rowLabelGutterWidth,
+  reserveNaturalWidth,
   defaultMainGroupingFactorId,
   showGroupGaps = true,
   onMainGroupingFactorChange,
@@ -1035,6 +1038,7 @@ export function HeatmapWidget({
                   : undefined
               }
               rowLabelGutterWidth={rowLabelGutterWidth}
+              reserveNaturalWidth={reserveNaturalWidth}
               onStripGutterClick={
                 payload
                   ? (i) => {
