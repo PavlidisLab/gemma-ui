@@ -34,7 +34,7 @@ import {
   datasetDataDownloadUrl,
   downloadResultSetTsv,
 } from "@/api/endpoints";
-import { HeatmapWidget } from "@gemma/heatmap";
+import { buildGeneRowLabel, HeatmapWidget } from "@gemma/heatmap";
 import type {
   HeatmapData,
   HeatmapPayload,
@@ -43,6 +43,7 @@ import type {
   Factor,
 } from "@gemma/heatmap";
 import { ProbeRowTooltip, rowLabelGeneLink } from "./ProbeRowTooltip";
+import { buildDeProbeRows, type DeProbeRow } from "./deProbeRows";
 import { VisualizeTab } from "./VisualizeTab";
 import { ContinuousFactorCard } from "./ContinuousFactorCard";
 import { useDataset } from "./useDataset";
@@ -93,7 +94,6 @@ import type {
   DiffExAnalysis,
   DiffExNestedResultSet,
   DiffExResultSet,
-  DiffExpressionResponse,
   GeeqScores,
   PvalueDistribution,
 } from "@/lib/types";
@@ -3405,19 +3405,14 @@ function ResultSetHeatmap({
     staleTime: 5 * 60_000,
   });
 
-  // Order genes by FDR (corrected p-value) ascending — most-significant
-  // first. The endpoint does NOT return them in this order, so we sort
-  // once here and drive the heatmap builders AND the row-label tooltip
-  // (rowInfo, below) off this single ordered list — keeping tooltip row
-  // i aligned with heatmap row i.
-  const orderedData = useMemo<DiffExpressionResponse | null>(() => {
-    if (!q.data) return null;
-    const levels = [...(q.data.geneExpressionLevels ?? [])].sort(
-      (a, b) =>
-        (a.correctedPvalue ?? Infinity) - (b.correctedPvalue ?? Infinity),
-    );
-    return { ...q.data, geneExpressionLevels: levels };
-  }, [q.data]);
+  // One FDR-ordered list, genes sharing a probe merged, drives both
+  // heatmap builders AND the row-label tooltip (rowInfo, below), keeping
+  // tooltip row i aligned with heatmap row i.
+  const probeRows = useMemo<DeProbeRow[] | null>(
+    () =>
+      q.data ? buildDeProbeRows(q.data.geneExpressionLevels ?? []) : null,
+    [q.data],
+  );
 
   // The DE payload names each probe but carries no element id, which
   // is what the probe page is addressed by — resolve them all at once.
@@ -3441,14 +3436,19 @@ function ResultSetHeatmap({
   });
 
   const payload = useMemo<HeatmapPayload | null>(() => {
-    if (!orderedData || !samplesQ.data || !designQ.data) return null;
-    return buildDeHeatmapPayload(orderedData, samplesQ.data, designQ.data, datasetId);
-  }, [orderedData, samplesQ.data, designQ.data, datasetId]);
+    if (!probeRows || !samplesQ.data || !designQ.data) return null;
+    return buildDeHeatmapPayload(
+      probeRows,
+      samplesQ.data,
+      designQ.data,
+      q.data?.datasetId ?? datasetId,
+    );
+  }, [probeRows, q.data, samplesQ.data, designQ.data, datasetId]);
 
   const data = useMemo<HeatmapData | null>(() => {
-    if (!orderedData) return null;
-    return buildDeHeatmap(orderedData);
-  }, [orderedData]);
+    if (!probeRows) return null;
+    return buildDeHeatmap(probeRows);
+  }, [probeRows]);
 
   if (q.isLoading) {
     return (
@@ -3499,9 +3499,18 @@ function ResultSetHeatmap({
       </div>
     );
   }
-  const caption = subsetSamplesLabel
-    ? `Top ${data.values.length} genes by p-value · samples constrained to ${subsetSamplesLabel}`
-    : `Top ${data.values.length} genes by p-value`;
+  const geneCount = q.data?.geneExpressionLevels?.length ?? 0;
+  const caption = [
+    `Top ${geneCount} genes by p-value`,
+    geneCount > data.values.length
+      ? `${data.values.length} rows (genes sharing a probe share a row)`
+      : null,
+    subsetSamplesLabel
+      ? `samples constrained to ${subsetSamplesLabel}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   // Filename stem used by the widget's download buttons. Falls back
   // to the result-set id when we don't have a subset label.
   const downloadStem = [
@@ -3515,19 +3524,14 @@ function ResultSetHeatmap({
   // (now-retired) side table. Reads from the FDR-ordered list so it
   // stays in sync with row order in the heatmap.
   const rowInfo = (i: number) => {
-    const lvl = orderedData?.geneExpressionLevels?.[i];
+    const lvl = probeRows?.[i];
     if (!lvl) return null;
     const vec = lvl.vectors?.[0];
     return {
-      symbol: lvl.geneOfficialSymbol ?? null,
-      officialName: lvl.geneOfficialName ?? null,
+      genes: lvl.genes,
       fdr: lvl.correctedPvalue ?? null,
       pvalue: lvl.pvalue ?? null,
       log2FoldChange: lvl.log2FoldChange ?? null,
-      // Ids, not hrefs: both links are in-app routes now rather than
-      // absolute URLs into the legacy JSP UI.
-      geneNcbiId: lvl.geneNcbiId ?? null,
-      geneId: lvl.geneId ?? null,
       probeName: vec?.designElementName ?? null,
       designElementId:
         vec?.designElementId ??
@@ -3579,18 +3583,7 @@ function ResultSetHeatmap({
             <ProbeRowTooltip
               designElementName={r.probeName}
               designElementId={r.designElementId}
-              genes={
-                r.geneId != null || r.symbol
-                  ? [
-                      {
-                        id: r.geneId ?? -1,
-                        officialSymbol: r.symbol,
-                        name: r.officialName,
-                        ncbiId: r.geneNcbiId,
-                      },
-                    ]
-                  : []
-              }
+              genes={r.genes}
               platformShortName={platformShortName}
             >
               {r.fdr != null || r.pvalue != null || r.log2FoldChange != null ? (
@@ -3621,7 +3614,12 @@ function ResultSetHeatmap({
         renderRowLabelGene={(i, sym) => {
           const r = rowInfo(i);
           return rowLabelGeneLink(
-            r ? { geneSymbols: [r.symbol ?? ""], geneNcbiIds: [r.geneNcbiId] } : undefined,
+            r
+              ? {
+                  geneSymbols: r.genes.map((g) => g.officialSymbol ?? ""),
+                  geneNcbiIds: r.genes.map((g) => g.ncbiId ?? null),
+                }
+              : undefined,
             sym,
           );
         }}
@@ -3630,18 +3628,11 @@ function ResultSetHeatmap({
   );
 }
 
-/** Flatten the differential-expression API response into a
- *  ``HeatmapData`` the existing widget can render directly. One row
- *  per gene (one vector per gene assumed — the endpoint surfaces the
- *  representative probe), columns in the order the API returns them
+/** Flatten the differential-expression rows into a ``HeatmapData``
+ *  the existing widget can render directly. One row per entry of
+ *  ``buildDeProbeRows`` (drawn from its first vector), columns in the order the API returns them
  *  (which is FV-grouped in practice). */
-function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
-  // Order genes by FDR ascending (see buildDeHeatmapPayload) so the
-  // annotation-free fallback matches the primary path's row order.
-  const levels = [...(response.geneExpressionLevels ?? [])].sort(
-    (a, b) =>
-      (a.correctedPvalue ?? Infinity) - (b.correctedPvalue ?? Infinity),
-  );
+function buildDeHeatmap(levels: DeProbeRow[]): HeatmapData {
   if (levels.length === 0) return { values: [] };
   const anyPvalue = levels.some(
     (l) => l.pvalue != null && Number.isFinite(l.pvalue),
@@ -3665,8 +3656,7 @@ function buildDeHeatmap(response: DiffExpressionResponse): HeatmapData {
   const rowLabelColumns: string[][] = [];
   const values: (number | null)[][] = [];
   for (const lvl of levels) {
-    const sym = lvl.geneOfficialSymbol || String(lvl.geneNcbiId ?? "?");
-    const name = lvl.geneOfficialName ?? "";
+    const { labelSymbol: sym, labelName: name } = buildGeneRowLabel(lvl.genes);
     rowLabels.push([sym, name].filter(Boolean).join(" · "));
     rowLabelColumns.push(
       anyPvalue ? [formatPvalueLabel(lvl.pvalue), sym, name] : [sym, name],
@@ -3706,7 +3696,7 @@ function formatPvalueLabel(p: number | null | undefined): string {
  *  AND the same sample ordering — as the Expression tab.
  *
  *  Three inputs, three roles:
- *   - ``response`` (DE vectors): the expression values, keyed by
+ *   - ``levels`` (DE rows): the expression values, keyed by
  *     bioAssay name. Carries no factor / ordering info.
  *   - ``samples`` (``/datasets/{id}/samples``): maps bioAssay name →
  *     its factor-value assignments (``columns.factorValueIds``), and
@@ -3726,19 +3716,11 @@ function formatPvalueLabel(p: number | null | undefined): string {
  *  no design — the caller then falls back to the annotation-free
  *  ``buildDeHeatmap`` path. */
 function buildDeHeatmapPayload(
-  response: DiffExpressionResponse,
+  levels: DeProbeRow[],
   samples: BioAssay[],
   design: ExperimentalDesign,
   datasetId: number,
 ): HeatmapPayload | null {
-  // Order genes by FDR (corrected p-value) ascending — most-significant
-  // first. Missing values sort last. The endpoint already returns them
-  // in this order, but sorting here makes the row order deterministic
-  // regardless of wire order.
-  const levels = [...(response.geneExpressionLevels ?? [])].sort(
-    (a, b) =>
-      (a.correctedPvalue ?? Infinity) - (b.correctedPvalue ?? Infinity),
-  );
   if (levels.length === 0) return null;
 
   // Names present in this DE response = the columns we can render.
@@ -3830,16 +3812,16 @@ function buildDeHeatmapPayload(
   const rows: HeatmapPayloadRow[] = [];
   const values: (number | null)[][] = [];
   for (const lvl of levels) {
-    const sym = lvl.geneOfficialSymbol || String(lvl.geneNcbiId ?? "?");
     const vec0 = lvl.vectors?.[0];
     const vec = vec0?.bioAssayExpressionLevels ?? {};
     rows.push({
       designElementId: vec0?.designElementId ?? -1,
       designElementName: vec0?.designElementName ?? "",
-      geneIds: lvl.geneId != null ? [lvl.geneId] : [],
-      geneNcbiIds: [lvl.geneNcbiId ?? null],
-      geneSymbols: [sym],
-      geneNames: [lvl.geneOfficialName ?? ""],
+      geneIds: lvl.genes.map((g) => g.id),
+      geneNcbiIds: lvl.genes.map((g) => g.ncbiId ?? null),
+      geneSymbols: lvl.genes.map((g) => g.officialSymbol ?? ""),
+      geneNames: lvl.genes.map((g) => g.name ?? ""),
+      ...buildGeneRowLabel(lvl.genes),
       // Raw p-value drives the leading gutter column (and the
       // cell-detail panel). Rows are still ordered by FDR (see above).
       pvalue: lvl.pvalue ?? undefined,
@@ -3855,7 +3837,7 @@ function buildDeHeatmapPayload(
   }
 
   return {
-    datasetId: response.datasetId ?? datasetId,
+    datasetId,
     matrix: {
       values,
       rows: values.length,

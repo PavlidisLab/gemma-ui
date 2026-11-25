@@ -1458,6 +1458,9 @@ export async function getTopDiffExpressedGenes(
 ): Promise<DiffExpressionResponse | null> {
   const params: Record<string, string> = {
     diffExSet: String(diffExSetId),
+    // The default drops the vectors of genes measured only by a
+    // multi-gene probe, which draws them as empty rows.
+    keepNonSpecific: "true",
   };
   if (opts.threshold != null) params.threshold = String(opts.threshold);
   if (opts.limit != null) params.limit = String(opts.limit);
